@@ -1,0 +1,149 @@
+{
+  "status": "VALIDATED",
+  "file_info": {
+    "file_path": "C:\\Users\\hugop\\Documents\\RSSI_PRBS\\data\\dummy\\00_input\\Dummy RSSI.xlsx",
+    "sha256": "abbe9973cbd95d0d9a248e12c6fb04eaf736bbc515d7f83764e33cd303270e4d",
+    "all_workbook_sheets": [
+      "Sheet1",
+      "Sheet2",
+      "Sheet3"
+    ],
+    "selected_sheet": "Sheet1",
+    "unused_sheets": [
+      "Sheet2",
+      "Sheet3"
+    ],
+    "scope_note": "Only Sheet1 is used as the dataset for the dummy RSSI pipeline. Other sheets are out of scope."
+  },
+  "dataset_validation": {
+    "sheet_name": "Sheet1",
+    "total_rows": 500,
+    "total_columns": 8,
+    "column_names": [
+      "Alice",
+      "Bob",
+      "Eve1-Alice",
+      "Eve1-Bob",
+      "Unnamed: 4",
+      "korelasi A-B",
+      "Korelasi A-E1",
+      "Korelasi B-E1"
+    ],
+    "dtypes": {
+      "Alice": "int64",
+      "Bob": "int64",
+      "Eve1-Alice": "int64",
+      "Eve1-Bob": "int64",
+      "Unnamed: 4": "float64",
+      "korelasi A-B": "float64",
+      "Korelasi A-E1": "float64",
+      "Korelasi B-E1": "float64"
+    },
+    "missing_values_per_column": {
+      "Alice": 0,
+      "Bob": 0,
+      "Eve1-Alice": 0,
+      "Eve1-Bob": 0,
+      "Unnamed: 4": 500,
+      "korelasi A-B": 499,
+      "Korelasi A-E1": 499,
+      "Korelasi B-E1": 499
+    },
+    "column_classification": {
+      "rssi_measurement_cols": [
+        "Alice",
+        "Bob",
+        "Eve1-Alice",
+        "Eve1-Bob"
+      ],
+      "helper_or_precomputed_cols": [
+        "Unnamed: 4",
+        "korelasi A-B",
+        "Korelasi A-E1",
+        "Korelasi B-E1"
+      ],
+      "unknown_cols": []
+    },
+    "rssi_measurement_channels": {
+      "columns": [
+        "Alice",
+        "Bob",
+        "Eve1-Alice",
+        "Eve1-Bob"
+      ],
+      "non_numeric_counts": {
+        "Alice": 0,
+        "Bob": 0,
+        "Eve1-Alice": 0,
+        "Eve1-Bob": 0
+      },
+      "duplicate_rows_count": 262,
+      "statistics": {
+        "Alice": {
+          "count": 500,
+          "min": -81.0,
+          "max": -73.0,
+          "mean": -75.97,
+          "std": 1.0389
+        },
+        "Bob": {
+          "count": 500,
+          "min": -81.0,
+          "max": -73.0,
+          "mean": -75.87,
+          "std": 1.0253
+        },
+        "Eve1-Alice": {
+          "count": 500,
+          "min": -34.0,
+          "max": -30.0,
+          "mean": -31.782,
+          "std": 0.8741
+        },
+        "Eve1-Bob": {
+          "count": 500,
+          "min": -97.0,
+          "max": -78.0,
+          "mean": -84.236,
+          "std": 3.1674
+        }
+      }
+    },
+    "excluded_helper_columns": {
+      "columns": [
+        "Unnamed: 4",
+        "korelasi A-B",
+        "Korelasi A-E1",
+        "Korelasi B-E1"
+      ],
+      "values_found": {
+        "Unnamed: 4": [],
+        "korelasi A-B": [
+          0.6322625214311621
+        ],
+        "Korelasi A-E1": [
+          0.01705958207113927
+        ],
+        "Korelasi B-E1": [
+          0.11930983708169797
+        ]
+      },
+      "reason_excluded": "Contains non-measurement metadata (empty column or single-row precomputed correlation metrics)."
+    }
+  },
+  "node_and_channel_identification": {
+    "legitimate_nodes": {
+      "Alice": "Alice measurement column in Sheet1 (500 samples)",
+      "Bob": "Bob measurement column in Sheet1 (500 samples)"
+    },
+    "eavesdropper_channels": {
+      "Eve1-Alice": "Eve1 measuring Alice transmission in Sheet1 (500 samples)",
+      "Eve1-Bob": "Eve1 measuring Bob transmission in Sheet1 (500 samples)"
+    }
+  },
+  "warnings_and_exclusions": [
+    "Sheet1 contains precalculated correlation summary columns ('korelasi A-B', 'Korelasi A-E1', 'Korelasi B-E1') with values only in row 1 and 499 NaN entries; excluded from measurement pipeline.",
+    "Sheet1 contains an empty column ('Unnamed: 4') with 500 NaN entries; excluded from measurement pipeline.",
+    "Workbook contains additional sheets ['Sheet2', 'Sheet3'], which are explicitly marked out of scope and intentionally unused."
+  ]
+}
