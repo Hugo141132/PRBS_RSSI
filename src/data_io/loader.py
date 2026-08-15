@@ -7,7 +7,7 @@ without altering the original dataset or applying any in-place modifications.
 
 import hashlib
 import os
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 
 
@@ -39,23 +39,25 @@ def load_sheet(
     file_path: str,
     sheet_name: Union[str, int] = 0,
     header: Optional[Union[int, List[int]]] = 0,
+    usecols: Optional[Union[List[str], List[int], str, Any]] = None,
 ) -> pd.DataFrame:
     """Load a specific worksheet as a pandas DataFrame without modifying data."""
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     
-    return pd.read_excel(file_path, sheet_name=sheet_name, header=header)
+    return pd.read_excel(file_path, sheet_name=sheet_name, header=header, usecols=usecols)
 
 
 def load_all_sheets(
     file_path: str,
     header: Optional[Union[int, List[int]]] = 0,
+    usecols: Optional[Union[List[str], List[int], str, Any]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """Load all worksheets in an Excel workbook into a dictionary of DataFrames."""
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     
-    return pd.read_excel(file_path, sheet_name=None, header=header)
+    return pd.read_excel(file_path, sheet_name=None, header=header, usecols=usecols)
 
 
 def classify_columns(df: pd.DataFrame) -> Dict[str, List[str]]:

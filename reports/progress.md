@@ -10,8 +10,8 @@ RSSI-based Physical Layer Secret Key Generation using PRBS/Galois LFSR on ESP32/
 | Phase | Milestone | Description | Status | Report / Output |
 | :--- | :--- | :--- | :--- | :--- |
 | **Dummy Pipeline** | **D00** | **Dummy RSSI Data Validation** | **COMPLETED** | [`reports/dummy/D00_data_validation.md`](dummy/D00_data_validation.md), [`results/dummy/validation_results.json`](../results/dummy/validation_results.json) |
-| Dummy Pipeline | **D01** | Pearson Correlation Analysis | **NEXT TASK** | Pending |
-| Dummy Pipeline | D02 | Adaptive Kalman Filter (AKF) | Pending | Pending |
+| **Dummy Pipeline** | **D01** | **Pearson Correlation Analysis** | **COMPLETED** | [`reports/dummy/D01_pearson_correlation.md`](dummy/D01_pearson_correlation.md), [`results/dummy/d01_pearson_correlation.json`](../results/dummy/d01_pearson_correlation.json) |
+| Dummy Pipeline | **D02** | Adaptive Kalman Filter (AKF) | **NEXT TASK** | Pending |
 | Dummy Pipeline | D03 | Quantization (Single/Double Threshold) | Pending | Pending |
 | Dummy Pipeline | D04 | Information Reconciliation (BCH / Slepian-Wolf) | Pending | Pending |
 | Dummy Pipeline | D05 | Randomness Enhancement (PRBS / Galois LFSR) | Pending | Pending |
@@ -23,5 +23,5 @@ RSSI-based Physical Layer Secret Key Generation using PRBS/Galois LFSR on ESP32/
 ---
 
 ## Current Status
-- **Completed:** D00 — Dummy RSSI Data Validation
-- **Next Milestone:** D01 — Pearson Correlation Analysis
+- **Completed:** D00 — Dummy RSSI Data Validation, D01 — Pearson Correlation Analysis
+- **Next Milestone:** D02 — Adaptive Kalman Filter (AKF)

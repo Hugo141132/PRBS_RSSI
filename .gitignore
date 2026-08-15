@@ -24,21 +24,43 @@ wheels/
 .installed.cfg
 *.egg
 
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Logs
+*.log
+logs/
+
 # Virtual Environments
 .env
+.env.local
+.env.*.local
 .venv
-env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+*.secret
 
 # IDE / Editor configurations
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-workspace
+*.sublime-project
 
 # OS generated files
 .DS_Store
 Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Temporary / Scratch scripts
+check_*.py
+scratch/
