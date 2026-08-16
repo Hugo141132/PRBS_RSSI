@@ -157,3 +157,148 @@ def generate_d01_figures(
         "scatter_figure": saved_scatter,
         "comparison_figure": saved_bar,
     }
+
+
+def plot_akf_comparison(
+    df: pd.DataFrame,
+    channel_name: str,
+    output_path: str,
+) -> str:
+    """
+    Plots Raw vs Filtered RSSI for a specific channel.
+
+    Args:
+        df: DataFrame containing '{channel_name}' and '{channel_name}_Filtered' columns.
+        channel_name: Name of the raw channel.
+        output_path: Destination file path for the figure.
+
+    Returns:
+        Absolute path to the generated figure.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    # Plot raw
+    ax.plot(df.index, df[channel_name], color='gray', alpha=0.5, label='Raw RSSI', marker='o', markersize=3, linestyle='-')
+
+    # Plot filtered
+    filtered_col = f"{channel_name}_Filtered"
+    ax.plot(df.index, df[filtered_col], color='red', linewidth=2, label='AKF Filtered', marker='x', markersize=3)
+
+    ax.set_title(f"AKF Filter Performance: {channel_name}", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Sample Index ($k$)", fontsize=12)
+    ax.set_ylabel("RSSI (dBm)", fontsize=12)
+    ax.grid(True, linestyle="--", alpha=0.6)
+    ax.legend(loc="upper right")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+def plot_d02_correlation_comparison(
+    raw_correlations: Dict[str, Any],
+    filtered_correlations: Dict[str, Any],
+    output_path: str,
+) -> str:
+    """
+    Generate a grouped bar chart comparing Raw vs AKF Filtered Pearson r across all 3 channel pairs.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    labels = list(raw_correlations.keys())
+    raw_r = [raw_correlations[k]["r"] for k in labels]
+    filt_r = [filtered_correlations[k]["r"] for k in labels]
+
+    x = np.arange(len(labels))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(9, 5.2))
+    rects1 = ax.bar(x - width/2, raw_r, width, label='Raw RSSI', color='#7f7f7f', edgecolor='black', linewidth=0.8)
+    rects2 = ax.bar(x + width/2, filt_r, width, label='AKF Filtered', color='#d62728', edgecolor='black', linewidth=0.8)
+
+    ax.set_ylabel("Pearson Correlation Coefficient ($r$)", fontsize=11)
+    ax.set_title("Physical-Layer Channel Reciprocity: Raw vs. AKF Filtered ($n=500$)", fontsize=12, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10, fontweight="bold")
+    ax.set_ylim(-0.2, 1.1)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="-")
+    ax.grid(axis="y", linestyle="--", alpha=0.5)
+    ax.legend(loc="upper left")
+
+    # Annotations
+    for rect in rects1:
+        height = rect.get_height()
+        ax.text(rect.get_x() + rect.get_width()/2., height + 0.02,
+                f"{height:.4f}", ha='center', va='bottom', fontsize=9)
+    for rect in rects2:
+        height = rect.get_height()
+        ax.text(rect.get_x() + rect.get_width()/2., height + 0.02,
+                f"{height:.4f}", ha='center', va='bottom', fontsize=9, fontweight='bold', color='#d62728')
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+def plot_all_channels_akf(
+    df: pd.DataFrame,
+    channels: List[str],
+    output_path: str,
+) -> str:
+    """
+    Generate a 4-panel time series plot showing Raw vs AKF Filtered for all channels.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 8), sharex=True)
+    axes_flat = axes.flatten()
+
+    for idx, ch in enumerate(channels):
+        ax = axes_flat[idx]
+        filt_col = f"{ch}_Filtered"
+        ax.plot(df.index, df[ch], color="gray", alpha=0.5, label="Raw", marker="o", markersize=2, linestyle="-")
+        ax.plot(df.index, df[filt_col], color="#d62728", linewidth=1.5, label="AKF Filtered", marker="x", markersize=2)
+        ax.set_title(f"Channel: {ch}", fontsize=11, fontweight="bold")
+        ax.set_ylabel("RSSI (dBm)", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(loc="upper right", fontsize=9)
+
+    for ax in axes[1, :]:
+        ax.set_xlabel("Sample Index ($k$)", fontsize=10)
+
+    plt.suptitle("Adaptive Kalman Filter (AKF) Preprocessing on Dummy RSSI ($n=500$)", fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+def generate_d02_figures(
+    df: pd.DataFrame,
+    channels: List[str],
+    raw_correlations: Dict[str, Any],
+    filtered_correlations: Dict[str, Any],
+    figures_dir: str,
+) -> Dict[str, str]:
+    """
+    Generate all standard figures for D02 milestone.
+    """
+    saved_paths = {}
+    for ch in channels:
+        out_path = os.path.join(figures_dir, f"d02_akf_{ch}_comparison.png")
+        saved = plot_akf_comparison(df, ch, out_path)
+        saved_paths[f"{ch}_comparison"] = saved
+
+    all_channels_path = os.path.join(figures_dir, "d02_akf_all_channels_overview.png")
+    saved_paths["all_channels_overview"] = plot_all_channels_akf(df, channels, all_channels_path)
+
+    corr_comp_path = os.path.join(figures_dir, "d02_akf_pearson_comparison.png")
+    saved_paths["correlation_comparison"] = plot_d02_correlation_comparison(
+        raw_correlations, filtered_correlations, corr_comp_path
+    )
+
+    return saved_paths
