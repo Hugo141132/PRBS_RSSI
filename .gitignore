@@ -64,3 +64,11 @@ $RECYCLE.BIN/
 # Temporary / Scratch scripts
 check_*.py
 scratch/
+scratch_*.py
+
+# Generated experiment outputs
+results/
+
+# Reference papers
+AKF.pdf
+PPA.pdf

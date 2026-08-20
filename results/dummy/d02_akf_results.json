@@ -10,7 +10,7 @@
     "selected_configuration": {
         "config_id": "C1",
         "parameters": {
-            "x0": -70.0,
+            "x0": "Adaptive",
             "P0": 1.0,
             "Q": 0.01,
             "R0": 1.0,
@@ -22,20 +22,20 @@
     "correlation_comparison": {
         "Alice vs Bob": {
             "raw_r": 0.6322625214311683,
-            "filtered_r": 0.9059150638087079,
-            "delta_r": 0.27365254237753955,
+            "filtered_r": 0.9095926930205602,
+            "delta_r": 0.2773301715893919,
             "n": 500
         },
         "Alice vs Eve1-Alice": {
             "raw_r": 0.017059582071138522,
-            "filtered_r": 0.10998739922117631,
-            "delta_r": 0.09292781715003778,
+            "filtered_r": -0.15023597100462915,
+            "delta_r": -0.16729555307576768,
             "n": 500
         },
         "Bob vs Eve1-Bob": {
             "raw_r": 0.11930983708169783,
-            "filtered_r": 0.10475623160319482,
-            "delta_r": -0.014553605478503012,
+            "filtered_r": -0.2245445790990258,
+            "delta_r": -0.34385441618072365,
             "n": 500
         }
     },
@@ -43,63 +43,63 @@
         "Alice": {
             "raw_mean": -75.97,
             "raw_variance": 1.0771000000000002,
-            "filtered_mean": -75.90602999900648,
-            "filtered_variance": 0.31433439425008497,
-            "variance_reduction_percent": 70.81660066381164
+            "filtered_mean": -76.03639246756275,
+            "filtered_variance": 0.49580309745547185,
+            "variance_reduction_percent": 53.96870323503185
         },
         "Bob": {
             "raw_mean": -75.87,
             "raw_variance": 1.0491000000000001,
-            "filtered_mean": -75.78257939299479,
-            "filtered_variance": 0.38954667166812745,
-            "variance_reduction_percent": 62.86848997539535
+            "filtered_mean": -75.90955657214167,
+            "filtered_variance": 0.5278260452672734,
+            "variance_reduction_percent": 49.68772802714009
         },
         "Eve1-Alice": {
             "raw_mean": -31.782,
             "raw_variance": 0.7624759999999999,
-            "filtered_mean": -39.16909705207158,
-            "filtered_variance": 36.57354477390065,
-            "variance_reduction_percent": -4696.681439665072
+            "filtered_mean": -31.73590717027773,
+            "filtered_variance": 0.1568058746960105,
+            "variance_reduction_percent": 79.43464781894637
         },
         "Eve1-Bob": {
             "raw_mean": -84.236,
             "raw_variance": 10.012304,
-            "filtered_mean": -83.3442374055885,
-            "filtered_variance": 4.971108541453426,
-            "variance_reduction_percent": 50.350003940617206
+            "filtered_mean": -84.02263714305579,
+            "filtered_variance": 1.853693614279375,
+            "variance_reduction_percent": 81.48584367514835
         }
     },
     "filter_diagnostics": {
         "Alice": {
-            "min_R": 0.9165688957125783,
-            "max_R": 98.99,
-            "final_R": 0.917998929139178,
-            "min_S": 1.0177632306692055,
-            "min_P": 0.09110925504140233,
+            "min_R": 0.5950269714186294,
+            "max_R": 4.104663039731668,
+            "final_R": 0.7089073810832816,
+            "min_S": 0.6776827374962728,
+            "min_P": 0.07257438833571792,
             "negative_R_count": 0
         },
         "Bob": {
-            "min_R": 0.8475950213757889,
-            "max_R": 79.99,
-            "final_R": 0.8542674593410472,
-            "min_S": 0.9451513737204339,
-            "min_P": 0.08735245226220321,
+            "min_R": 0.4355231032240486,
+            "max_R": 3.2288183460805495,
+            "final_R": 0.5908843181677804,
+            "min_S": 0.5072352045536804,
+            "min_P": 0.06151266327915348,
             "negative_R_count": 0
         },
         "Eve1-Alice": {
-            "min_R": 93.20772216150803,
-            "max_R": 1519.99,
-            "final_R": 93.20772216150803,
-            "min_S": 2.01,
-            "min_P": 0.5024875621890547,
+            "min_R": 0.62277746526916,
+            "max_R": 5.803667233408307,
+            "final_R": 0.6256272140064434,
+            "min_S": 0.7070866487148442,
+            "min_P": 0.0742566129068441,
             "negative_R_count": 0
         },
         "Eve1-Bob": {
-            "min_R": 10.885625871227038,
-            "max_R": 167.99,
-            "final_R": 11.001689574365146,
+            "min_R": 1.7437437192148675,
+            "max_R": 10.264800708431729,
+            "final_R": 8.09356256070561,
             "min_S": 2.01,
-            "min_P": 0.32869546927306575,
+            "min_P": 0.1579057047475321,
             "negative_R_count": 0
         }
     },

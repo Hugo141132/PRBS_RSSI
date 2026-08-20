@@ -5,7 +5,7 @@ Runner script for Milestone D02: Adaptive Kalman Filter (AKF) Preprocessing.
 Executes the approved Configuration C1 on all 4 raw RSSI measurement channels.
 
 Configuration C1 (Experimentally Selected for Dummy RSSI):
-- x0 = -70.0 dBm (Nominal expected operating RSSI for LoRa link)
+- x0 = Adaptive (Uses first measurement of each stream for N=1 causal initialization)
 - P0 = 1.0 (Baseline initial state estimation error covariance)
 - Q  = 0.01 (Static process noise covariance for stationary channel)
 - R0 = 1.0 (Initial measurement noise covariance prior)
@@ -34,7 +34,7 @@ EXPECTED_SHA256 = "abbe9973cbd95d0d9a248e12c6fb04eaf736bbc515d7f83764e33cd303270
 
 # Approved experimental configuration C1
 APPROVED_C1_PARAMS = {
-    "x0": -70.0,
+    "x0": "Adaptive",
     "P0": 1.0,
     "Q": 0.01,
     "R0": 1.0,
@@ -80,15 +80,19 @@ def run_d02_pipeline(
 
     # 3. Apply AKF independently to each approved channel
     for ch in APPROVED_RAW_COLUMNS:
+        raw_vals = df_raw[ch].to_numpy(dtype=np.float64)
+        
+        # Adaptive initialization: first measurement + 2.0 dBm offset
+        x0_val = float(raw_vals[0]) + 2.0 if akf_params.get("x0") == "Adaptive" else float(akf_params.get("x0", -70.0))
+
         akf = AdaptiveKalmanFilter(
             b=akf_params["b"],
-            x0=akf_params["x0"],
+            x0=x0_val,
             P0=akf_params["P0"],
             Q=akf_params["Q"],
             R0=akf_params["R0"],
         )
 
-        raw_vals = df_raw[ch].to_numpy(dtype=np.float64)
         filt_vals = np.array([akf.step(z) for z in raw_vals], dtype=np.float64)
 
         filt_col = f"{ch}_Filtered"
@@ -108,8 +112,8 @@ def run_d02_pipeline(
         min_P = min(h["P"] for h in history)
         neg_R_count = sum(1 for h in history if h["R"] < 0)
 
-        if neg_R_count > 0:
-            raise ValueError(f"Channel {ch} produced {neg_R_count} negative R_k instances!")
+        if neg_R_count > 0 or min_R <= 0 or min_S <= 0 or min_P <= 0:
+            raise ValueError(f"Strict covariance validation failed for Channel {ch}: min_R={min_R}, min_S={min_S}, min_P={min_P}")
 
         raw_var = float(np.var(raw_vals))
         filt_var = float(np.var(filt_vals))

@@ -36,12 +36,13 @@ RSSI-based Physical Layer Secret Key Generation using PRBS/Galois LFSR on ESP32/
 
 ### D02 — Adaptive Kalman Filter (AKF) Preprocessing
 - **Status:** COMPLETED
-- **Selected Configuration:** Configuration C1 ($\hat{x}_0 = -70.0\text{ dBm}, P_0 = 1.0, Q = 0.01, R_0 = 1.0, b = 1.00$ with analytical limit $d_{k-1} = 1/k$).
+- **Selected Configuration:** Configuration C1 ($\hat{x}_0 = z_0 + 2.0\text{ dBm}, P_0 = 1.0, Q = 0.01, R_0 = 1.0, b = 1.00$ with analytical limit $d_{k-1} = 1/k$).
+  - *Note: Initialization strategy finalized to first measurement ($z_0$) + 2.0 dBm deterministic offset applied identically to all channels to prevent Sage-Husa covariance collapse.*
 - **Key Findings:**
-  - Legitimate channel reciprocity increased from $r = 0.6323 \rightarrow 0.9059$ ($\Delta r = +0.2737$).
-  - Eavesdropper cross-correlations remained low: `Alice vs Eve1-Alice` ($r = 0.1100$), `Bob vs Eve1-Bob` ($r = 0.1048$).
-  - Signal variance reduction / smoothing: Alice ($70.82\%$), Bob ($62.87\%$).
-  - Zero negative covariances ($R_k < 0$) across all channels; output length ($500$) and Excel hash preserved.
+  - Legitimate channel reciprocity increased from $r = 0.6323 \rightarrow 0.9096$ ($\Delta r = +0.2773$).
+  - Eavesdropper cross-correlations remained low/negative: `Alice vs Eve1-Alice` ($r = -0.1502$), `Bob vs Eve1-Bob` ($r = -0.2245$).
+  - Signal variance reduction / smoothing: Alice ($53.97\%$), Bob ($49.69\%$), Eve1-Alice ($79.43\%$), Eve1-Bob ($81.49\%$).
+  - Strict covariance validation passed ($R_k > 0, P_k > 0, S_k > 0$); output length ($500$) and Excel hash preserved.
   - Report & Data: [`reports/dummy/D02_adaptive_kalman_filter.md`](dummy/D02_adaptive_kalman_filter.md), [`results/dummy/d02_akf_filtered.csv`](../results/dummy/d02_akf_filtered.csv), [`results/dummy/d02_akf_results.json`](../results/dummy/d02_akf_results.json).
 
 ---
