@@ -18,15 +18,17 @@ def plot_correlation_scatter(
     pairs: List[Tuple[str, str]],
     correlation_results: Dict[str, Any],
     output_path: str,
+    suffix: str = "",
 ) -> str:
     """
-    Generate a 3-panel scatter plot of raw RSSI channel pairs with Pearson r and n annotations.
+    Generate a 3-panel scatter plot of RSSI channel pairs with Pearson r and n annotations.
 
     Args:
-        df: DataFrame containing the raw RSSI measurements.
-        pairs: List of (channel_1, channel_2) tuples.
+        df: DataFrame containing the RSSI measurements.
+        pairs: List of (channel_1, channel_2) base names.
         correlation_results: Dict containing correlation metrics ('r', 'n') per pair.
         output_path: Destination file path for the figure.
+        suffix: Suffix to append to column names (e.g., '_Filtered').
 
     Returns:
         Absolute path to the generated figure.
@@ -46,10 +48,10 @@ def plot_correlation_scatter(
         r_val = pair_data.get("r", np.nan)
         n_val = pair_data.get("n", len(df))
 
-        # Raw scatter points without jitter; alpha indicates density of quantized integer points
+        # Scatter points
         ax.scatter(
-            df[col_a],
-            df[col_b],
+            df[col_a + suffix],
+            df[col_b + suffix],
             alpha=0.35,
             s=22,
             color=colors[idx % len(colors)],
@@ -223,7 +225,7 @@ def plot_d02_correlation_comparison(
     ax.set_title("Physical-Layer Channel Reciprocity: Raw vs. AKF Filtered ($n=500$)", fontsize=12, fontweight="bold")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10, fontweight="bold")
-    ax.set_ylim(-0.2, 1.1)
+    ax.set_ylim(-1.1, 1.1)
     ax.axhline(0, color="black", linewidth=0.8, linestyle="-")
     ax.grid(axis="y", linestyle="--", alpha=0.5)
     ax.legend(loc="upper left")
@@ -231,12 +233,16 @@ def plot_d02_correlation_comparison(
     # Annotations
     for rect in rects1:
         height = rect.get_height()
-        ax.text(rect.get_x() + rect.get_width()/2., height + 0.02,
-                f"{height:.4f}", ha='center', va='bottom', fontsize=9)
+        offset = 0.02 if height >= 0 else -0.02
+        va = 'bottom' if height >= 0 else 'top'
+        ax.text(rect.get_x() + rect.get_width()/2., height + offset,
+                f"{height:.4f}", ha='center', va=va, fontsize=9)
     for rect in rects2:
         height = rect.get_height()
-        ax.text(rect.get_x() + rect.get_width()/2., height + 0.02,
-                f"{height:.4f}", ha='center', va='bottom', fontsize=9, fontweight='bold', color='#d62728')
+        offset = 0.02 if height >= 0 else -0.02
+        va = 'bottom' if height >= 0 else 'top'
+        ax.text(rect.get_x() + rect.get_width()/2., height + offset,
+                f"{height:.4f}", ha='center', va=va, fontsize=9, fontweight='bold', color='#d62728')
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -277,6 +283,47 @@ def plot_all_channels_akf(
     return os.path.abspath(output_path)
 
 
+def plot_signal_overlay(
+    df: pd.DataFrame,
+    pairs: List[Tuple[str, str]],
+    output_path: str,
+    suffix: str = "",
+) -> str:
+    """
+    Generate a multi-panel time series plot showing overlaid signals for specific channel pairs.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    fig, axes = plt.subplots(len(pairs), 1, figsize=(12, 3.5 * len(pairs)), sharex=True)
+    if len(pairs) == 1:
+        axes = [axes]
+
+    colors = [("#1f77b4", "#ff7f0e"), ("#1f77b4", "#2ca02c"), ("#ff7f0e", "#d62728")]
+
+    for idx, (col_a, col_b) in enumerate(pairs):
+        ax = axes[idx]
+        col_a_full = col_a + suffix
+        col_b_full = col_b + suffix
+        
+        c1, c2 = colors[idx % len(colors)]
+        
+        ax.plot(df.index, df[col_a_full], color=c1, linewidth=1.5, label=col_a, alpha=0.8)
+        ax.plot(df.index, df[col_b_full], color=c2, linewidth=1.5, label=col_b, alpha=0.8)
+        
+        ax.set_title(f"Time-Series Overlay: {col_a} vs {col_b}", fontsize=12, fontweight="bold")
+        ax.set_ylabel("RSSI (dBm)", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(loc="upper right", fontsize=10)
+
+    axes[-1].set_xlabel("Sample Index ($k$)", fontsize=11)
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+
 def generate_d02_figures(
     df: pd.DataFrame,
     channels: List[str],
@@ -299,6 +346,24 @@ def generate_d02_figures(
     corr_comp_path = os.path.join(figures_dir, "d02_akf_pearson_comparison.png")
     saved_paths["correlation_comparison"] = plot_d02_correlation_comparison(
         raw_correlations, filtered_correlations, corr_comp_path
+    )
+
+    pairs = [
+        ("Alice", "Bob"),
+        ("Alice", "Eve1-Alice"),
+        ("Bob", "Eve1-Bob"),
+    ]
+
+    # New: Scatter plot for filtered results
+    scatter_path = os.path.join(figures_dir, "d02_akf_rssi_correlation_scatter.png")
+    saved_paths["filtered_scatter"] = plot_correlation_scatter(
+        df, pairs, filtered_correlations, scatter_path, suffix="_Filtered"
+    )
+
+    # New: Time-series overlay for specific pairs
+    overlay_path = os.path.join(figures_dir, "d02_akf_signal_overlay_comparison.png")
+    saved_paths["filtered_overlay"] = plot_signal_overlay(
+        df, pairs, overlay_path, suffix="_Filtered"
     )
 
     return saved_paths
