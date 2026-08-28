@@ -3,14 +3,16 @@ Analysis package for Physical Layer Secret Key Generation pipeline.
 """
 
 from .correlation import (
-    compute_pearson_correlation,
     analyze_channel_correlations,
+    compute_pearson_correlation,
     run_d01_dummy_analysis,
 )
+from .mshkf import FuzzyClusteringEngine, ModifiedSageHusaKalmanFilter
 from .visualization import (
+    generate_d01_figures,
+    generate_d02_figures,
     plot_correlation_scatter,
     plot_pearson_comparison,
-    generate_d01_figures,
 )
 
 __all__ = [
@@ -20,4 +22,7 @@ __all__ = [
     "plot_correlation_scatter",
     "plot_pearson_comparison",
     "generate_d01_figures",
+    "generate_d02_figures",
+    "ModifiedSageHusaKalmanFilter",
+    "FuzzyClusteringEngine",
 ]

@@ -152,4 +152,4 @@ The following figures were generated strictly from the raw measurement channels 
 Milestone **D01 — Pearson Correlation Analysis** has been successfully executed, mathematically verified, documented, and visualized. Baseline legitimate channel reciprocity ($r \approx 0.6323$) is substantially higher than both eavesdropper cross-correlations ($r \le 0.1193$), confirming the suitability of the dataset for subsequent SKG preprocessing.
 
 - **Completed Milestone:** **D01 — Pearson Correlation Analysis**
-- **Recommended Next Task:** **D02 — Adaptive Kalman Filter (AKF)** for RSSI noise reduction and reciprocity enhancement.
+- **Recommended Next Task:** **D02 — Adaptive Kalman Filter (AKF)** with Adaptive Fuzzy Clustering for RSSI noise reduction and reciprocity enhancement.

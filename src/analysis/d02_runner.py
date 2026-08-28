@@ -1,15 +1,19 @@
 """
 d02_runner.py
 
-Runner script for Milestone D02: Adaptive Kalman Filter (AKF) Preprocessing.
+Runner script for Milestone D02: Adaptive Kalman Filter (AKF)
+with online adaptive fuzzy clustering for raw RSSI preprocessing (based on Sage-Husa formulation).
+
 Executes the approved Configuration C1 on all 4 raw RSSI measurement channels.
 
 Configuration C1 (Experimentally Selected for Dummy RSSI):
-- x0 = Adaptive (Uses first measurement of each stream for N=1 causal initialization)
-- P0 = 1.0 (Baseline initial state estimation error covariance)
-- Q  = 0.01 (Static process noise covariance for stationary channel)
-- R0 = 1.0 (Initial measurement noise covariance prior)
-- b  = 1.0 (Analytical limit d_{k-1} = 1/k, exact arithmetic Sage-Husa mean)
+- x0 = Adaptive (Uses first measurement z_0 + 2.0 dBm for N=1 causal initialization)
+- P0 = 1.0 (Baseline initial state estimation error covariance prior)
+- Q_regimes = (0.001, 0.010) (Process noise for [Stable, Dynamic] fuzzy clusters)
+- b_regimes = (1.00, 0.98) (Fading factor for [Stable, Dynamic] fuzzy clusters)
+- r0 = 0.0 (Initial measurement noise mean prior, Wang Eq. 26)
+- R0 = 1.0 (Initial measurement noise covariance prior, Wang Eq. 27)
+- Fuzzy Engine: 3D Feature Vector [z_k, Delta z_k, sigma_k], m=2.0, sigma=0.05
 """
 
 import json
@@ -24,8 +28,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.analysis.akf import AdaptiveKalmanFilter
 from src.analysis.correlation import compute_pearson_correlation
+from src.analysis.mshkf import FuzzyClusteringEngine, ModifiedSageHusaKalmanFilter
 from src.analysis.visualization import generate_d02_figures
 from src.data_io.loader import compute_file_sha256, load_sheet
 
@@ -34,11 +38,15 @@ EXPECTED_SHA256 = "abbe9973cbd95d0d9a248e12c6fb04eaf736bbc515d7f83764e33cd303270
 
 # Approved experimental configuration C1
 APPROVED_C1_PARAMS = {
-    "x0": "Adaptive",
+    "x0": "Adaptive (z0 + 2.0 dBm)",
     "P0": 1.0,
-    "Q": 0.01,
+    "Q_regimes": [0.001, 0.010],
+    "b_regimes": [1.00, 0.98],
+    "r0": 0.0,
     "R0": 1.0,
-    "b": 1.0,
+    "fuzzy_m": 2.0,
+    "fuzzy_learning_rate": 0.05,
+    "fuzzy_features": ["z_k", "Delta_z_k", "sigma_k (w=5)"],
 }
 
 
@@ -48,18 +56,18 @@ def run_d02_pipeline(
     output_csv_path: str = None,
     output_json_path: str = None,
     figures_dir: str = None,
-    akf_params: Dict[str, float] = None,
+    mshkf_params: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """
-    Execute the complete D02 AKF filtering, correlation analysis, and figure generation.
+    Execute the complete D02 Adaptive Kalman Filter (AKF) filtering, fuzzy clustering, correlation analysis, and figure generation.
     """
-    if akf_params is None:
-        akf_params = APPROVED_C1_PARAMS
+    if mshkf_params is None:
+        mshkf_params = APPROVED_C1_PARAMS
 
     if output_csv_path is None:
-        output_csv_path = os.path.join(project_root, "results", "dummy", "d02_akf_filtered.csv")
+        output_csv_path = os.path.join(project_root, "results", "dummy", "d02_mshkf_filtered.csv")
     if output_json_path is None:
-        output_json_path = os.path.join(project_root, "results", "dummy", "d02_akf_results.json")
+        output_json_path = os.path.join(project_root, "results", "dummy", "d02_mshkf_results.json")
     if figures_dir is None:
         figures_dir = os.path.join(project_root, "results", "dummy", "figures")
 
@@ -77,26 +85,45 @@ def run_d02_pipeline(
     out_df = df_raw.copy()
     diagnostics = {}
     channel_stats = {}
+    fuzzy_diagnostics = {}
+    filter_instances = {}
 
-    # 3. Apply AKF independently to each approved channel
+    # 3. Apply MSHKF with Fuzzy Clustering independently to each approved channel
     for ch in APPROVED_RAW_COLUMNS:
         raw_vals = df_raw[ch].to_numpy(dtype=np.float64)
-        
-        # Adaptive initialization: first measurement + 2.0 dBm offset
-        x0_val = float(raw_vals[0]) + 2.0 if akf_params.get("x0") == "Adaptive" else float(akf_params.get("x0", -70.0))
 
-        akf = AdaptiveKalmanFilter(
-            b=akf_params["b"],
-            x0=x0_val,
-            P0=akf_params["P0"],
-            Q=akf_params["Q"],
-            R0=akf_params["R0"],
+        # Adaptive initialization: first measurement + 2.0 dBm offset
+        if str(mshkf_params.get("x0", "")).startswith("Adaptive"):
+            x0_val = float(raw_vals[0]) + 2.0
+        else:
+            x0_val = float(mshkf_params.get("x0", -70.0))
+
+        q_regimes = tuple(mshkf_params.get("Q_regimes", [0.001, 0.010]))
+        b_regimes = tuple(mshkf_params.get("b_regimes", [1.00, 0.98]))
+
+        fuzzy_engine = FuzzyClusteringEngine(
+            n_clusters=2,
+            m=mshkf_params.get("fuzzy_m", 2.0),
+            learning_rate=mshkf_params.get("fuzzy_learning_rate", 0.05),
+            min_pts_support=15,
+            feature_dim=3,
         )
 
-        filt_vals = np.array([akf.step(z) for z in raw_vals], dtype=np.float64)
+        mshkf = ModifiedSageHusaKalmanFilter(
+            x0=x0_val,
+            P0=mshkf_params.get("P0", 1.0),
+            Q_regimes=q_regimes,
+            b_regimes=b_regimes,
+            r0=mshkf_params.get("r0", 0.0),
+            R0=mshkf_params.get("R0", 1.0),
+            fuzzy_engine=fuzzy_engine,
+        )
+
+        filt_vals = np.array([mshkf.step(z) for z in raw_vals], dtype=np.float64)
 
         filt_col = f"{ch}_Filtered"
         out_df[filt_col] = filt_vals
+        filter_instances[ch] = mshkf
 
         # Verification per channel
         if len(filt_vals) != n_samples:
@@ -104,7 +131,7 @@ def run_d02_pipeline(
         if np.isnan(filt_vals).any() or np.isinf(filt_vals).any():
             raise ValueError(f"Channel {ch} contains NaN or Inf values!")
 
-        history = akf.history
+        history = mshkf.history
         min_R = min(h["R"] for h in history)
         max_R = max(h["R"] for h in history)
         final_R = history[-1]["R"]
@@ -134,6 +161,21 @@ def run_d02_pipeline(
             "min_S": float(min_S),
             "min_P": float(min_P),
             "negative_R_count": neg_R_count,
+            "final_noise_mean_r": float(history[-1]["r"]),
+        }
+
+        # Fuzzy Clustering Diagnostics
+        cluster_counts = {0: 0, 1: 0}
+        for h in history:
+            cluster_counts[h["cluster"]] += 1
+
+        partition_coef = fuzzy_engine.compute_partition_coefficient()
+        fuzzy_diagnostics[ch] = {
+            "cluster_0_samples": cluster_counts[0],
+            "cluster_1_samples": cluster_counts[1],
+            "final_cluster_centers": fuzzy_engine.v.tolist(),
+            "final_cluster_radii": fuzzy_engine.r_radius.tolist(),
+            "partition_coefficient_PC": float(partition_coef),
         }
 
     # 4. Compute correlations for standard pairs (Raw vs Filtered)
@@ -161,12 +203,14 @@ def run_d02_pipeline(
         raw_correlations,
         filtered_correlations,
         figures_dir,
+        filter_objects=filter_instances,
     )
 
     # 6. Construct structured JSON payload
     results_payload = {
         "milestone": "D02",
-        "description": "Adaptive Kalman Filter (AKF) Preprocessing on Dummy RSSI",
+        "algorithm": "Adaptive Kalman Filter (AKF) with Fuzzy Clustering",
+        "description": "RSSI-adapted Adaptive Kalman Filter (AKF) Preprocessing on Dummy RSSI based on Sage-Husa formulation (Wang et al. 2022 / PPA.pdf)",
         "input_dataset": {
             "path": input_file,
             "sheet_name": sheet_name,
@@ -175,9 +219,18 @@ def run_d02_pipeline(
         },
         "selected_configuration": {
             "config_id": "C1",
-            "parameters": akf_params,
+            "parameters": mshkf_params,
             "classification": "Experimentally selected from Alice/Bob sensitivity study",
-            "weighting_factor_convention": "d_{k-1} = 1/k (analytical b=1.0 limit)",
+            "state_space_model": "x_k = x_{k-1} + w_k (Phi=1), z_k = x_k + v_k (H=1)",
+            "fuzzy_clustering": {
+                "method": "Gustafson-Kessel Adaptive Fuzzy Clustering",
+                "feature_vector": ["z_k (raw RSSI)", "Delta_z_k (gradient)", "sigma_k (local std, w=5)"],
+                "regimes": {
+                    "cluster_0": "Stationary / Low Volatility (Q=0.001, b=1.00)",
+                    "cluster_1": "Dynamic / High Volatility (Q=0.010, b=0.98)",
+                },
+            },
+            "weighting_factor_convention": "d_{k-1} = (1 - b_k) / (1 - b_k^k) with analytical limit d_{k-1} = 1/k at b=1.0",
         },
         "correlation_comparison": {
             pair: {
@@ -190,6 +243,7 @@ def run_d02_pipeline(
         },
         "channel_statistics": channel_stats,
         "filter_diagnostics": diagnostics,
+        "fuzzy_clustering_diagnostics": fuzzy_diagnostics,
         "generated_artifacts": {
             "filtered_csv": os.path.abspath(output_csv_path),
             "results_json": os.path.abspath(output_json_path),
@@ -210,9 +264,9 @@ def run_d02_pipeline(
 
 if __name__ == "__main__":
     dataset_path = os.path.join(project_root, "data", "dummy", "00_input", "Dummy RSSI.xlsx")
-    print(f"Running D02 pipeline on {dataset_path}...")
+    print(f"Running D02 Adaptive Kalman Filter (AKF) pipeline on {dataset_path}...")
     res = run_d02_pipeline(dataset_path)
-    print("\nD02 AKF Run Completed Successfully!")
+    print("\nD02 Adaptive Kalman Filter (AKF) Run Completed Successfully!")
     print(f"Filtered CSV: {res['generated_artifacts']['filtered_csv']}")
     print(f"Results JSON: {res['generated_artifacts']['results_json']}")
     print("\nCorrelation Results:")
