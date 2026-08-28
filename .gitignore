@@ -49,6 +49,7 @@ venv.bak/
 # IDE / Editor configurations
 .vscode/
 .idea/
+pyrightconfig.json
 *.swp
 *.swo
 *.sublime-workspace
