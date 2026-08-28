@@ -171,15 +171,15 @@ $$\lim_{b_k \to 1} d_{k-1} = \frac{1}{k}$$
 
 ## 6. Generated Visual Artifacts
 
-Generated deterministically by `src/analysis/d02_runner.py` in `results/dummy/figures/`:
-1. **Correlation Comparison Bar Chart:** [`results/dummy/figures/d02_mshkf_pearson_comparison.png`](../../results/dummy/figures/d02_mshkf_pearson_comparison.png)
-2. **All-Channel Overview Plot:** [`results/dummy/figures/d02_mshkf_all_channels_overview.png`](../../results/dummy/figures/d02_mshkf_all_channels_overview.png)
+Generated deterministically by `src/analysis/d02_runner.py` in `results/dummy/figures/d02/`:
+1. **Correlation Comparison Bar Chart:** [`results/dummy/figures/d02/d02_mshkf_pearson_comparison.png`](../../results/dummy/figures/d02/d02_mshkf_pearson_comparison.png)
+2. **All-Channel Overview Plot:** [`results/dummy/figures/d02/d02_mshkf_all_channels_overview.png`](../../results/dummy/figures/d02/d02_mshkf_all_channels_overview.png)
 3. **Per-Channel Trajectory Plots:**
-   - [`results/dummy/figures/d02_mshkf_Alice_comparison.png`](../../results/dummy/figures/d02_mshkf_Alice_comparison.png)
-   - [`results/dummy/figures/d02_mshkf_Bob_comparison.png`](../../results/dummy/figures/d02_mshkf_Bob_comparison.png)
-   - [`results/dummy/figures/d02_mshkf_Eve1-Alice_comparison.png`](../../results/dummy/figures/d02_mshkf_Eve1-Alice_comparison.png)
-   - [`results/dummy/figures/d02_mshkf_Eve1-Bob_comparison.png`](../../results/dummy/figures/d02_mshkf_Eve1-Bob_comparison.png)
-4. **Fuzzy Diagnostics Plot:** [`results/dummy/figures/d02_mshkf_fuzzy_diagnostics.png`](../../results/dummy/figures/d02_mshkf_fuzzy_diagnostics.png)
+   - [`results/dummy/figures/d02/d02_mshkf_Alice_comparison.png`](../../results/dummy/figures/d02/d02_mshkf_Alice_comparison.png)
+   - [`results/dummy/figures/d02/d02_mshkf_Bob_comparison.png`](../../results/dummy/figures/d02/d02_mshkf_Bob_comparison.png)
+   - [`results/dummy/figures/d02/d02_mshkf_Eve1-Alice_comparison.png`](../../results/dummy/figures/d02/d02_mshkf_Eve1-Alice_comparison.png)
+   - [`results/dummy/figures/d02/d02_mshkf_Eve1-Bob_comparison.png`](../../results/dummy/figures/d02/d02_mshkf_Eve1-Bob_comparison.png)
+4. **Fuzzy Diagnostics Plot:** [`results/dummy/figures/d02/d02_mshkf_fuzzy_diagnostics.png`](../../results/dummy/figures/d02/d02_mshkf_fuzzy_diagnostics.png)
 
 ---
 

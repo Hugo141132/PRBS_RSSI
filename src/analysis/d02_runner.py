@@ -69,7 +69,7 @@ def run_d02_pipeline(
     if output_json_path is None:
         output_json_path = os.path.join(project_root, "results", "dummy", "d02_mshkf_results.json")
     if figures_dir is None:
-        figures_dir = os.path.join(project_root, "results", "dummy", "figures")
+        figures_dir = os.path.join(project_root, "results", "dummy", "figures", "d02")
 
     # 1. Verify input dataset integrity
     actual_sha256 = compute_file_sha256(input_file)

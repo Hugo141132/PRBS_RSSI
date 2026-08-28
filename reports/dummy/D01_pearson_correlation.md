@@ -98,11 +98,11 @@ The following figures were generated strictly from the raw measurement channels 
 
 1. **Three-Panel Raw RSSI Scatter Plots:**
    - Visualizes pairwise raw integer RSSI distributions without artificial jitter or modification. Point transparency ($\alpha = 0.35$) illustrates point density resulting from discrete integer quantization. Labeled axes in `RSSI (dBm)` with annotated $r$ and $n$.
-   - Figure File: [`results/dummy/figures/d01_rssi_correlation_scatter.png`](../../results/dummy/figures/d01_rssi_correlation_scatter.png)
+   - Figure File: [`results/dummy/figures/d01/d01_rssi_correlation_scatter.png`](../../results/dummy/figures/d01/d01_rssi_correlation_scatter.png)
 
 2. **Pearson $r$ Magnitude Comparison Bar Chart:**
    - Displays comparative correlation coefficients across the three pairs on a fixed $[-1.0, 1.0]$ correlation scale with zero-reference baseline and value annotations.
-   - Figure File: [`results/dummy/figures/d01_pearson_r_comparison.png`](../../results/dummy/figures/d01_pearson_r_comparison.png)
+   - Figure File: [`results/dummy/figures/d01/d01_pearson_r_comparison.png`](../../results/dummy/figures/d01/d01_pearson_r_comparison.png)
 
 ---
 
@@ -114,8 +114,8 @@ The following figures were generated strictly from the raw measurement channels 
 - **`src/analysis/correlation.py`**: Reusable Pearson correlation module enforcing `usecols` raw-only column loading and automated pipeline execution.
 - **`src/analysis/visualization.py`**: Reusable visualization module generating multi-panel scatter plots and fixed-scale comparison charts.
 - **`results/dummy/d01_pearson_correlation.json`**: Machine-readable JSON output storing channel pair metadata, Pearson $r$, sample count $n$, and figure paths.
-- **`results/dummy/figures/d01_rssi_correlation_scatter.png`**: 3-panel scatter visualization of channel pairs with $r$ and $n$ annotations.
-- **`results/dummy/figures/d01_pearson_r_comparison.png`**: Bar chart comparing Pearson $r$ across channel pairs on fixed $[-1.0, 1.0]$ scale.
+- **`results/dummy/figures/d01/d01_rssi_correlation_scatter.png`**: 3-panel scatter visualization of channel pairs with $r$ and $n$ annotations.
+- **`results/dummy/figures/d01/d01_pearson_r_comparison.png`**: Bar chart comparing Pearson $r$ across channel pairs on fixed $[-1.0, 1.0]$ scale.
 - **`tests/test_d01_correlation.py`**: Automated verification suite covering raw-only column isolation, independent formula checks, schema validation, relative magnitude regression checks, and figure verification.
 - **`reports/dummy/D01_pearson_correlation.md`**: This comprehensive D01 milestone report.
 - **`reports/progress.md`**: Milestone progress tracker updated to COMPLETED.

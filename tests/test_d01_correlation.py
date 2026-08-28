@@ -119,7 +119,7 @@ def test_dataset_regression_sanity_check():
 
 def test_figures_generated_and_non_empty():
     """Verify that all D01 visualization figures are generated, exist, and are non-empty."""
-    figures_dir = os.path.join(project_root, "results", "dummy", "figures")
+    figures_dir = os.path.join(project_root, "results", "dummy", "figures", "d01")
     scatter_fig = os.path.join(figures_dir, "d01_rssi_correlation_scatter.png")
     bar_fig = os.path.join(figures_dir, "d01_pearson_r_comparison.png")
 

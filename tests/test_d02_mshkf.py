@@ -40,7 +40,7 @@ from src.data_io.loader import compute_file_sha256
 DATASET_PATH = os.path.join(project_root, "data", "dummy", "00_input", "Dummy RSSI.xlsx")
 OUTPUT_CSV_PATH = os.path.join(project_root, "results", "dummy", "d02_mshkf_filtered.csv")
 OUTPUT_JSON_PATH = os.path.join(project_root, "results", "dummy", "d02_mshkf_results.json")
-FIGURES_DIR = os.path.join(project_root, "results", "dummy", "figures")
+FIGURES_DIR = os.path.join(project_root, "results", "dummy", "figures", "d02")
 
 
 def test_mshkf_initialization():

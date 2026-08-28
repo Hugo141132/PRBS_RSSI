@@ -139,7 +139,7 @@ def run_d01_dummy_analysis(
         output_json_path = os.path.join(project_root, "results", "dummy", "d01_pearson_correlation.json")
 
     if figures_dir is None:
-        figures_dir = os.path.join(project_root, "results", "dummy", "figures")
+        figures_dir = os.path.join(project_root, "results", "dummy", "figures", "d01")
 
     if not os.path.exists(input_file):
         raise FileNotFoundError(f"Input dataset not found: {input_file}")
