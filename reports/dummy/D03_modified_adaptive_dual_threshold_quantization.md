@@ -83,10 +83,10 @@ $$\text{KGR}_{\text{bps}} = \frac{n_{\text{bits}}}{T_{\text{duration}}}, \quad \
 
 | Channel | Mean $\mu$ (dBm) | Std Dev $\sigma$ (dBm) | Lower $q^-$ (dBm) | Upper $q^+$ (dBm) | Level 0 ($< q^-$) | Level 1 (Interm.) | Level 2 ($> q^+$) | Retained Samples | Discarded Samples |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Alice** | -77.080 | 0.463 | -77.312 | -76.848 | 196 (39.2%) | 205 (41.0%) | 99 (19.8%) | **500 (100%)** | **0 (0%)** |
-| **Bob** | -76.146 | 0.506 | -76.399 | -75.893 | 208 (41.6%) | 179 (35.8%) | 113 (22.6%) | **500 (100%)** | **0 (0%)** |
-| **Eve1-Alice**| -30.001 | 0.340 | -30.171 | -29.831 | 185 (37.0%) | 178 (35.6%) | 137 (27.4%) | **500 (100%)** | **0 (0%)** |
-| **Eve1-Bob** | -82.167 | 0.853 | -82.593 | -81.740 | 176 (35.2%) | 184 (36.8%) | 140 (28.0%) | **500 (100%)** | **0 (0%)** |
+| **Alice** | -77.080 | 0.463 | -77.312 | -76.848 | 143 (28.6%) | 205 (41.0%) | 152 (30.4%) | **500 (100%)** | **0 (0%)** |
+| **Bob** | -76.146 | 0.506 | -76.399 | -75.893 | 187 (37.4%) | 144 (28.8%) | 169 (33.8%) | **500 (100%)** | **0 (0%)** |
+| **Eve1-Alice**| -30.001 | 0.340 | -30.171 | -29.831 | 155 (31.0%) | 165 (33.0%) | 180 (36.0%) | **500 (100%)** | **0 (0%)** |
+| **Eve1-Bob** | -82.167 | 0.853 | -82.593 | -81.740 | 156 (31.2%) | 181 (36.2%) | 163 (32.6%) | **500 (100%)** | **0 (0%)** |
 
 *Sample Retention:* Modified ADQ retains **$100\%$ ($500/500$)** of samples across all channels, avoiding data discarding.
 
@@ -124,10 +124,10 @@ $$\text{KGR}_{\text{bps}} = \frac{n_{\text{bits}}}{T_{\text{duration}}}, \quad \
 1. **Python Modules:**
    - [`src/analysis/quantization.py`](../../src/analysis/quantization.py): Core quantizer class and metric functions.
    - [`src/analysis/d03_runner.py`](../../src/analysis/d03_runner.py): Pipeline execution runner.
-   - [`src/analysis/visualization.py`](../../src/analysis/visualization.py): Threshold overlays, level distribution, and KAR comparison charts.
+   - [`src/analysis/visualization.py`](../../src/analysis/visualization.py): Threshold overlays, level distribution, symbol timeline, and KAR comparison charts.
    - [`src/analysis/__init__.py`](../../src/analysis/__init__.py): Package-level exports.
 2. **Data & Results Artifacts:**
-   - [`results/dummy/d03_quantized_bits.csv`](../../results/dummy/d03_quantized_bits.csv): Aligned quantization symbols and bit streams (2-bit and 4-bit) for all 500 samples across all 4 channels.
+   - [`results/dummy/d03_quantized_bits.csv`](../../results/dummy/d03_quantized_bits.csv): Aligned quantization symbols and bit streams (2-bit and 4-bit) for all 500 samples across all 4 channels, formatted with Excel text formulas (`="00"`, `="01"`, `="1010"`) to guarantee *leading zeros* are preserved in Microsoft Excel.
    - [`results/dummy/d03_quantization_results.json`](../../results/dummy/d03_quantization_results.json): Complete machine-readable experimental metadata, threshold statistics, KAR/BER metrics, alpha sweeps, and KGR values.
 3. **Publication-Ready Figures:**
    - `results/dummy/figures/d03/d03_adq_thresholds_overlay.png`: 4-panel time series showing filtered RSSI with adaptive threshold overlays and shaded Level 1 regions.

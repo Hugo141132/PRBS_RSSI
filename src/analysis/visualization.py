@@ -3,7 +3,7 @@ visualization.py
 
 Visualization module for generating publication-quality plots for Physical Layer
 Secret Key Generation (SKG) analysis, including raw channel correlation baselines
-and MSHKF adaptive filter and fuzzy clustering diagnostics.
+and Modified Sage-Husa Adaptive Kalman Filter (MSHAKF) diagnostics.
 """
 
 import os
@@ -307,15 +307,15 @@ def plot_signal_overlay(
     return os.path.abspath(output_path)
 
 
-def plot_fuzzy_diagnostics(
+def plot_mshkf_diagnostics(
     filter_objects: Dict[str, Any],
     output_path: str,
 ) -> str:
     """
-    Generate diagnostics plot showing:
-    1. Fuzzy cluster membership distributions (Alice & Bob).
-    2. Effective process noise Q_eff(k) and fading factor d_{k-1}(k).
-    3. Estimated online noise covariance R_k and noise mean r_k.
+    Generate diagnostics plot for Modified Sage-Husa Adaptive Kalman Filter (MSHAKF):
+    1. Innovation eps_k (Eq. 3) and Kalman gain K_k (Eq. 5).
+    2. Posterior covariance P_k (Eq. 7) and innovation covariance S_k (Eq. 4).
+    3. Estimated online noise covariance R_k (Eq. 27) and noise mean r_k (Eq. 26).
     """
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
@@ -326,30 +326,31 @@ def plot_fuzzy_diagnostics(
         filt = filter_objects[ch]
         hist = filt.history
         k_arr = [h["k"] for h in hist]
-        mu_0 = [h["memberships"][0] for h in hist]
-        mu_1 = [h["memberships"][1] for h in hist]
-        q_eff = [h["Q_eff"] for h in hist]
+        eps_arr = [h["eps_k"] for h in hist]
+        k_gain = [h["K_k"] for h in hist]
+        p_cov = [h["P"] for h in hist]
+        s_cov = [h["S_k"] for h in hist]
         r_mean = [h["r"] for h in hist]
         r_cov = [h["R"] for h in hist]
 
-        # Top panel: Fuzzy Memberships
-        ax_mu = axes[0, col_idx]
-        ax_mu.plot(k_arr, mu_0, label="Cluster 0 (Stable)", color="#1f77b4", linewidth=1.5)
-        ax_mu.plot(k_arr, mu_1, label="Cluster 1 (Dynamic)", color="#ff7f0e", linewidth=1.5, linestyle="--")
-        ax_mu.set_title(f"{ch}: Fuzzy Regime Memberships " + r"($\mu_{ik}$)", fontsize=11, fontweight="bold")
-        ax_mu.set_ylabel("Membership Degree", fontsize=10)
-        ax_mu.set_ylim(-0.05, 1.40)
-        ax_mu.grid(True, linestyle="--", alpha=0.5)
-        ax_mu.legend(loc="upper right", ncol=2, fontsize=8.5, framealpha=0.92, edgecolor="gray")
+        # Top panel: Innovation and Kalman Gain
+        ax_top = axes[0, col_idx]
+        ax_top.plot(k_arr, eps_arr, label=r"Innovation $\varepsilon_k$ (Eq. 3)", color="#1f77b4", linewidth=1.2)
+        ax_top_r = ax_top.twinx()
+        ax_top_r.plot(k_arr, k_gain, label=r"Kalman Gain $K_k$ (Eq. 5)", color="#ff7f0e", linewidth=1.5, linestyle="--")
+        ax_top.set_title(f"{ch}: Innovation & Kalman Gain", fontsize=11, fontweight="bold")
+        ax_top.set_ylabel(r"Innovation $\varepsilon_k$ (dB)", fontsize=10, color="#1f77b4")
+        ax_top_r.set_ylabel(r"Kalman Gain $K_k$", fontsize=10, color="#ff7f0e")
+        ax_top.grid(True, linestyle="--", alpha=0.5)
 
-        # Middle panel: Effective Process Noise Q_eff(k)
-        ax_q = axes[1, col_idx]
-        ax_q.plot(k_arr, q_eff, color="#2ca02c", linewidth=1.5, label=r"Effective $Q_k$")
-        ax_q.set_title(f"{ch}: Fuzzy Process Noise Modulation ($Q_k$)", fontsize=11, fontweight="bold")
-        ax_q.set_ylabel(r"$Q_k$", fontsize=10)
-        ax_q.grid(True, linestyle="--", alpha=0.5)
-        ax_q.margins(y=0.28)
-        ax_q.legend(loc="upper right", fontsize=8.5, framealpha=0.92, edgecolor="gray")
+        # Middle panel: Posterior Covariance P and Innovation Covariance S
+        ax_mid = axes[1, col_idx]
+        ax_mid.plot(k_arr, p_cov, color="#2ca02c", linewidth=1.5, label=r"Posterior Cov $P_k$ (Eq. 7)")
+        ax_mid.plot(k_arr, s_cov, color="#17becf", linewidth=1.5, linestyle=":", label=r"Innovation Cov $S_k$ (Eq. 4)")
+        ax_mid.set_title(f"{ch}: Covariance Evolution ($P_k, S_k$)", fontsize=11, fontweight="bold")
+        ax_mid.set_ylabel("Covariance", fontsize=10)
+        ax_mid.grid(True, linestyle="--", alpha=0.5)
+        ax_mid.legend(loc="upper right", fontsize=8.5, framealpha=0.92, edgecolor="gray")
 
         # Bottom panel: Online Noise Mean & Covariance
         ax_noise = axes[2, col_idx]
@@ -359,14 +360,14 @@ def plot_fuzzy_diagnostics(
         ax_noise.set_ylabel("Noise Metric", fontsize=10)
         ax_noise.set_xlabel("Sample Index ($k$)", fontsize=10)
         ax_noise.grid(True, linestyle="--", alpha=0.5)
-        ax_noise.margins(y=0.28)
         ax_noise.legend(loc="upper right", fontsize=8.5, framealpha=0.92, edgecolor="gray")
 
-    plt.suptitle("Adaptive Kalman Filter (AKF) Online Fuzzy Clustering & Adaptive Statistics Diagnostics ($n=500$)", fontsize=13, fontweight="bold")
+    plt.suptitle("Modified Sage-Husa Adaptive Kalman Filter (MSHAKF) Online Statistics Diagnostics ($n=500$)", fontsize=13, fontweight="bold")
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return os.path.abspath(output_path)
+
 
 
 def generate_d02_figures(
@@ -411,8 +412,8 @@ def generate_d02_figures(
     )
 
     if filter_objects is not None and "Alice" in filter_objects and "Bob" in filter_objects:
-        fuzzy_diag_path = os.path.join(figures_dir, "d02_mshkf_fuzzy_diagnostics.png")
-        saved_paths["fuzzy_diagnostics"] = plot_fuzzy_diagnostics(filter_objects, fuzzy_diag_path)
+        diag_path = os.path.join(figures_dir, "d02_mshkf_adaptive_diagnostics.png")
+        saved_paths["adaptive_diagnostics"] = plot_mshkf_diagnostics(filter_objects, diag_path)
 
     return saved_paths
 
@@ -552,8 +553,8 @@ def generate_d02_2_figures(
     )
 
     if filter_objects is not None and "Alice" in filter_objects and "Bob" in filter_objects:
-        fuzzy_diag_path = os.path.join(figures_dir, "d02_2_mshkf_fuzzy_diagnostics.png")
-        saved_paths["fuzzy_diagnostics"] = plot_fuzzy_diagnostics(filter_objects, fuzzy_diag_path)
+        diag_path = os.path.join(figures_dir, "d02_2_mshkf_adaptive_diagnostics.png")
+        saved_paths["adaptive_diagnostics"] = plot_mshkf_diagnostics(filter_objects, diag_path)
 
     return saved_paths
 

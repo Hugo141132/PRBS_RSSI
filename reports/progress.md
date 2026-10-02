@@ -35,23 +35,17 @@ Physical Layer Secret Key Generation (SKG) using wireless Received Signal Streng
   - Legitimate channel (`Alice vs Bob`): $r = 0.6323$
   - Eavesdropper channels: `Alice vs Eve1-Alice` ($r = 0.0171$), `Bob vs Eve1-Bob` ($r = 0.1193$).
 
-### D02 — Adaptive Kalman Filter (AKF) Preprocessing
+### D02 — Modified Sage-Husa Adaptive Kalman Filter (MSHAKF) Preprocessing
 - **Status:** COMPLETED (PASS)
-- **Methodology:** Implemented **Adaptive Kalman Filter (AKF)** equipped with online **Gustafson-Kessel Adaptive Fuzzy Clustering** (based on Wang et al. 2022 / PPA.pdf Sage-Husa formulation), operating on a 3D feature vector $[\text{RSSI}_k, \Delta\text{RSSI}_k, \sigma_k]$.
+- **Methodology:** Implemented pure **Modified Sage-Husa Adaptive Kalman Filter (MSHAKF)** based strictly on Wang et al. (2022) / `AKF.pdf` (Eqs. 1–7, 26, 27). Completely eliminated extraneous Gustafson-Kessel fuzzy clustering.
 - **Canonical Files:** Source in [`src/analysis/mshkf.py`](../src/analysis/mshkf.py), runner in [`src/analysis/d02_runner.py`](../src/analysis/d02_runner.py), full documentation in [`reports/dummy/D02_modified_sage_husa_kalman_filter.md`](dummy/D02_modified_sage_husa_kalman_filter.md).
-- **Approved Configuration:** Configuration C1 ($x_0 = z_0 + 2.0\text{ dBm}, P_0 = 1.0, Q_{\text{regimes}} = (0.001, 0.010), b_{\text{regimes}} = (1.00, 0.98), r_0 = 0.0, R_0 = 1.0$).
+- **Approved Configuration:** Configuration C1 ($x_0 = z_0 + 2.0\text{ dBm}, P_0 = 1.0, Q = 0.001, b = 0.98, r_0 = 0.0, R_0 = 1.0$).
 - **Key Results ($n=500$):**
-  - Legitimate channel reciprocity increased from $r = 0.6323 \rightarrow 0.8612$ ($\Delta r = +0.2289$).
-  - Eavesdropper cross-correlations: `Alice vs Eve1-Alice` ($r = -0.1013$), `Bob vs Eve1-Bob` ($r = 0.0722$).
-  - Variance reduction / signal smoothing: Alice ($80.06\%$), Bob ($75.61\%$), Eve1-Alice ($84.85\%$), Eve1-Bob ($92.74\%$).
+  - Legitimate channel reciprocity increased from $r = 0.6323 \rightarrow 0.9172$ ($\Delta r = +0.2849$, $+45.0\%$ increase).
+  - Eavesdropper cross-correlations: `Alice vs Eve1-Alice` ($r = 0.1496$), `Bob vs Eve1-Bob` ($r = -0.0961$).
+  - Variance reduction / signal smoothing: Alice ($92.34\%$), Bob ($88.89\%$), Eve1-Alice ($92.83\%$), Eve1-Bob ($97.86\%$).
   - Covariance stability verified: $R_k > 0, P_k > 0, S_k > 0$ across all 500 samples (0 negative instances).
-  - Fuzzy Partition Coefficient ($PC$): Alice ($0.9859$), Bob ($0.9880$).
-- **Ablation Comparison:**
-  - Raw RSSI: $r_{AB} = 0.6323, r_{AE1} = 0.0171$
-  - Static KF ($Q=0.01, R=1.0$): $r_{AB} = 0.9238, r_{AE1} = 0.0187$
-  - AKF without Fuzzy ($Q=0.001$): $r_{AB} = 0.9282, r_{AE1} = 0.1336$
-  - Adaptive Kalman Filter (AKF - Proposed C1): $r_{AB} = 0.8612, r_{AE1} = -0.1013$
-- **Verification:** 14/14 tests pass (`pytest -v`), Excel SHA-256 unchanged, 500-sample alignment preserved.
+- **Verification:** All 25 tests pass (`pytest`), Excel SHA-256 unchanged, 500-sample alignment preserved.
 - **Deliverables:** [`results/dummy/d02_mshkf_filtered.csv`](../results/dummy/d02_mshkf_filtered.csv), [`results/dummy/d02_mshkf_results.json`](../results/dummy/d02_mshkf_results.json), figures in `results/dummy/figures/d02/`.
 
 ### D02.2 — Empirical AKF Parameter Calibration
@@ -86,8 +80,30 @@ Physical Layer Secret Key Generation (SKG) using wireless Received Signal Streng
 - **Verification:** 24/24 tests pass (`pytest -v`), 500 samples/channel alignment preserved, deterministic reruns verified, Excel SHA-256 unchanged.
 - **Deliverables:** [`results/dummy/d02_2_mshkf_filtered.csv`](../results/dummy/d02_2_mshkf_filtered.csv), [`results/dummy/d02_2_mshkf_results.json`](../results/dummy/d02_2_mshkf_results.json), standalone figures in `results/dummy/figures/d02_2/`, comparison figures in `results/dummy/figures/d02_vs_d02_2/`.
 
+### D03 — Modified Adaptive Dual-Threshold Quantization (ADQ)
+- **Status:** COMPLETED (PASS)
+- **Methodology:** Implemented **Modified Adaptive Dual-Threshold Quantization (ADQ)** following LoRa-PRIME (*IEEE OJ-COMS 2026, Section IV-C*). Adaptively computes dual thresholds $q^+ = \mu + \alpha\sigma$ and $q^- = \mu - \alpha\sigma$, discretizing filtered RSSI into 3 distinct symbols ($\{0, 1, 2\}$) while preserving intermediate samples ($q^- \le X \le q^+$) as Level 1 to achieve $100\%$ sample retention ($0\%$ discarded).
+- **Direct Multi-Bit Mapping:**
+  - 2-bit Gray Code: Level $0 \mapsto \text{'00'}$, Level $1 \mapsto \text{'01'}$, Level $2 \mapsto \text{'11'}$.
+  - 4-bit LoRa-PRIME Code: Level $0 \mapsto \text{'1010'}$, Level $1 \mapsto \text{'1011'}$, Level $2 \mapsto \text{'1001'}$.
+  - Both 2-bit and 4-bit bitstreams are direct mappings from the same underlying symbol sequence (not converted or padded from each other).
+- **Excel Text Formatting:** Exported CSV bit sequence columns formatted explicitly with Excel text formulas (`="00"`, `="01"`, `="1010"`) to prevent integer truncation and preserve leading zeros in Microsoft Excel.
+- **Key Results ($\alpha = 0.5$, $n=500$ samples):**
+  - **Sample Retention:** $500/500$ ($100.0\%$) across all channels; $0$ discarded samples.
+  - **Legitimate Channel (`Alice vs Bob`):**
+    - 2-bit Modified ADQ: $\text{KAR} = \mathbf{0.8430}$ ($843/1000$ bits), $\text{BER} = 0.1570$.
+    - 4-bit Modified ADQ: $\text{KAR} = \mathbf{0.9215}$ ($1843/2000$ bits), $\text{BER} = 0.0785$.
+  - **Eavesdropper Decorrelation:**
+    - `Alice vs Eve1-Alice`: 2-bit $\text{KAR} = 0.5140$, 4-bit $\text{KAR} = 0.7570$.
+    - `Bob vs Eve1-Bob`: 2-bit $\text{KAR} = 0.5020$, 4-bit $\text{KAR} = 0.7615$.
+    - Legitimate agreement significantly exceeds eavesdropper correlation, verifying physical layer security.
+  - **Key Generation Rate (KGR):** 2.0 bits/sample ($1000$ bits) for 2-bit; 4.0 bits/sample ($2000$ bits) for 4-bit.
+- **Verification:** 12/12 D03 tests pass; 26/26 full regression tests pass (`pytest -v`). 0 SkyGlow / baseline quantizer references.
+- **Deliverables:** [`results/dummy/d03_quantized_bits.csv`](../results/dummy/d03_quantized_bits.csv), [`results/dummy/d03_quantization_results.json`](../results/dummy/d03_quantization_results.json), figures in `results/dummy/figures/d03/`, full report in [`reports/dummy/D03_modified_adaptive_dual_threshold_quantization.md`](dummy/D03_modified_adaptive_dual_threshold_quantization.md).
+
 ---
 
 ## Current Project Status
-- **Completed Milestones:** D00 (Data Validation), D01 (Pearson Correlation Baseline), D02 (Adaptive Kalman Filter Preprocessing), D02.2 (Empirical AKF Parameter Calibration)
-- **Next Active Milestone:** **D03 — Quantization (Single/Double Threshold Quantization)**
+- **Completed Milestones:** D00 (Data Validation), D01 (Pearson Correlation Baseline), D02 (Adaptive Kalman Filter Preprocessing), D02.2 (Empirical AKF Parameter Calibration), D03 (Modified Adaptive Dual-Threshold Quantization)
+- **Next Active Milestone:** **D04 — Information Reconciliation (BCH Code)**
+

@@ -7,7 +7,7 @@ from .correlation import (
     compute_pearson_correlation,
     run_d01_dummy_analysis,
 )
-from .mshkf import FuzzyClusteringEngine, ModifiedSageHusaKalmanFilter
+from .mshkf import ModifiedSageHusaKalmanFilter
 from .quantization import (
     ModifiedAdaptiveDualThresholdQuantizer,
     QuantizationResult,
@@ -35,7 +35,6 @@ __all__ = [
     "generate_d01_figures",
     "generate_d02_figures",
     "ModifiedSageHusaKalmanFilter",
-    "FuzzyClusteringEngine",
     "ModifiedAdaptiveDualThresholdQuantizer",
     "QuantizationResult",
 
