@@ -163,11 +163,11 @@ def plot_mshkf_channel_comparison(
     fig, ax = plt.subplots(figsize=(12, 5.2))
 
     # Plot raw
-    ax.plot(df.index, df[channel_name], color="gray", alpha=0.5, label="Raw RSSI", marker="o", markersize=3, linestyle="-")
+    ax.plot(df.index.to_numpy(), df[channel_name], color="gray", alpha=0.5, label="Raw RSSI", marker="o", markersize=3, linestyle="-")
 
     # Plot filtered
     filtered_col = f"{channel_name}_Filtered"
-    ax.plot(df.index, df[filtered_col], color="#d62728", linewidth=2, label="AKF Filtered", marker="x", markersize=3)
+    ax.plot(df.index.to_numpy(), df[filtered_col], color="#d62728", linewidth=2, label="AKF Filtered", marker="x", markersize=3)
 
     ax.set_title(f"Adaptive Kalman Filter (AKF) Performance: {channel_name}", fontsize=14, fontweight="bold")
     ax.set_xlabel("Sample Index ($k$)", fontsize=12)
@@ -431,11 +431,11 @@ def plot_d02_2_channel_comparison(
     fig, ax = plt.subplots(figsize=(12, 5.2))
 
     # Plot raw
-    ax.plot(df.index, df[channel_name], color="gray", alpha=0.45, label="Raw RSSI", marker="o", markersize=2.5, linestyle="-")
+    ax.plot(df.index.to_numpy(), df[channel_name], color="gray", alpha=0.45, label="Raw RSSI", marker="o", markersize=2.5, linestyle="-")
 
     # Plot D02.2 calibrated
     d02_2_col = f"{channel_name}_Filtered"
-    ax.plot(df.index, df[d02_2_col], color="#2ca02c", linewidth=2.0, label="D02.2 Calibrated", marker="x", markersize=3)
+    ax.plot(df.index.to_numpy(), df[d02_2_col], color="#2ca02c", linewidth=2.0, label="D02.2 Calibrated", marker="x", markersize=3)
 
     # Vertical line indicating calibration/evaluation boundary
     ax.axvline(x=n_cal, color="#d62728", linestyle=":", linewidth=1.5, label=f"Calibration Split ($k={n_cal}$)")
@@ -574,7 +574,7 @@ def plot_d02_vs_d02_2_channel_comparison(
 
     # Raw RSSI
     ax.plot(
-        df_raw.index,
+        df_raw.index.to_numpy(),
         df_raw[channel_name],
         color="#8c8c8c",
         alpha=0.40,
@@ -587,7 +587,7 @@ def plot_d02_vs_d02_2_channel_comparison(
     # D02 MSHKF Baseline
     d02_col = f"{channel_name}_Filtered"
     ax.plot(
-        d02_df.index,
+        d02_df.index.to_numpy(),
         d02_df[d02_col],
         color="#d62728",
         linewidth=1.8,
@@ -600,7 +600,7 @@ def plot_d02_vs_d02_2_channel_comparison(
     # D02.2 Calibrated Filtered
     d02_2_col = f"{channel_name}_Filtered"
     ax.plot(
-        d02_2_df.index,
+        d02_2_df.index.to_numpy(),
         d02_2_df[d02_2_col],
         color="#2ca02c",
         linewidth=2.0,
@@ -794,3 +794,192 @@ def generate_d02_vs_d02_2_comparison_figures(
     )
 
     return saved_paths
+
+
+def plot_quantization_thresholds_overlay(
+    df_filtered: pd.DataFrame,
+    channels: List[str],
+    threshold_info: Dict[str, Dict[str, Any]],
+    output_path: str,
+) -> str:
+    """
+    Plot 4-panel time series of filtered RSSI signals with adaptive quantization thresholds.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10), sharex=True)
+    axes = axes.flatten()
+
+    for i, ch in enumerate(channels):
+        ax = axes[i]
+        filt_col = f"{ch}_Filtered"
+        vals = df_filtered[filt_col].to_numpy()
+        t = np.arange(len(vals))
+
+        ax.plot(t, vals, color="#1f77b4", linewidth=1.5, label=f"{ch} Filtered RSSI")
+
+        t_info = threshold_info.get(ch, {})
+        q_up = t_info.get("q_upper")
+        q_low = t_info.get("q_lower")
+        mu = t_info.get("mean")
+
+        if isinstance(q_up, (int, float)):
+            ax.axhline(q_up, color="#d62728", linestyle="--", linewidth=1.2, label=f"Upper Threshold ($q^+$={q_up:.2f} dBm)")
+            ax.axhline(q_low, color="#2ca02c", linestyle="--", linewidth=1.2, label=f"Lower Threshold ($q^-$={q_low:.2f} dBm)")
+            ax.axhline(mu, color="#7f7f7f", linestyle=":", linewidth=1.0, label=f"Mean ($\\mu$={mu:.2f} dBm)")
+            # Shaded intermediate region
+            ax.axhspan(q_low, q_up, color="#ff7f0e", alpha=0.15, label="Intermediate Region (Level 1)")
+
+        ax.set_title(f"Channel: {ch}", fontsize=12, fontweight="bold")
+        ax.set_ylabel("RSSI (dBm)", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+
+    axes[2].set_xlabel("Sample Index ($k$)", fontsize=11)
+    axes[3].set_xlabel("Sample Index ($k$)", fontsize=11)
+    fig.suptitle("Modified Adaptive Dual-Threshold Quantization (ADQ) Threshold Overlays", fontsize=15, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+def plot_quantization_levels_distribution(
+    channel_results: Dict[str, Dict[str, Any]],
+    channels: List[str],
+    output_path: str,
+) -> str:
+    """
+    Generate bar chart comparing the distribution of quantization symbols (Levels 0, 1, 2) across channels.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    x = np.arange(len(channels))
+    width = 0.25
+
+    l0_counts = [channel_results[ch]["level_counts"].get(0, 0) for ch in channels]
+    l1_counts = [channel_results[ch]["level_counts"].get(1, 0) for ch in channels]
+    l2_counts = [channel_results[ch]["level_counts"].get(2, 0) for ch in channels]
+
+    rects0 = ax.bar(x - width, l0_counts, width, label="Level 0 ($X < q^-$)", color="#2ca02c", alpha=0.85)
+    rects1 = ax.bar(x, l1_counts, width, label="Level 1 ($q^- \\leq X \\leq q^+$)", color="#ff7f0e", alpha=0.85)
+    rects2 = ax.bar(x + width, l2_counts, width, label="Level 2 ($X > q^+$)", color="#d62728", alpha=0.85)
+
+    ax.set_ylabel("Sample Count", fontsize=11)
+    ax.set_title("Quantization Level Distribution Across Channels (Modified ADQ)", fontsize=13, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(channels, fontsize=11)
+    ax.legend(fontsize=10)
+    ax.grid(True, linestyle="--", alpha=0.4, axis="y")
+
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f"{height}",
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha="center", va="bottom", fontsize=8)
+
+    autolabel(rects0)
+    autolabel(rects1)
+    autolabel(rects2)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+def plot_kar_comparison_bar(
+    adq_2bit: Dict[str, Dict[str, float]],
+    adq_4bit: Dict[str, Dict[str, float]],
+    output_path: str,
+) -> str:
+    """
+    Generate bar chart comparing Key Agreement Rate (KAR) across pairs for 2-bit and 4-bit Modified ADQ.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    pairs = ["Alice vs Bob", "Alice vs Eve1-Alice", "Bob vs Eve1-Bob"]
+    x = np.arange(len(pairs))
+    width = 0.30
+
+    kar_adq2 = [adq_2bit[p]["kar"] for p in pairs]
+    kar_adq4 = [adq_4bit[p]["kar"] for p in pairs]
+
+    rects1 = ax.bar(x - width / 2, kar_adq2, width, label="Modified ADQ (2-bit Gray)", color="#1f77b4")
+    rects2 = ax.bar(x + width / 2, kar_adq4, width, label="Modified ADQ (4-bit LoRa-PRIME)", color="#aec7e8")
+
+    ax.set_ylabel("Key Agreement Rate (KAR)", fontsize=11)
+    ax.set_title("Key Agreement Rate (KAR) Across Channel Pairs (Modified ADQ)", fontsize=13, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(pairs, fontsize=11, fontweight="bold")
+    ax.set_ylim(0.0, 1.05)
+    ax.axhline(0.5, color="gray", linestyle=":", linewidth=1, label="Random Guess Baseline (KAR=0.5)")
+    ax.legend(loc="upper right", fontsize=10)
+    ax.grid(True, linestyle="--", alpha=0.4, axis="y")
+
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f"{height:.3f}",
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha="center", va="bottom", fontsize=9, fontweight="bold")
+
+    autolabel(rects1)
+    autolabel(rects2)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+def plot_quantization_symbol_timeline(
+    df_bits: pd.DataFrame,
+    channels: List[str],
+    output_path: str,
+) -> str:
+    """
+    Generate 4-panel timeline of discrete quantization symbols (Levels 0, 1, 2) over sample index.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    fig, axes = plt.subplots(4, 1, figsize=(14, 8), sharex=True)
+
+    colors = {0: "#2ca02c", 1: "#ff7f0e", 2: "#d62728"}
+    t = np.arange(len(df_bits))
+
+    for i, ch in enumerate(channels):
+        ax = axes[i]
+        syms = df_bits[f"{ch}_Symbol"].to_numpy()
+
+        # Step line representing symbol transitions
+        ax.step(t, syms, where="mid", color="#1f77b4", linewidth=1.2, alpha=0.7)
+        # Scatter points colored by level
+        for lvl in [0, 1, 2]:
+            idx = np.where(syms == lvl)[0]
+            if len(idx) > 0:
+                ax.scatter(t[idx], syms[idx], color=colors[lvl], s=12, label=f"Level {lvl}" if i == 0 else None, zorder=3)
+
+        ax.set_yticks([0, 1, 2])
+        ax.set_yticklabels(["L0 ($<q^-$)", "L1 ($q^-..q^+$)", "L2 ($>q^+$)"], fontsize=8)
+        ax.set_ylabel(ch, fontsize=9, fontweight="bold")
+        ax.grid(True, linestyle="--", alpha=0.4)
+        ax.set_ylim(-0.3, 2.3)
+
+    axes[-1].set_xlabel("Sample Index ($k$)", fontsize=10)
+    if axes[0].get_legend_handles_labels()[0]:
+        axes[0].legend(loc="upper right", ncol=3, fontsize=8, framealpha=0.9)
+
+    fig.suptitle("Quantization Symbol Timeline Over Sample Index (Modified ADQ)", fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+
+

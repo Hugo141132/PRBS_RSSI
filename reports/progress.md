@@ -13,8 +13,8 @@ Physical Layer Secret Key Generation (SKG) using wireless Received Signal Streng
 | **Dummy Pipeline** | **D01** | **Pearson Correlation Baseline** | **COMPLETED** | [`reports/dummy/D01_pearson_correlation.md`](dummy/D01_pearson_correlation.md), [`results/dummy/d01_pearson_correlation.json`](../results/dummy/d01_pearson_correlation.json) |
 | **Dummy Pipeline** | **D02** | **Modified Sage-Husa Kalman Filter** | **COMPLETED** | [`reports/dummy/D02_modified_sage_husa_kalman_filter.md`](dummy/D02_modified_sage_husa_kalman_filter.md), [`results/dummy/d02_mshkf_filtered.csv`](../results/dummy/d02_mshkf_filtered.csv) |
 | **Dummy Pipeline** | **D02.2** | **Empirical AKF Parameter Calibration** | **COMPLETED** | [`reports/dummy/D02_2_empirical_parameter_calibration.md`](dummy/D02_2_empirical_parameter_calibration.md), [`results/dummy/d02_2_mshkf_filtered.csv`](../results/dummy/d02_2_mshkf_filtered.csv) |
-| Dummy Pipeline | **D03** | **Quantization (Single/Double Threshold)** | **NEXT TASK** | Pending |
-| Dummy Pipeline | D04 | BCH / Information Reconciliation | PENDING | Pending |
+| **Dummy Pipeline** | **D03** | **Modified Adaptive Dual-Threshold Quantization (ADQ)** | **COMPLETED** | [`reports/dummy/D03_modified_adaptive_dual_threshold_quantization.md`](dummy/D03_modified_adaptive_dual_threshold_quantization.md), [`results/dummy/d03_quantized_bits.csv`](../results/dummy/d03_quantized_bits.csv) |
+| Dummy Pipeline | **D04** | **BCH / Information Reconciliation** | **NEXT TASK** | Pending |
 | Dummy Pipeline | D05 | PRBS / Galois LFSR Randomness Enhancement | PENDING | Pending |
 | Dummy Pipeline | D06 | SHA-256 Privacy Amplification | PENDING | Pending |
 | Dummy Pipeline | D07 | Key Verification / AES Demo | PENDING | Pending |

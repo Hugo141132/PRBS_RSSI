@@ -19,7 +19,7 @@ Configuration C1 (Experimentally Selected for Dummy RSSI):
 import json
 import os
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
@@ -53,10 +53,10 @@ APPROVED_C1_PARAMS = {
 def run_d02_pipeline(
     input_file: str,
     sheet_name: str = "Sheet1",
-    output_csv_path: str = None,
-    output_json_path: str = None,
-    figures_dir: str = None,
-    mshkf_params: Dict[str, Any] = None,
+    output_csv_path: Optional[str] = None,
+    output_json_path: Optional[str] = None,
+    figures_dir: Optional[str] = None,
+    mshkf_params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Execute the complete D02 Adaptive Kalman Filter (AKF) filtering, fuzzy clustering, correlation analysis, and figure generation.
@@ -90,39 +90,39 @@ def run_d02_pipeline(
 
     # 3. Apply MSHKF with Fuzzy Clustering independently to each approved channel
     for ch in APPROVED_RAW_COLUMNS:
-        raw_vals = df_raw[ch].to_numpy(dtype=np.float64)
+        raw_vals: np.ndarray = np.asarray(df_raw[ch].to_numpy(dtype=np.float64), dtype=np.float64)
 
         # Adaptive initialization: first measurement + 2.0 dBm offset
         if str(mshkf_params.get("x0", "")).startswith("Adaptive"):
             x0_val = float(raw_vals[0]) + 2.0
         else:
-            x0_val = float(mshkf_params.get("x0", -70.0))
+            x0_val = float(mshkf_params.get("x0", -70.0))  # type: ignore[arg-type]
 
-        q_regimes = tuple(mshkf_params.get("Q_regimes", [0.001, 0.010]))
-        b_regimes = tuple(mshkf_params.get("b_regimes", [1.00, 0.98]))
+        q_regimes: Tuple[float, float] = (float(mshkf_params.get("Q_regimes", [0.001, 0.010])[0]), float(mshkf_params.get("Q_regimes", [0.001, 0.010])[1]))  # type: ignore[index]
+        b_regimes: Tuple[float, float] = (float(mshkf_params.get("b_regimes", [1.00, 0.98])[0]), float(mshkf_params.get("b_regimes", [1.00, 0.98])[1]))  # type: ignore[index]
 
         fuzzy_engine = FuzzyClusteringEngine(
             n_clusters=2,
-            m=mshkf_params.get("fuzzy_m", 2.0),
-            learning_rate=mshkf_params.get("fuzzy_learning_rate", 0.05),
+            m=float(mshkf_params.get("fuzzy_m", 2.0)),  # type: ignore[arg-type]
+            learning_rate=float(mshkf_params.get("fuzzy_learning_rate", 0.05)),  # type: ignore[arg-type]
             min_pts_support=15,
             feature_dim=3,
         )
 
         mshkf = ModifiedSageHusaKalmanFilter(
             x0=x0_val,
-            P0=mshkf_params.get("P0", 1.0),
+            P0=float(mshkf_params.get("P0", 1.0)),  # type: ignore[arg-type]
             Q_regimes=q_regimes,
             b_regimes=b_regimes,
-            r0=mshkf_params.get("r0", 0.0),
-            R0=mshkf_params.get("R0", 1.0),
+            r0=float(mshkf_params.get("r0", 0.0)),  # type: ignore[arg-type]
+            R0=float(mshkf_params.get("R0", 1.0)),  # type: ignore[arg-type]
             fuzzy_engine=fuzzy_engine,
         )
 
-        filt_vals = np.array([mshkf.step(z) for z in raw_vals], dtype=np.float64)
+        filt_vals: np.ndarray = np.asarray([mshkf.step(z) for z in raw_vals], dtype=np.float64)
 
         filt_col = f"{ch}_Filtered"
-        out_df[filt_col] = filt_vals
+        out_df[filt_col] = filt_vals.tolist()  # convert ndarray -> list to satisfy DataFrame.__setitem__ overload
         filter_instances[ch] = mshkf
 
         # Verification per channel
@@ -190,8 +190,8 @@ def run_d02_pipeline(
 
     for col_a, col_b in pairs:
         pair_key = f"{col_a} vs {col_b}"
-        raw_res = compute_pearson_correlation(df_raw[col_a].to_numpy(), df_raw[col_b].to_numpy())
-        filt_res = compute_pearson_correlation(out_df[f"{col_a}_Filtered"].to_numpy(), out_df[f"{col_b}_Filtered"].to_numpy())
+        raw_res = compute_pearson_correlation(np.asarray(df_raw[col_a].to_numpy(), dtype=np.float64), np.asarray(df_raw[col_b].to_numpy(), dtype=np.float64))
+        filt_res = compute_pearson_correlation(np.asarray(out_df[f"{col_a}_Filtered"].to_numpy(), dtype=np.float64), np.asarray(out_df[f"{col_b}_Filtered"].to_numpy(), dtype=np.float64))
 
         raw_correlations[pair_key] = raw_res
         filtered_correlations[pair_key] = filt_res

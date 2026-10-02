@@ -74,12 +74,12 @@ class FuzzyClusteringEngine:
             max_clusters: Safety upper bound on active clusters to prevent unbounded memory growth.
             feature_dim: Dimension of the RSSI feature vector [z_k, Delta z_k, sigma_k] (default: 3).
         """
-        self.c = int(n_clusters)
+        self.c = n_clusters
         self.m = float(m)
         self.sigma = float(learning_rate)
-        self.min_pts_support = int(min_pts_support)
-        self.max_clusters = int(max_clusters)
-        self.dim = int(feature_dim)
+        self.min_pts_support = min_pts_support
+        self.max_clusters = max_clusters
+        self.dim = feature_dim
 
         self.v = np.zeros((self.c, self.dim), dtype=np.float64)
         self.F = np.zeros((self.c, self.dim, self.dim), dtype=np.float64)
