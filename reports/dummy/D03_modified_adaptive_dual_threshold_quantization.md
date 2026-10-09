@@ -35,11 +35,11 @@ The quantization engine follows strictly the **Modified Adaptive Dual-Threshold 
 ## 2. Input Dataset & Filtering Context
 
 - **Source Input:** Filtered RSSI output from Milestone D02 ([`results/dummy/d02_mshkf_filtered.csv`](../../results/dummy/d02_mshkf_filtered.csv)).
-- **Input Channels:**
-  - `Alice_Filtered` ($\mu = -77.080\text{ dBm}, \sigma = 0.463\text{ dBm}$)
-  - `Bob_Filtered` ($\mu = -76.146\text{ dBm}, \sigma = 0.506\text{ dBm}$)
-  - `Eve1-Alice_Filtered` ($\mu = -30.001\text{ dBm}, \sigma = 0.340\text{ dBm}$)
-  - `Eve1-Bob_Filtered` ($\mu = -82.167\text{ dBm}, \sigma = 0.853\text{ dBm}$)
+- **Input Channels (Active MSHAKF Configuration C1):**
+  - `Alice_Filtered` ($\mu = -77.287\text{ dBm}, \sigma = 0.287\text{ dBm}$)
+  - `Bob_Filtered` ($\mu = -76.258\text{ dBm}, \sigma = 0.341\text{ dBm}$)
+  - `Eve1-Alice_Filtered` ($\mu = -29.878\text{ dBm}, \sigma = 0.234\text{ dBm}$)
+  - `Eve1-Bob_Filtered` ($\mu = -82.435\text{ dBm}, \sigma = 0.463\text{ dBm}$)
 - **Sample Length:** Exactly $N = 500$ aligned samples across all 4 channels.
 
 ---
@@ -83,39 +83,43 @@ $$\text{KGR}_{\text{bps}} = \frac{n_{\text{bits}}}{T_{\text{duration}}}, \quad \
 
 | Channel | Mean $\mu$ (dBm) | Std Dev $\sigma$ (dBm) | Lower $q^-$ (dBm) | Upper $q^+$ (dBm) | Level 0 ($< q^-$) | Level 1 (Interm.) | Level 2 ($> q^+$) | Retained Samples | Discarded Samples |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Alice** | -77.080 | 0.463 | -77.312 | -76.848 | 143 (28.6%) | 205 (41.0%) | 152 (30.4%) | **500 (100%)** | **0 (0%)** |
-| **Bob** | -76.146 | 0.506 | -76.399 | -75.893 | 187 (37.4%) | 144 (28.8%) | 169 (33.8%) | **500 (100%)** | **0 (0%)** |
-| **Eve1-Alice**| -30.001 | 0.340 | -30.171 | -29.831 | 155 (31.0%) | 165 (33.0%) | 180 (36.0%) | **500 (100%)** | **0 (0%)** |
-| **Eve1-Bob** | -82.167 | 0.853 | -82.593 | -81.740 | 156 (31.2%) | 181 (36.2%) | 163 (32.6%) | **500 (100%)** | **0 (0%)** |
+| **Alice** | -77.287 | 0.287 | -77.431 | -77.143 | 133 (26.6%) | 205 (41.0%) | 162 (32.4%) | **500 (100%)** | **0 (0%)** |
+| **Bob** | -76.258 | 0.341 | -76.429 | -76.088 | 179 (35.8%) | 147 (29.4%) | 174 (34.8%) | **500 (100%)** | **0 (0%)** |
+| **Eve1-Alice**| -29.878 | 0.234 | -29.995 | -29.761 | 189 (37.8%) | 131 (26.2%) | 180 (36.0%) | **500 (100%)** | **0 (0%)** |
+| **Eve1-Bob** | -82.435 | 0.463 | -82.667 | -82.203 | 171 (34.2%) | 162 (32.4%) | 167 (33.4%) | **500 (100%)** | **0 (0%)** |
 
 *Sample Retention:* Modified ADQ retains **$100\%$ ($500/500$)** of samples across all channels, avoiding data discarding.
 
 ### 4.2 Key Agreement Rate (KAR) Across Channel Pairs ($\alpha = 0.5$)
 
-| Channel Pair | Link Type | 2-bit Modified ADQ KAR | 4-bit Modified ADQ KAR |
-| :--- | :--- | :--- | :--- |
-| **Alice vs Bob** | **Legitimate Reciprocal** | **0.8430** ($843/1000$ bits) | **0.9215** ($1843/2000$ bits) |
-| **Alice vs Eve1-Alice** | Eavesdropper | **0.5140** ($514/1000$ bits) | **0.7570** ($1514/2000$ bits) |
-| **Bob vs Eve1-Bob** | Eavesdropper | **0.5020** ($502/1000$ bits) | **0.7615** ($1523/2000$ bits) |
+| Channel Pair | Link Type | 2-bit Modified ADQ KAR | 4-bit Modified ADQ KAR | Matching Bits (2b / 4b) | Mismatches (2b / 4b) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Alice vs Bob** | **Legitimate Reciprocal** | **0.8840** | **0.9420** | **884 / 1,884** | **116 / 116** |
+| **Alice vs Eve1-Alice** | Eavesdropper | **0.5880** | **0.7940** | **588 / 1,588** | **412 / 412** |
+| **Bob vs Eve1-Bob** | Eavesdropper | **0.5470** | **0.7735** | **547 / 1,547** | **453 / 453** |
 
-#### Physical Layer Security Assessment
-- **Legitimate Reciprocity:** Under 2-bit Modified ADQ, Alice and Bob achieve $\text{KAR} = 84.30\%$ ($92.15\%$ in 4-bit), providing high initial agreement well within the error-correcting capability of downstream BCH codes.
-- **Eavesdropper Spatial Decorrelation:** The eavesdropper links yield $\text{KAR}_{\text{Alice-Eve1}} = 51.40\%$ and $\text{KAR}_{\text{Bob-Eve1}} = 50.20\%$, which are statistically indistinguishable from random guessing ($50.0\%$), confirming effective physical layer secrecy.
+> [!NOTE]
+> **Historical Note on Prior Report Metrics (0.8430 / 0.9215):**
+> An earlier version of this report documented Alice–Bob $\text{KAR} = 0.8430$ ($843/1000$ bits) for 2-bit and $0.9215$ ($1843/2000$ bits) for 4-bit, both with $157$ mismatches. That earlier baseline was computed against preliminary D02 filtering ($r \approx 0.86$) prior to commit `9043f14`. When commit `9043f14` upgraded D02 to pure MSHAKF Configuration C1 ($b=0.98, Q=0.001$, raising channel reciprocity to $r = 0.9172$), re-quantizing produced the current active metrics ($\text{KAR} = 0.8840$ / $0.9420$, $116$ mismatches) recorded above.
+
+#### Descriptive Dataset-Specific Channel Comparison
+- **Legitimate Reciprocity:** Under the active MSHAKF C1 filtered inputs, Alice and Bob achieve high initial agreement ($\text{KAR} = 88.40\%$ in 2-bit, $94.20\%$ in 4-bit, with exactly 116 bit mismatches).
+- **Descriptive Comparison with Eavesdropper:** In this experimental dataset, the legitimate pair exhibits substantially higher agreement than the measured eavesdropper links (Alice vs Eve1-Alice: $58.80\%$ in 2-bit, $79.40\%$ in 4-bit; Bob vs Eve1-Bob: $54.70\%$ in 2-bit, $77.35\%$ in 4-bit). While this comparison demonstrates that the eavesdropper experiences significantly degraded bit agreement in this specific geometry, it is a descriptive observation on the collected traces rather than a formal proof of spatial decorrelation or universal physical-layer secrecy across arbitrary eavesdropper locations.
 
 ### 4.3 Sensitivity Analysis across Multiplier $\alpha$ (Alice vs Bob)
 
 | $\alpha$ | 2-bit KAR | 4-bit KAR | Generated Bits (2b / 4b) | Retained Samples | Discarded Samples |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 0.1 | 0.7930 | 0.8965 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| 0.2 | 0.7990 | 0.8995 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| 0.3 | 0.8080 | 0.9040 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| 0.4 | 0.8200 | 0.9100 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| **0.5 (Default)** | **0.8430** | **0.9215** | **1000 / 2000** | **500 (100%)** | **0 (0%)** |
-| 0.6 | 0.8590 | 0.9295 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| 0.7 | 0.8940 | 0.9470 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| 0.8 | 0.9090 | 0.9545 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| 0.9 | 0.9130 | 0.9565 | 1000 / 2000 | 500 (100%) | 0 (0%) |
-| 1.0 | 0.9160 | 0.9580 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 0.1 | 0.8490 | 0.9245 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 0.2 | 0.8620 | 0.9310 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 0.3 | 0.8660 | 0.9330 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 0.4 | 0.8710 | 0.9355 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| **0.5 (Default)** | **0.8840** | **0.9420** | **1000 / 2000** | **500 (100%)** | **0 (0%)** |
+| 0.6 | 0.9210 | 0.9605 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 0.7 | 0.9310 | 0.9655 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 0.8 | 0.9250 | 0.9625 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 0.9 | 0.9230 | 0.9615 | 1000 / 2000 | 500 (100%) | 0 (0%) |
+| 1.0 | 0.9150 | 0.9575 | 1000 / 2000 | 500 (100%) | 0 (0%) |
 
 ---
 

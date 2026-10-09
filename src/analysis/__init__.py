@@ -15,6 +15,29 @@ from .quantization import (
     compute_key_agreement_rate,
     compute_key_generation_rate,
 )
+from .lfsr import (
+    GaloisLFSR,
+    ExpansionResult,
+    BlockExpansionDetail,
+    SampleExpansionDetail,
+    PerSampleExpansionResult,
+    expand_bitstream_blocks,
+    expand_sample_sequences,
+    compute_expansion_agreement_metrics,
+    compute_per_sample_agreement_metrics,
+    create_sample_lfsr,
+    get_per_sample_symbol_mapping,
+    taps_to_tap_mask,
+    DEGREE_2,
+    DEGREE_2_TAPS,
+    DEGREE_2_TAP_MASK,
+    DEGREE_4,
+    DEGREE_4_TAPS,
+    DEGREE_4_TAP_MASK,
+    DEFAULT_DEGREE,
+    DEFAULT_POLYNOMIAL_TAPS,
+    DEFAULT_TAP_MASK,
+)
 from .visualization import (
     generate_d01_figures,
     generate_d02_figures,
@@ -24,6 +47,9 @@ from .visualization import (
     plot_quantization_levels_distribution,
     plot_quantization_symbol_timeline,
     plot_quantization_thresholds_overlay,
+    plot_lfsr_kar_expansion_comparison,
+    plot_lfsr_ber_vs_length,
+    plot_lfsr_block_analysis,
 )
 
 __all__ = [
@@ -37,7 +63,27 @@ __all__ = [
     "ModifiedSageHusaKalmanFilter",
     "ModifiedAdaptiveDualThresholdQuantizer",
     "QuantizationResult",
-
+    "GaloisLFSR",
+    "ExpansionResult",
+    "BlockExpansionDetail",
+    "SampleExpansionDetail",
+    "PerSampleExpansionResult",
+    "expand_bitstream_blocks",
+    "expand_sample_sequences",
+    "compute_expansion_agreement_metrics",
+    "compute_per_sample_agreement_metrics",
+    "create_sample_lfsr",
+    "get_per_sample_symbol_mapping",
+    "taps_to_tap_mask",
+    "DEGREE_2",
+    "DEGREE_2_TAPS",
+    "DEGREE_2_TAP_MASK",
+    "DEGREE_4",
+    "DEGREE_4_TAPS",
+    "DEGREE_4_TAP_MASK",
+    "DEFAULT_DEGREE",
+    "DEFAULT_POLYNOMIAL_TAPS",
+    "DEFAULT_TAP_MASK",
     "compute_key_agreement_rate",
     "compute_bit_error_rate",
     "compute_key_generation_rate",
@@ -45,6 +91,7 @@ __all__ = [
     "plot_quantization_symbol_timeline",
     "plot_quantization_levels_distribution",
     "plot_kar_comparison_bar",
+    "plot_lfsr_kar_expansion_comparison",
+    "plot_lfsr_ber_vs_length",
+    "plot_lfsr_block_analysis",
 ]
-
-

@@ -1,7 +1,7 @@
 # Project Progress Tracker: RSSI PRBS SKG
 
 ## Project Overview
-Physical Layer Secret Key Generation (SKG) using wireless Received Signal Strength Indicator (RSSI) preprocessing, Adaptive Quantization, BCH Error Correction, Galois LFSR PRBS Expansion, and SHA-256 Privacy Amplification for ESP32/LoRa platforms.
+Physical Layer Secret Key Generation (SKG) using wireless Received Signal Strength Indicator (RSSI) preprocessing, Adaptive Quantization, Galois LFSR PRBS Expansion, BCH Error Correction, and SHA-256 Privacy Amplification for ESP32/LoRa platforms.
 
 ---
 
@@ -12,10 +12,10 @@ Physical Layer Secret Key Generation (SKG) using wireless Received Signal Streng
 | **Dummy Pipeline** | **D00** | **Dummy RSSI Data Validation** | **COMPLETED** | [`reports/dummy/D00_data_validation.md`](dummy/D00_data_validation.md), [`results/dummy/validation_results.json`](../results/dummy/validation_results.json) |
 | **Dummy Pipeline** | **D01** | **Pearson Correlation Baseline** | **COMPLETED** | [`reports/dummy/D01_pearson_correlation.md`](dummy/D01_pearson_correlation.md), [`results/dummy/d01_pearson_correlation.json`](../results/dummy/d01_pearson_correlation.json) |
 | **Dummy Pipeline** | **D02** | **Modified Sage-Husa Kalman Filter** | **COMPLETED** | [`reports/dummy/D02_modified_sage_husa_kalman_filter.md`](dummy/D02_modified_sage_husa_kalman_filter.md), [`results/dummy/d02_mshkf_filtered.csv`](../results/dummy/d02_mshkf_filtered.csv) |
-| **Dummy Pipeline** | **D02.2** | **Empirical AKF Parameter Calibration** | **COMPLETED** | [`reports/dummy/D02_2_empirical_parameter_calibration.md`](dummy/D02_2_empirical_parameter_calibration.md), [`results/dummy/d02_2_mshkf_filtered.csv`](../results/dummy/d02_2_mshkf_filtered.csv) |
 | **Dummy Pipeline** | **D03** | **Modified Adaptive Dual-Threshold Quantization (ADQ)** | **COMPLETED** | [`reports/dummy/D03_modified_adaptive_dual_threshold_quantization.md`](dummy/D03_modified_adaptive_dual_threshold_quantization.md), [`results/dummy/d03_quantized_bits.csv`](../results/dummy/d03_quantized_bits.csv) |
-| Dummy Pipeline | **D04** | **BCH / Information Reconciliation** | **NEXT TASK** | Pending |
-| Dummy Pipeline | D05 | PRBS / Galois LFSR Randomness Enhancement | PENDING | Pending |
+| **Dummy Pipeline** | **D04.0**| **Pure Galois LFSR PRBS Bit Expansion** | **COMPLETED** | [`reports/dummy/D04_galois_lfsr_expansion.md`](dummy/D04_galois_lfsr_expansion.md), [`results/dummy/d04_expanded_bits.csv`](../results/dummy/d04_expanded_bits.csv) |
+| Dummy Pipeline | **D04.1**| **BCH / Information Reconciliation** | **NEXT TASK** | Pending |
+| Dummy Pipeline | D05 | Galois LFSR Expansion (Post-Reconciliation) | PENDING | Pending |
 | Dummy Pipeline | D06 | SHA-256 Privacy Amplification | PENDING | Pending |
 | Dummy Pipeline | D07 | Key Verification / AES Demo | PENDING | Pending |
 | Dummy Pipeline | D08 | NIST SP 800-22 Randomness Testing | PENDING | Pending |
@@ -48,38 +48,6 @@ Physical Layer Secret Key Generation (SKG) using wireless Received Signal Streng
 - **Verification:** All 25 tests pass (`pytest`), Excel SHA-256 unchanged, 500-sample alignment preserved.
 - **Deliverables:** [`results/dummy/d02_mshkf_filtered.csv`](../results/dummy/d02_mshkf_filtered.csv), [`results/dummy/d02_mshkf_results.json`](../results/dummy/d02_mshkf_results.json), figures in `results/dummy/figures/d02/`.
 
-### D02.2 — Empirical AKF Parameter Calibration
-- **Status:** COMPLETED (PASS)
-- **Purpose:** Replaces the heuristic, uniform Configuration C1 initial priors from D02 with data-driven empirical parameter calibration derived independently for each of the four RSSI channels (`Alice`, `Bob`, `Eve1-Alice`, `Eve1-Bob`).
-- **Temporal Calibration / Held-out Split:**
-  - First 60% ($k = 0 \dots 299$, $N_{\text{cal}} = 300$): Calibration prefix used for RTS reference construction and parameter estimation.
-  - Last 40% ($k = 300 \dots 499$, $N_{\text{eval}} = 200$): Held-out evaluation split for unbiased out-of-sample testing.
-  - Reference trajectory $x_{\text{ref}}$ constructed strictly inside $k = 0 \dots 299$ using Rauch-Tung-Striebel (RTS) backward recursion anchored at $x_{\text{ref}}[299] = \hat{x}[299|299]$ with non-circular $Q_{\text{ref}}[k] = Q_k^{\text{D02}}$. No backward smoothing across the split boundary.
-- **Calibrated Parameters (Independent per channel):**
-  - $x_0 = \text{mean}(x_{\text{ref}})$
-  - $P_0 = \text{Var}(x_{\text{ref}})$
-  - $e_k = z_k - x_{\text{ref}}[k]$, $r_0 = \text{mean}(e_k)$, $R_0 = \text{Var}(e_k - r_0)$
-  - $q_k = x_{\text{ref}}[k+1] - x_{\text{ref}}[k]$, $Q_{\text{stable}} = \text{Var}_{k \in S}(q_k)$, $Q_{\text{dynamic}} = \text{Var}_{k \in D}(q_k)$
-  - $(b_{\text{stable}}, b_{\text{dynamic}})$ optimized via bounded grid search minimizing RMSE against $x_{\text{ref}}$ over the calibration prefix.
-- **Preserved Non-Target Fuzzy Pipeline:**
-  - $c = 2$ initial active clusters, $c_{\text{max}} = 5$ cluster growth ceiling.
-  - Covariance prototypes: $F_0 = \text{diag}([2.0, 1.0, 0.5]), F_1 = \text{diag}([5.0, 4.0, 1.5])$.
-  - Cluster radii: $\text{radius}_0 = 3.0, \text{radius}_1 = 4.0$.
-  - Hyperparameters: $m = 2.0, \eta = 0.05, w = 5, N_{\text{min\_pts}} = 15$.
-  - Initial centers shifted consistently with calibrated $x_0$: $v_0 = [x_0, 0.0, 0.3]^T, v_1 = [x_0, 2.0, 1.5]^T$.
-- **Key Correlation Results:**
-  - **Full-Trace ($n=500$):**
-    - Legitimate channel (`Alice vs Bob`): Raw $r = 0.6323 \rightarrow$ D02 $r = 0.8612 \rightarrow$ D02.2 $r = \mathbf{0.8824}$ ($\Delta r = +0.2501$ vs Raw, $+0.0212$ vs D02).
-    - Eavesdropper channels: `Alice vs Eve1-Alice` ($r = -0.0492$), `Bob vs Eve1-Bob` ($r = 0.1654$).
-  - **Primary Held-Out Evaluation ($n=200$, Samples 300–500):**
-    - Legitimate channel (`Alice vs Bob`): Raw $r = 0.6802 \rightarrow$ D02 $r = \mathbf{0.8445} \rightarrow$ D02.2 $r = 0.7423$ ($\Delta r = +0.0620$ vs Raw, $-0.1022$ vs D02).
-    - Eavesdropper channels: `Alice vs Eve1-Alice` ($r = 0.2407$), `Bob vs Eve1-Bob` ($r = 0.2737$).
-- **Methodological Conclusion:**
-  - D02.2 improves over Raw on held-out legitimate reciprocity ($0.7423$ vs $0.6802$), but underperforms D02 ($0.8445$).
-  - D02.2 is an empirical-calibration comparison rather than an overall performance improvement over D02.
-- **Verification:** 24/24 tests pass (`pytest -v`), 500 samples/channel alignment preserved, deterministic reruns verified, Excel SHA-256 unchanged.
-- **Deliverables:** [`results/dummy/d02_2_mshkf_filtered.csv`](../results/dummy/d02_2_mshkf_filtered.csv), [`results/dummy/d02_2_mshkf_results.json`](../results/dummy/d02_2_mshkf_results.json), standalone figures in `results/dummy/figures/d02_2/`, comparison figures in `results/dummy/figures/d02_vs_d02_2/`.
-
 ### D03 — Modified Adaptive Dual-Threshold Quantization (ADQ)
 - **Status:** COMPLETED (PASS)
 - **Methodology:** Implemented **Modified Adaptive Dual-Threshold Quantization (ADQ)** following LoRa-PRIME (*IEEE OJ-COMS 2026, Section IV-C*). Adaptively computes dual thresholds $q^+ = \mu + \alpha\sigma$ and $q^- = \mu - \alpha\sigma$, discretizing filtered RSSI into 3 distinct symbols ($\{0, 1, 2\}$) while preserving intermediate samples ($q^- \le X \le q^+$) as Level 1 to achieve $100\%$ sample retention ($0\%$ discarded).
@@ -91,19 +59,51 @@ Physical Layer Secret Key Generation (SKG) using wireless Received Signal Streng
 - **Key Results ($\alpha = 0.5$, $n=500$ samples):**
   - **Sample Retention:** $500/500$ ($100.0\%$) across all channels; $0$ discarded samples.
   - **Legitimate Channel (`Alice vs Bob`):**
-    - 2-bit Modified ADQ: $\text{KAR} = \mathbf{0.8430}$ ($843/1000$ bits), $\text{BER} = 0.1570$.
-    - 4-bit Modified ADQ: $\text{KAR} = \mathbf{0.9215}$ ($1843/2000$ bits), $\text{BER} = 0.0785$.
-  - **Eavesdropper Decorrelation:**
-    - `Alice vs Eve1-Alice`: 2-bit $\text{KAR} = 0.5140$, 4-bit $\text{KAR} = 0.7570$.
-    - `Bob vs Eve1-Bob`: 2-bit $\text{KAR} = 0.5020$, 4-bit $\text{KAR} = 0.7615$.
-    - Legitimate agreement significantly exceeds eavesdropper correlation, verifying physical layer security.
+    - 2-bit Modified ADQ: $\text{KAR} = \mathbf{0.8840}$ ($884/1000$ bits full stream, $116$ mismatches), $\text{BER} = 0.1160$. (Note: initial D03 report Table 4.2 documented $\text{KAR} = 0.8430$ / $157$ mismatches from earlier pre-C1 D02 iterations before commit `9043f14` raised filtered reciprocity to $r = 0.9172$).
+    - 4-bit Modified ADQ: $\text{KAR} = \mathbf{0.9420}$ ($1884/2000$ bits full stream, $116$ mismatches), $\text{BER} = 0.0580$. (Initial D03 report noted $0.9215$ / $157$ mismatches).
+  - **Descriptive Eavesdropper Comparison:**
+    - `Alice vs Eve1-Alice`: 2-bit $\text{KAR} = 0.5880$, 4-bit $\text{KAR} = 0.7940$.
+    - `Bob vs Eve1-Bob`: 2-bit $\text{KAR} = 0.5470$, 4-bit $\text{KAR} = 0.7735$.
+    - In this dataset, legitimate agreement substantially exceeds measured eavesdropper links (descriptive trace comparison rather than universal security proof).
   - **Key Generation Rate (KGR):** 2.0 bits/sample ($1000$ bits) for 2-bit; 4.0 bits/sample ($2000$ bits) for 4-bit.
-- **Verification:** 12/12 D03 tests pass; 26/26 full regression tests pass (`pytest -v`). 0 SkyGlow / baseline quantizer references.
+- **Verification:** 12/12 D03 tests pass; 25 baseline tests pass. 0 SkyGlow / baseline quantizer references.
 - **Deliverables:** [`results/dummy/d03_quantized_bits.csv`](../results/dummy/d03_quantized_bits.csv), [`results/dummy/d03_quantization_results.json`](../results/dummy/d03_quantization_results.json), figures in `results/dummy/figures/d03/`, full report in [`reports/dummy/D03_modified_adaptive_dual_threshold_quantization.md`](dummy/D03_modified_adaptive_dual_threshold_quantization.md).
+
+### D04.0 — Per-Sample Pure Galois LFSR PRBS Bit Expansion
+- **Status:** COMPLETED (PASS)
+- **Active Architecture (Per-Sample Pure Galois LFSR):**
+  - *Methodology:* Each row in [`results/dummy/d03_quantized_bits.csv`](../results/dummy/d03_quantized_bits.csv) (500 samples per channel) directly seeds an independent Galois LFSR. The LFSR state is strictly reset before every sample. Excludes sample concatenation, padding, remapping, hashing, scrambling, and BCH/D05.
+  - *Polynomial & Expansion Specifications ($m = 2^L - 1$ Full Period):*
+    - 2-bit seed $\rightarrow$ 3 output bits ($1.5\times$): Degree 2, $P(x) = x^2 + x + 1$ (taps $\{2, 1, 0\}$, mask `0b11`, period 3).
+    - 4-bit seed $\rightarrow$ 15 output bits ($3.75\times$): Degree 4, $P(x) = x^4 + x + 1$ (taps $\{4, 1, 0\}$, mask `0b0011`, period 15).
+    - Both use left shift (`<< 1`), MSB output before register update, and `msb_first` seed bit order.
+  - *Coverage & Tail:* **100% sample coverage with 0 omitted tail bits** ($500 \times 3 = 1,500$ bits for 2-bit; $500 \times 15 = 7,500$ bits for 4-bit).
+  - *Symbol Mappings & Pairwise Hamming Distances:*
+    - 2-bit: Level 0 (`"00"`) $\mapsto$ `"000"` (zero seed), Level 1 (`"01"`) $\mapsto$ `"011"`, Level 2 (`"11"`) $\mapsto$ `"101"`. Invariant: $d_H(0, 1) = d_H(0, 2) = d_H(1, 2) = \mathbf{2}$.
+    - 4-bit: Level 0 (`"1010"`) $\mapsto$ `"101111000100110"`, Level 1 (`"1011"`) $\mapsto$ `"101011110001001"`, Level 2 (`"1001"`) $\mapsto$ `"100010011010111"`. Invariant: $d_H(0, 1) = d_H(0, 2) = d_H(1, 2) = \mathbf{8}$.
+- **Key Measured Results (Active Per-Sample Full-Period Expansion, 500 Samples):**
+  - **Sample-Level Agreement:** Alice vs Bob exact sample match is **$384 / 500$ ($76.80\%$)**. Mismatches: $116 / 500$ ($23.20\%$) consisting of 70 Level 0 $\leftrightarrow$ 1 and 46 Level 1 $\leftrightarrow$ 2.
+  - **Zero Seeds:**
+    - 2-bit: Alice = 133 ($26.6\%$), Bob = 179 ($35.8\%$), Eve1-Alice = 189 ($37.8\%$), Eve1-Bob = 171 ($34.2\%$). Preserved and flagged; outputs `"000"`.
+    - 4-bit: Exactly **0 zero seeds** across all channels.
+  - **Legitimate Channel (`Alice vs Bob`):**
+    - 2-bit ADQ (2b $\rightarrow$ 3b, 1,500 bits): Pre-expansion $\text{KAR} = \mathbf{0.8840}$ ($\text{BER} = 0.1160$) $\longrightarrow$ Post-expansion $\text{KAR} = \mathbf{0.8453}$ ($\text{BER} = 0.1547$). (Exact closed form: $1,268$ matching bits, $232$ errors).
+    - 4-bit ADQ (4b $\rightarrow$ 15b, 7,500 bits): Pre-expansion $\text{KAR} = \mathbf{0.9420}$ ($\text{BER} = 0.0580$) $\longrightarrow$ Post-expansion $\text{KAR} = \mathbf{0.8763}$ ($\text{BER} = 0.1237$). (Exact closed form: $6,572$ matching bits, $928$ errors).
+  - **Eavesdropper Links:**
+    - `Alice vs Eve1-Alice`: 2-bit Post $\text{KAR} = 0.5680$ ($\text{BER} = 0.4320$); 4-bit Post $\text{KAR} = 0.6544$ ($\text{BER} = 0.3456$).
+    - `Bob vs Eve1-Bob`: 2-bit Post $\text{KAR} = 0.5373$ ($\text{BER} = 0.4627$); 4-bit Post $\text{KAR} = 0.6299$ ($\text{BER} = 0.3701$).
+- **Historical Benchmarks:**
+  - $2\times$ per-sample expansion (4b & 8b outputs) preserved in results JSON under `"historical_2x_persample"`.
+  - 32-bit blockwise expansion preserved in [`results/dummy/d04_historical_32bit_expanded_bits.csv`](../results/dummy/d04_historical_32bit_expanded_bits.csv) and results JSON under `"historical_32bit_blockwise"`.
+- **Technical & Scientific Distinctions:**
+  - Choosing $m = 2^L - 1$ is a pipeline engineering design choice, not a mandated formula from Galois.pdf.
+  - Repeated seeds produce repeated patterns; bit expansion increases stream length, not secret physical entropy.
+  - Correctness of algebraic LFSR transitions is distinct from cryptographic randomness, secrecy, and unverified downstream BCH reconciliation feasibility.
+- **Verification:** 21/21 D04 tests pass; 46/46 full regression suite pass (`pytest -v`). Upstream D03 CSV SHA-256 hash verified unmodified.
+- **Deliverables:** Source in [`src/analysis/lfsr.py`](../src/analysis/lfsr.py), runner in [`src/analysis/d04_runner.py`](../src/analysis/d04_runner.py), [`results/dummy/d04_galois_lfsr_results.json`](../results/dummy/d04_galois_lfsr_results.json), [`results/dummy/d04_expanded_bits.csv`](../results/dummy/d04_expanded_bits.csv), [`results/dummy/d04_historical_32bit_expanded_bits.csv`](../results/dummy/d04_historical_32bit_expanded_bits.csv), figures in `results/dummy/figures/d04/`, full report in [`reports/dummy/D04_galois_lfsr_expansion.md`](dummy/D04_galois_lfsr_expansion.md).
 
 ---
 
 ## Current Project Status
-- **Completed Milestones:** D00 (Data Validation), D01 (Pearson Correlation Baseline), D02 (Adaptive Kalman Filter Preprocessing), D02.2 (Empirical AKF Parameter Calibration), D03 (Modified Adaptive Dual-Threshold Quantization)
-- **Next Active Milestone:** **D04 — Information Reconciliation (BCH Code)**
-
+- **Completed Milestones:** D00 (Data Validation), D01 (Pearson Correlation Baseline), D02 (Adaptive Kalman Filter Preprocessing), D03 (Modified Adaptive Dual-Threshold Quantization), D04.0 (Pure Galois LFSR PRBS Bit Expansion)
+- **Next Active Milestone:** **D04.1 — BCH / Information Reconciliation**
