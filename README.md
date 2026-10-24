@@ -11,16 +11,30 @@ Repositori ini menyediakan perancah (*scaffolding*) proyek Python minimal untuk 
 ```text
 PRBS_RSSI/
 ├── data/
-│   ├── dummy/
-│   │   └── 00_input/                 # Dataset dummy original (dipertahankan tanpa perubahan)
 │   └── raw/
-│       ├── dummy/                    # Salinan kerja dataset dummy untuk validasi perangkat lunak
+│       ├── dummy/                    # Dataset dummy untuk validasi perangkat lunak
+│       │   ├── Dummy RSSI (data Indoor).xlsx
+│       │   └── README.md
 │       └── measured/                 # Dicadangkan untuk data pengukuran channel probing fisik empiris
+│           └── README.md
 ├── docs/                             # Catatan metodologis, referensi persamaan, dan dokumen handoff
+│   ├── methodology.md
+│   └── progress.md
 ├── outputs/                          # Artefak kalkulasi, plot, dan hasil eksekusi (diabaikan oleh Git via .gitignore)
+│   └── .gitkeep
 ├── src/
 │   └── rssi_skg/                     # Modul paket sumber utama Python (loader, correlation, plotting, cli)
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── cli.py
+│       ├── correlation.py
+│       ├── loader.py
+│       └── plotting.py
 ├── tests/                            # Pengujian unit dan validasi software
+│   ├── __init__.py
+│   ├── test_correlation.py
+│   ├── test_loader.py
+│   └── test_plotting.py
 ├── .gitignore                        # Konfigurasi pengabaian file cache, venv, dan outputs
 ├── PA.pdf                            # Dokumen acuan metodologis utama
 ├── pyproject.toml                    # Metadata proyek Python minimal (PEP 517/621)
@@ -29,12 +43,11 @@ PRBS_RSSI/
 
 ### Rincian Tanggung Jawab
 - `src/rssi_skg/`: Tempat kode pustaka Python untuk pipeline SKG (modul `loader`, `correlation`, `plotting`, dan `cli`).
-- `tests/`: Tempat pengujian otomatis (*unit tests*) untuk memastikan kebenaran algoritma dan integritas transformasi data.
-- `data/raw/dummy/`: Tempat salinan data dummy untuk keperluan validasi software. Berisi `Dummy RSSI (data Indoor).xlsx`.
-- `data/raw/measured/`: Folder cadangan khusus untuk data hasil pengukuran channel nirkabel riil (channel probing fisik).
-- `data/dummy/00_input/`: Menyimpan file asli dari data dummy indoor yang tetap dipertahankan secara utuh (*unchanged*).
+- `tests/`: Tempat pengujian otomatis (*unit tests*) untuk memastikan kebenaran algoritma dan integritas transformasi data (`test_correlation.py`, `test_loader.py`, `test_plotting.py`).
+- `data/raw/dummy/`: Tempat dataset dummy untuk keperluan validasi software. Berisi `Dummy RSSI (data Indoor).xlsx` dan dokumentasi lokal `README.md`.
+- `data/raw/measured/`: Folder cadangan khusus untuk data hasil pengukuran channel nirkabel riil (channel probing fisik empiris).
 - `outputs/`: Menyimpan output kalkulasi, visualisasi, dan laporan. Dikecualikan dari pelacakan Git kecuali `.gitkeep`.
-- `docs/`: Dokumentasi teknis, rujukan persamaan matematika dari literatur, log keputusan riset, dan *handoff* ([docs/progress.md](docs/progress.md)).
+- `docs/`: Dokumentasi teknis, rujukan persamaan matematika dari literatur, log keputusan riset (`methodology.md`), dan ringkasan *handoff* ([docs/progress.md](docs/progress.md)).
 
 ---
 
