@@ -10,7 +10,8 @@
   - Alasan tidak mengadaptasi $Q$ via Persamaan (3.20): Implementasi ini secara spesifik mengikuti asumsi akhir dalam `PA.pdf` Bagian 3.2.2 (halaman 27), di mana kovariansi *process noise* $Q$ diasumsikan bernilai konstan/diketahui (*known prior*), sehingga kovariansi *measurement noise* $\hat{R}_k$ diestimasi secara adaptif online dan pembaruan adaptif $Q$ pada Persamaan (3.20) tidak dijalankan.
   - Kebijakan indeks sampel: $x_0 = z_0$ menetapkan baseline awal tanpa bias transient dan tidak dimasukkan ke dalam pembaruan pengukuran inovasi, mencegah *double-counting*.
 - **Tahap Korelasi**: Koefisien korelasi Pearson *zero lag* sesuai **Persamaan (3.62), halaman 34**:
-```math
+
+$$
 \rho_{u,v} =
 \frac{
 \sum_{n=1}^{N}
@@ -20,14 +21,15 @@
 \sqrt{\sum_{n=1}^{N}\left(X_u(n)-\mu_u\right)^2}
 \sqrt{\sum_{n=1}^{N}\left(X_v(n)-\mu_v\right)^2}
 }
-```
-  Di mana:
-  - $X_u(n)$: Nilai sampel RSSI kanal $u$ pada indeks observasi $n$.
-  - $X_v(n)$: Nilai sampel RSSI kanal $v$ pada indeks observasi $n$.
-  - $\mu_u$: Rerata sampel RSSI kanal $u$ ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
-  - $\mu_v$: Rerata sampel RSSI kanal $v$ ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
-  - $N$: Jumlah total pasangan observasi ($N = 500$ pada dataset dummy validasi).
-  *(Catatan: Notasi $u, v$ ini ekuivalen secara matematis dengan notasi $X, Y$ sebelumnya).*
+$$
+
+Di mana:
+- $X_u(n)$: Nilai sampel RSSI kanal $u$ pada indeks observasi $n$.
+- $X_v(n)$: Nilai sampel RSSI kanal $v$ pada indeks observasi $n$.
+- $\mu_u$: Rerata sampel RSSI kanal $u$ ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
+- $\mu_v$: Rerata sampel RSSI kanal $v$ ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
+- $N$: Jumlah total pasangan observasi ($N = 500$ pada dataset dummy validasi).
+*(Catatan: Notasi $u, v$ ini ekuivalen secara matematis dengan notasi $X, Y$ sebelumnya).*
 
 ## Sumber & Karakteristik Data
 1. **Dummy Data**:

@@ -6,7 +6,8 @@ This research project develops a physical-layer Secret Key Generation (SKG) pipe
 The project currently implements two key sequential stages:
 1. **RSSI Filtering Stage**: Modified Sage–Husa Adaptive Kalman Filter (MSHKF) based on **`PA.pdf`, Section 3.2.2, Equations (3.10)–(3.20), pages 26–27**.
 2. **Zero-Lag Pearson Correlation Analysis**: As defined in **`PA.pdf`, Equation (3.62), page 34**:
-```math
+
+$$
 \rho_{u,v} =
 \frac{
 \sum_{n=1}^{N}
@@ -16,14 +17,15 @@ The project currently implements two key sequential stages:
 \sqrt{\sum_{n=1}^{N}\left(X_u(n)-\mu_u\right)^2}
 \sqrt{\sum_{n=1}^{N}\left(X_v(n)-\mu_v\right)^2}
 }
-```
-   Where:
-   - $X_u(n)$: RSSI sample value of channel $u$ at observation index $n$.
-   - $X_v(n)$: RSSI sample value of channel $v$ at observation index $n$.
-   - $\mu_u$: Sample mean of RSSI channel $u$ over $N$ observations ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
-   - $\mu_v$: Sample mean of RSSI channel $v$ over $N$ observations ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
-   - $N$: Total number of observation pairs ($N = 500$ in validation dummy dataset).
-   *(Note: The $u, v$ notation is mathematically equivalent to the previous $X, Y$ notation).*
+$$
+
+Where:
+- $X_u(n)$: RSSI sample value of channel $u$ at observation index $n$.
+- $X_v(n)$: RSSI sample value of channel $v$ at observation index $n$.
+- $\mu_u$: Sample mean of RSSI channel $u$ over $N$ observations ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
+- $\mu_v$: Sample mean of RSSI channel $v$ over $N$ observations ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
+- $N$: Total number of observation pairs ($N = 500$ in validation dummy dataset).
+*(Note: The $u, v$ notation is mathematically equivalent to the previous $X, Y$ notation).*
 
 **Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic indoor dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance.
 
