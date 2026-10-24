@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rssi-skg"
+version = "0.1.0"
+description = "Research scaffolding for RSSI-based Secret Key Generation (SKG)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Research Scaffolding" }
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+analysis = [
+    "numpy>=1.23",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "openpyxl>=3.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
