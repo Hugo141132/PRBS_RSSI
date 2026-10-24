@@ -2,6 +2,8 @@
 
 Repositori ini menyediakan perancah (*scaffolding*) proyek Python minimal untuk penelitian Secret Key Generation (SKG) berbasis Received Signal Strength Indicator (RSSI).
 
+> **Dokumen Handoff Progres**: Lihat [docs/progress.md](docs/progress.md) untuk ringkasan mandiri status proyek, hasil validasi korelasi, dan instruksi reproduksi.
+
 ---
 
 ## Struktur Direktori & Tanggung Jawab Folder
@@ -14,10 +16,10 @@ PRBS_RSSI/
 │   └── raw/
 │       ├── dummy/                    # Salinan kerja dataset dummy untuk validasi perangkat lunak
 │       └── measured/                 # Dicadangkan untuk data pengukuran channel probing fisik empiris
-├── docs/                             # Catatan metodologis, referensi persamaan, dan arsitektur riset
+├── docs/                             # Catatan metodologis, referensi persamaan, dan dokumen handoff
 ├── outputs/                          # Artefak kalkulasi, plot, dan hasil eksekusi (diabaikan oleh Git via .gitignore)
 ├── src/
-│   └── rssi_skg/                     # Modul paket sumber utama Python (placeholder scaffolding)
+│   └── rssi_skg/                     # Modul paket sumber utama Python (loader, correlation, plotting, cli)
 ├── tests/                            # Pengujian unit dan validasi software
 ├── .gitignore                        # Konfigurasi pengabaian file cache, venv, dan outputs
 ├── PA.pdf                            # Dokumen acuan metodologis utama
@@ -26,13 +28,13 @@ PRBS_RSSI/
 ```
 
 ### Rincian Tanggung Jawab
-- `src/rssi_skg/`: Tempat kode pustaka Python untuk pipeline SKG (misalnya pembersihan data, kalkulasi korelasi, kuantisasi, dsb.). Saat ini hanya memuat `__init__.py`.
+- `src/rssi_skg/`: Tempat kode pustaka Python untuk pipeline SKG (modul `loader`, `correlation`, `plotting`, dan `cli`).
 - `tests/`: Tempat pengujian otomatis (*unit tests*) untuk memastikan kebenaran algoritma dan integritas transformasi data.
 - `data/raw/dummy/`: Tempat salinan data dummy untuk keperluan validasi software. Berisi `Dummy RSSI (data Indoor).xlsx`.
 - `data/raw/measured/`: Folder cadangan khusus untuk data hasil pengukuran channel nirkabel riil (channel probing fisik).
 - `data/dummy/00_input/`: Menyimpan file asli dari data dummy indoor yang tetap dipertahankan secara utuh (*unchanged*).
 - `outputs/`: Menyimpan output kalkulasi, visualisasi, dan laporan. Dikecualikan dari pelacakan Git kecuali `.gitkeep`.
-- `docs/`: Dokumentasi teknis, rujukan persamaan matematika dari literatur, dan log keputusan riset.
+- `docs/`: Dokumentasi teknis, rujukan persamaan matematika dari literatur, log keputusan riset, dan *handoff* ([docs/progress.md](docs/progress.md)).
 
 ---
 
@@ -51,18 +53,79 @@ PRBS_RSSI/
 
 ---
 
-## Rencana Tahap Korelasi (Planned Correlation Stage)
+---
 
-- **Referensi Metodologis**: Mengacu pada dokumen `PA.pdf`.
-- **Formulasi**: Implementasi kalkulasi berikutnya akan menerapkan koefisien korelasi Pearson berdasarkan **Persamaan (3.62), halaman 34**:
+## Implementasi Tahap Korelasi (Pearson Correlation Stage)
+
+- **Referensi Metodologis**: Mengacu pada dokumen `PA.pdf`, **Persamaan (3.62), halaman 34**:
   $$\rho_{X, Y} = \frac{\sum_{i=1}^{n} (X_i - \bar{X})(Y_i - \bar{Y})}{\sqrt{\sum_{i=1}^{n} (X_i - \bar{X})^2} \sqrt{\sum_{i=1}^{n} (Y_i - \bar{Y})^2}}$$
-- **Catatan & Syarat Validasi**:
-  Sebelum kalkulasi korelasi diimplementasikan, **konfirmasi penyejajaran sampel baris-ke-baris (*row-wise sample alignment*)** wajib diverifikasi terlebih dahulu untuk memastikan sinkronisasi waktu/urutan probe antara pasangan sah (Alice-Bob) dan penyerang (Eve).
+- **Sifat Analisis**: Korelasi Pearson dihitung pada *zero lag* (bukan *lag-search cross-correlation*).
+- **Pasangan Kanal yang Dihitung**:
+  1. `Alice–Bob`: Estimasi resiprositas antara pasangan sah.
+  2. `Alice–Eve1-Alice`: Korelasi antara transmisi Alice dan penyadapan oleh Eve.
+  3. `Bob–Eve1-Bob`: Korelasi antara transmisi Bob dan penyadapan oleh Eve.
+- **Integritas Sampel**:
+  - Penyejajaran sampel baris-ke-baris (*row-wise sample alignment*) terkonfirmasi mewakili indeks observasi yang sama untuk seluruh kolom. Urutan baris dipertahankan secara utuh.
+  - Validasi ketat menolak nilai *missing*, non-numerik, atau non-terhingga (*NaN/Inf*) dengan pelaporan nomor baris dan nama kolom secara spesifik.
+  - Deret bernilai konstan (variansi nol) diperlakukan sebagai korelasi tak terdefinisi (*undefined*) dan menghasilkan pesan kesalahan eksplisit.
+  - Jumlah observasi tidak dikunci pada 500 (mendukung sembarang $N \ge 2$).
 
 ---
 
-## Ruang Lingkup Saat Ini
+## Petunjuk Penyiapan Lingkungan & Eksekusi
 
-Proyek ini berada pada tahap **scaffolding awal**:
-- Tidak ada instalasi dependensi runtime pada sistem.
-- Tidak memuat implementasi algoritma korelasi, dashboard, basis data, komunikasi MQTT, atau modul pipeline tingkat lanjut.
+Petunjuk eksekusi dari *root repository* pada Windows PowerShell menggunakan eksekutor langsung `.\.venv\Scripts\python.exe` sehingga aktivasi manual bersifat opsional:
+
+### 1. Inisialisasi Lingkungan Virtual Lokal (.venv)
+Gunakan *virtual environment* lokal proyek (bukan instalasi paket global):
+
+```powershell
+# Membuat virtual environment lokal
+python -m venv .venv
+
+# (Opsional) Mengaktifkan virtual environment di PowerShell
+.\.venv\Scripts\Activate.ps1
+
+# Memasang proyek dan seluruh dependensi pengembangan dalam mode editable
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+### 2. Menjalankan Pengujian Unit (*Unit Tests*)
+Pengujian mencakup korelasi sempurna (+1.0 dan -1.0), ortogonal/nol, deret konstan, panjang tidak sama, kolom hilang, nilai tidak valid, preservasi urutan baris, agregasi titik identik untuk scatter bubble, pembuatan gambar, serta perbandingan independen terhadap `scipy.stats.pearsonr`:
+
+```powershell
+# Menjalankan seluruh pengujian unit (19 tests)
+.\.venv\Scripts\python.exe -m pytest -v
+
+# Atau jika venv telah aktif:
+pytest -v
+```
+
+### 3. Menjalankan Analisis Korelasi via CLI
+
+#### A. Eksekusi CSV Saja (Tanpa Pembuatan Grafik)
+Gunakan opsi `-i/--input` dan `-o/--output`:
+```powershell
+.\.venv\Scripts\python.exe -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv"
+```
+
+#### B. Eksekusi Lengkap (Ekspor CSV dan Grafik PNG 300 dpi + PDF)
+Sertakan opsi `--figure-prefix` untuk mengekspor gambar grafik gabungan:
+```powershell
+.\.venv\Scripts\python.exe -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv" --figure-prefix "outputs/dummy_rssi_correlation"
+
+# Atau menggunakan console entry point yang terdaftar (jika venv aktif):
+rssi-skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv" --figure-prefix "outputs/dummy_rssi_correlation"
+```
+
+### 4. Lokasi File Keluaran (*Outputs*)
+Semua artefak yang dihasilkan tersimpan di direktori `outputs/` (diabaikan oleh Git melalui `.gitignore`, kecuali `.gitkeep`):
+- `outputs/dummy_rssi_correlation.csv`: Tabel koefisien korelasi Pearson dengan presisi penuh (`float64`) untuk ketiga pasangan kanal (`Alice–Bob`, `Alice–Eve1-Alice`, `Bob–Eve1-Bob`), jumlah sampel ($N=500$), dan kolom `data_kind`.
+- `outputs/dummy_rssi_correlation.png`: Grafik gabungan visualisasi korelasi resolusi tinggi (300 dpi) yang memuat *horizontal bar chart* di bagian atas dan 3 panel *bubble scatter* di bawahnya.
+- `outputs/dummy_rssi_correlation.pdf`: Grafik gabungan dalam format vektor PDF untuk dokumen/laporan penelitian.
+
+---
+
+## Batasan & Peringatan Metodologis
+
+Hasil analisis ini adalah untuk **validasi perangkat lunak (software verification)** menggunakan data dummy sintetis. Hasil koefisien korelasi yang diperoleh **tidak boleh digunakan untuk menarik kesimpulan keamanan empiris atau karakteristik propagasi kanal fisik riil**, karena pengujian *channel probing* fisik masih berstatus ditunda (*postponed*).

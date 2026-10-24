@@ -16,5 +16,7 @@
    - Status & Peran: Digunakan hanya untuk verifikasi logika kode dan pipeline pengolahan (software validation), bukan untuk generalisasi perilaku propagasi kanal riil.
 2. **Channel Probing**:
    - Status: Ditunda (*postponed*), bukan ditiadakan/digantikan. Pengukuran empiris akan menggunakan folder `data/raw/measured/`.
-3. **Item Konfirmasi Sebelum Implementasi**:
-   - *Row-wise sample alignment*: Perlu konfirmasi apakah indeks baris pada dummy dataset mencerminkan probe berurutan yang saling sinkron antar kanal (Alice-Bob vs Eve-Alice/Bob).
+3. **Konfirmasi & Status Implementasi**:
+   - *Row-wise sample alignment*: Telah dikonfirmasi bahwa setiap baris data pada dummy dataset mewakili indeks observasi waktu yang sama di keempat kolom. Urutan baris dipertahankan secara utuh tanpa modifikasi/penyusunan ulang.
+   - *Zero Lag*: Korelasi dihitung pada lag nol (tanpa pencarian pergeseran waktu lag) sesuai Persamaan (3.62).
+   - *Keluaran Validasi*: Hasil kalkulasi pada 500 sampel dummy telah tervalidasi identik dengan referensi independen `scipy.stats.pearsonr`.
