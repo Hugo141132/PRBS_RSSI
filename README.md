@@ -86,16 +86,46 @@ PRBS_RSSI/
   - **Rasionalisasi Peniadaan Update Adaptif $Q$ (Persamaan 3.20)**:
     Implementasi ini secara spesifik mengikuti asumsi pemodelan pada paragraf akhir `PA.pdf` Bagian 3.2.2 (halaman 27), di mana nilai kovariansi *process noise* $Q$ diasumsikan bernilai konstan dan telah diketahui nilainya (*known prior*), sehingga kovariansi *measurement noise* $\hat{R}_k$ diestimasi secara adaptif online dan pembaruan adaptif $Q$ pada Persamaan (3.20) tidak dijalankan.
   - **Urutan Perhitungan yang Dipelihara**:
-    1. Bobot adaptif: $D_k = \frac{D_{k-1}}{D_{k-1} + b}, \quad D_0 = 1$ (Persamaan 3.10)
-    2. Prediksi status: $\hat{X}(k|k-1) = \Phi \hat{X}_{k-1} + \hat{q}_{k-1}$ (Persamaan 3.11)
-    3. Prediksi kovariansi error: $P(k|k-1) = \Phi P_{k-1} \Phi^T + Q$ (Persamaan 3.12)
-    4. Pembaruan rerata measurement noise: $\hat{r}_k = (1 - D_k)\hat{r}_{k-1} + D_k (Z_k - H \hat{X}(k|k-1))$ (Persamaan 3.13)
-    5. Perhitungan inovasi (menggunakan $\hat{r}_k$ yang baru): $e_k = Z_k - H \hat{X}(k|k-1) - \hat{r}_k$ (Persamaan 3.14)
-    6. Pembaruan kovariansi measurement noise: $\hat{R}_k = (1 - D_k)\hat{R}_{k-1} + D_k e_k^2$ (Persamaan 3.15)
-    7. Penguatan Kalman: $K_k = \frac{P(k|k-1) H^T}{H P(k|k-1) H^T + \hat{R}_k}$ (Persamaan 3.16)
-    8. Pembaruan status: $\hat{X}_k = \hat{X}(k|k-1) + K_k e_k$ (Persamaan 3.17)
-    9. Pembaruan kovariansi error: $P_k = (1 - K_k H) P(k|k-1)$ (Persamaan 3.18)
-    10. Pembaruan rerata process noise: $\hat{q}_k = (1 - D_k)\hat{q}_{k-1} + D_k (\hat{X}_k - \Phi \hat{X}_{k-1})$ (Persamaan 3.19)
+    1. **Bobot adaptif** (Persamaan 3.10):
+       ```math
+       D_k = \frac{D_{k-1}}{D_{k-1} + b}, \quad D_0 = 1
+       ```
+    2. **Prediksi status** (Persamaan 3.11):
+       ```math
+       \hat{X}(k|k-1) = \Phi \hat{X}_{k-1} + \hat{q}_{k-1}
+       ```
+    3. **Prediksi kovariansi error** (Persamaan 3.12):
+       ```math
+       P(k|k-1) = \Phi P_{k-1} \Phi^T + Q
+       ```
+    4. **Pembaruan rerata measurement noise** (Persamaan 3.13):
+       ```math
+       \hat{r}_k = (1 - D_k)\hat{r}_{k-1} + D_k \left(Z_k - H \hat{X}(k|k-1)\right)
+       ```
+    5. **Perhitungan inovasi (menggunakan $\hat{r}_k$ yang baru)** (Persamaan 3.14):
+       ```math
+       e_k = Z_k - H \hat{X}(k|k-1) - \hat{r}_k
+       ```
+    6. **Pembaruan kovariansi measurement noise** (Persamaan 3.15):
+       ```math
+       \hat{R}_k = (1 - D_k)\hat{R}_{k-1} + D_k e_k^2
+       ```
+    7. **Penguatan Kalman** (Persamaan 3.16):
+       ```math
+       K_k = \frac{P(k|k-1) H^T}{H P(k|k-1) H^T + \hat{R}_k}
+       ```
+    8. **Pembaruan status** (Persamaan 3.17):
+       ```math
+       \hat{X}_k = \hat{X}(k|k-1) + K_k e_k
+       ```
+    9. **Pembaruan kovariansi error** (Persamaan 3.18):
+       ```math
+       P_k = (1 - K_k H) P(k|k-1)
+       ```
+    10. **Pembaruan rerata process noise** (Persamaan 3.19):
+        ```math
+        \hat{q}_k = (1 - D_k)\hat{q}_{k-1} + D_k \left(\hat{X}_k - \Phi \hat{X}_{k-1}\right)
+        ```
 
 ### Parameter Konfigurasi, Satuan & Rasionalisasi
 
@@ -127,12 +157,29 @@ Untuk mencegah penghitungan ganda (*double-counting*) pada observasi pertama:
 ## Implementasi Tahap Korelasi (Pearson Correlation Stage)
 
 - **Referensi Metodologis**: Mengacu pada dokumen `PA.pdf`, **Persamaan (3.62), halaman 34**:
-  $$\rho_{X, Y} = \frac{\sum_{i=1}^{n} (X_i - \bar{X})(Y_i - \bar{Y})}{\sqrt{\sum_{i=1}^{n} (X_i - \bar{X})^2} \sqrt{\sum_{i=1}^{n} (Y_i - \bar{Y})^2}}$$
+```math
+\rho_{u,v} =
+\frac{
+\sum_{n=1}^{N}
+\left(X_u(n)-\mu_u\right)
+\left(X_v(n)-\mu_v\right)
+}{
+\sqrt{\sum_{n=1}^{N}\left(X_u(n)-\mu_u\right)^2}
+\sqrt{\sum_{n=1}^{N}\left(X_v(n)-\mu_v\right)^2}
+}
+```
+  Di mana:
+  - $X_u(n)$: Nilai sampel RSSI pada kanal $u$ pada indeks observasi $n$.
+  - $X_v(n)$: Nilai sampel RSSI pada kanal $v$ pada indeks observasi $n$.
+  - $\mu_u$: Rerata sampel RSSI kanal $u$ sepanjang $N$ observasi ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
+  - $\mu_v$: Rerata sampel RSSI kanal $v$ sepanjang $N$ observasi ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
+  - $N$: Jumlah total pasangan observasi ($N = 500$ pada dataset dummy validasi).
+  *(Catatan: Notasi $u, v$ ini secara matematis ekuivalen dengan notasi $X, Y$ sebelumnya).*
 - **Sifat Analisis**: Korelasi Pearson dihitung pada *zero lag*.
 - **Pasangan Kanal yang Dihitung**:
-  1. `Alice–Bob`: Estimasi resiprositas antara pasangan sah.
-  2. `Alice–Eve1-Alice`: Korelasi antara transmisi Alice dan penyadapan oleh Eve.
-  3. `Bob–Eve1-Bob`: Korelasi antara transmisi Bob dan penyadapan oleh Eve.
+  1. `Alice–Bob`: Estimasi resiprositas antara pasangan sah ($u = \text{Alice}, v = \text{Bob}$).
+  2. `Alice–Eve1-Alice`: Korelasi antara transmisi Alice dan penyadapan oleh Eve ($u = \text{Alice}, v = \text{Eve1-Alice}$).
+  3. `Bob–Eve1-Bob`: Korelasi antara transmisi Bob dan penyadapan oleh Eve ($u = \text{Bob}, v = \text{Eve1-Bob}$).
 
 ### Hasil Korelasi Sebelum vs Sesudah Filtering ($N=500$, `data_kind=dummy`)
 
