@@ -1,8 +1,15 @@
-# Dokumentasi Metodologi & Rencana Analisis Korelasi
+# Dokumentasi Metodologi: Filtering & Analisis Korelasi
 
 ## Referensi Metodologis
 - Dokumen acuan utama: `PA.pdf`.
-- Tahap analisis korelasi mendatang menggunakan rumus koefisien korelasi Pearson sesuai **Persamaan (3.62), halaman 34**:
+- **Tahap Penapisan (Filtering)**: Modified Sage–Husa Adaptive Kalman Filter (MSHKF) sesuai **Bagian 3.2.2, Persamaan (3.10)–(3.20), halaman 26–27**:
+  - Model RSSI skalar: $\Phi = 1.0$ (asumsi kanal berubah lambat), $H = 1.0$ (observasi langsung RSSI dalam dBm).
+  - Parameter adaptif: Forgetting factor $b = 0.99$ (nilai terpilih dalam rentang literatur $0.95 \le b \le 0.999$ pada `PA.pdf` Bagian 3.2.2, bukan nilai tunggal yang diwajibkan secara preskriptif), bobot awal $D_0 = 1.0$.
+  - Parameter $P_0, Q, R_0$: Merupakan asumsi validasi perangkat lunak belum terkalibrasi (*uncalibrated software-validation assumptions*), bukan hasil pengukuran properti fisik transceiver atau kanal.
+  - Mode adaptasi: Kovariansi process noise $Q$ dipertahankan tetap (*fixed* pada $0.1\ \text{dBm}^2$); kovariansi measurement noise $\hat{R}_k$ diestimasi adaptif online; rerata noise $\hat{q}_k$ dan $\hat{r}_k$ diperbarui rekursif.
+  - Alasan tidak mengadaptasi $Q$ via Persamaan (3.20): Implementasi ini secara spesifik mengikuti asumsi akhir dalam `PA.pdf` Bagian 3.2.2 (halaman 27), di mana kovariansi *process noise* $Q$ diasumsikan bernilai konstan/diketahui (*known prior*), sehingga kovariansi *measurement noise* $\hat{R}_k$ diestimasi secara adaptif online dan pembaruan adaptif $Q$ pada Persamaan (3.20) tidak dijalankan.
+  - Kebijakan indeks sampel: $x_0 = z_0$ menetapkan baseline awal tanpa bias transient dan tidak dimasukkan ke dalam pembaruan pengukuran inovasi, mencegah *double-counting*.
+- **Tahap Korelasi**: Koefisien korelasi Pearson *zero lag* sesuai **Persamaan (3.62), halaman 34**:
   $$\rho_{X, Y} = \frac{\sum_{i=1}^{n} (X_i - \bar{X})(Y_i - \bar{Y})}{\sqrt{\sum_{i=1}^{n} (X_i - \bar{X})^2} \sqrt{\sum_{i=1}^{n} (Y_i - \bar{Y})^2}}$$
 
 ## Sumber & Karakteristik Data
@@ -17,6 +24,9 @@
 2. **Channel Probing**:
    - Status: Ditunda (*postponed*), bukan ditiadakan/digantikan. Pengukuran empiris akan menggunakan folder `data/raw/measured/`.
 3. **Konfirmasi & Status Implementasi**:
-   - *Row-wise sample alignment*: Telah dikonfirmasi bahwa setiap baris data pada dummy dataset mewakili indeks observasi waktu yang sama di keempat kolom. Urutan baris dipertahankan secara utuh tanpa modifikasi/penyusunan ulang.
-   - *Zero Lag*: Korelasi dihitung pada lag nol (tanpa pencarian pergeseran waktu lag) sesuai Persamaan (3.62).
-   - *Keluaran Validasi*: Hasil kalkulasi pada 500 sampel dummy telah tervalidasi identik dengan referensi independen `scipy.stats.pearsonr`.
+   - *Row-wise sample alignment*: Setiap baris data mewakili indeks observasi waktu yang sama di keempat kolom. Urutan baris dan penjajaran dipertahankan secara utuh sebelum dan sesudah filtering.
+   - *Channel Isolation*: Setiap kanal ditapis secara mandiri dengan instance filter terpisah.
+   - *Keluaran Validasi*:
+     - `Alice–Bob`: $\rho_{\text{raw}} = +0.632263 \rightarrow \rho_{\text{filt}} = +0.842244$ ($\Delta\rho = +0.209981$)
+     - `Alice–Eve1-Alice`: $\rho_{\text{raw}} = +0.017060 \rightarrow \rho_{\text{filt}} = -0.013725$ ($\Delta\rho = -0.030784$)
+     - `Bob–Eve1-Bob`: $\rho_{\text{raw}} = +0.119310 \rightarrow \rho_{\text{filt}} = +0.015151$ ($\Delta\rho = -0.104159$)

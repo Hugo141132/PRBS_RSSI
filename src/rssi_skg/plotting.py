@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 import matplotlib
 
@@ -231,6 +231,225 @@ def plot_combined_correlation_figure(
             loc="upper left",
             fontsize=8.5,
             title_fontsize=9,
+            framealpha=0.85,
+        )
+
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    plt.close(fig)
+
+    return png_path, pdf_path
+
+
+def plot_filtering_comparison_figure(
+    raw_data: Mapping[str, Sequence[float]],
+    filtered_data: Mapping[str, Sequence[float]],
+    results: Sequence[Mapping[str, Any]],
+    prefix_path: str | Path,
+) -> tuple[Path, Path]:
+    """Create and save comparison figure between raw and filtered RSSI data.
+
+    Layout:
+    - Top Left (2 cols): Grouped horizontal bar chart of Pearson correlation coefficients (Raw vs Filtered).
+    - Top Right (1 col): Time-series trajectory snippet (first 80 samples) of Alice & Bob raw vs filtered.
+    - Bottom (3 cols): 3 scatter panels of filtered data with bubble markers for discrete coordinates.
+
+    Args:
+        raw_data: Mapping of raw RSSI observations.
+        filtered_data: Mapping of filtered RSSI observations.
+        results: Sequence of result records with raw_correlation, filtered_correlation, correlation_delta.
+        prefix_path: File path prefix for saving .png and .pdf figures.
+
+    Returns:
+        tuple[Path, Path]: (png_path, pdf_path) of the saved files.
+    """
+    prefix = Path(prefix_path)
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+
+    png_path = prefix.with_name(f"{prefix.name}.png")
+    pdf_path = prefix.with_name(f"{prefix.name}.pdf")
+
+    # Map pair to results
+    res_map: dict[str, Mapping[str, Any]] = {}
+    for r in results:
+        res_map[str(r["pair"])] = r
+
+    fig = plt.figure(figsize=(16, 11), layout="constrained")
+    gs = gridspec.GridSpec(2, 3, figure=fig, height_ratios=[1.1, 1.9])
+
+    fig.suptitle(
+        "Dummy RSSI Filtering & Correlation Comparison (Modified Sage–Husa AKF)\n"
+        "[Software validation using dummy data. Channel probing remains postponed; results do not support real-channel security conclusions]",
+        fontsize=13,
+        fontweight="bold",
+    )
+
+    # ==========================================
+    # Top Left Panel: Grouped Horizontal Bar Chart
+    # ==========================================
+    ax_bar = fig.add_subplot(gs[0, :2])
+
+    bar_pairs = [
+        ("Alice–Bob", "Alice–Bob"),
+        ("Alice–Eve1-Alice", "Alice–Eve1-Alice"),
+        ("Bob–Eve1-Bob", "Bob–Eve1-Bob"),
+    ]
+
+    labels = [p[0] for p in bar_pairs][::-1]
+    keys = [p[1] for p in bar_pairs][::-1]
+
+    raw_rhos = [float(res_map[k]["raw_correlation"]) for k in keys]
+    filt_rhos = [float(res_map[k]["filtered_correlation"]) for k in keys]
+    deltas = [float(res_map[k].get("correlation_delta", filt_rhos[i] - raw_rhos[i])) for i, k in enumerate(keys)]
+
+    y_indices = list(range(len(labels)))
+    bar_height = 0.32
+
+    y_raw = [y - bar_height / 2.0 for y in y_indices]
+    y_filt = [y + bar_height / 2.0 for y in y_indices]
+
+    ax_bar.barh(
+        y_raw,
+        raw_rhos,
+        height=bar_height,
+        color="#7f7f7f",
+        edgecolor="black",
+        alpha=0.75,
+        label="Raw RSSI (Zero Lag)",
+    )
+
+    filt_colors = ["#d95f02" if "Eve" in lbl else "#1b9e77" for lbl in labels]
+    ax_bar.barh(
+        y_filt,
+        filt_rhos,
+        height=bar_height,
+        color=filt_colors,
+        edgecolor="black",
+        alpha=0.9,
+        label="Filtered RSSI (MSHKF)",
+    )
+
+    ax_bar.set_yticks(y_indices)
+    ax_bar.set_yticklabels(labels, fontsize=11, fontweight="bold")
+    ax_bar.set_xlim(-1.0, 1.0)
+    ax_bar.axvline(0.0, color="black", linestyle="--", linewidth=1.2, alpha=0.75)
+    ax_bar.grid(True, axis="x", linestyle=":", alpha=0.6)
+    ax_bar.set_xlabel("Pearson Correlation Coefficient ($\\rho$)", fontsize=11)
+    ax_bar.set_title("Pearson Correlation Comparison (Raw vs Filtered)", fontsize=12, pad=6)
+    ax_bar.legend(loc="upper left", fontsize=9.5, framealpha=0.9)
+
+    # Annotate bars
+    for idx in range(len(labels)):
+        r_raw = raw_rhos[idx]
+        r_filt = filt_rhos[idx]
+        delta = deltas[idx]
+        yr = y_raw[idx]
+        yf = y_filt[idx]
+
+        # Raw label
+        txt_raw = f"  {r_raw:+.4f}" if r_raw >= 0 else f"{r_raw:+.4f}  "
+        ha_r = "left" if r_raw >= 0 else "right"
+        ax_bar.text(r_raw, yr, txt_raw, va="center", ha=ha_r, fontsize=9, color="#333333")
+
+        # Filtered label
+        txt_filt = f"  {r_filt:+.4f} ($\\Delta$: {delta:+.4f})" if r_filt >= 0 else f"{r_filt:+.4f} ($\\Delta$: {delta:+.4f})  "
+        ha_f = "left" if r_filt >= 0 else "right"
+        ax_bar.text(r_filt, yf, txt_filt, va="center", ha=ha_f, fontsize=9.5, fontweight="bold")
+
+    # ==========================================
+    # Top Right Panel: Time-series Trajectory Snippet
+    # ==========================================
+    ax_ts = fig.add_subplot(gs[0, 2])
+    n_plot = min(80, len(raw_data["Alice"]))
+    t_idx = list(range(n_plot))
+
+    ax_ts.plot(t_idx, raw_data["Alice"][:n_plot], label="Alice (Raw)", color="#a6cee3", linestyle="--", alpha=0.7, linewidth=1.2)
+    ax_ts.plot(t_idx, filtered_data["Alice"][:n_plot], label="Alice (MSHKF)", color="#1f78b4", linewidth=1.8)
+    ax_ts.plot(t_idx, raw_data["Bob"][:n_plot], label="Bob (Raw)", color="#b2df8a", linestyle="--", alpha=0.7, linewidth=1.2)
+    ax_ts.plot(t_idx, filtered_data["Bob"][:n_plot], label="Bob (MSHKF)", color="#33a02c", linewidth=1.8)
+
+    ax_ts.set_title(f"Smoothing Trajectory (Samples 0–{n_plot-1})", fontsize=11, pad=6)
+    ax_ts.set_xlabel("Sample Index", fontsize=10)
+    ax_ts.set_ylabel("RSSI (dBm)", fontsize=10)
+    ax_ts.grid(True, linestyle=":", alpha=0.5)
+    ax_ts.legend(loc="lower right", fontsize=8, framealpha=0.85)
+
+    # ==========================================
+    # Bottom Panels: 3 Filtered Scatter Plots
+    # ==========================================
+    base_marker_area = 5.0
+    for col_idx, (c1, c2, title) in enumerate(SCATTER_PAIRS):
+        ax_scatter = fig.add_subplot(gs[1, col_idx])
+
+        x_series = filtered_data[c1]
+        y_series = filtered_data[c2]
+        total_samples = len(x_series)
+
+        # Round to 1 decimal for bubble aggregation of continuous filtered states
+        x_rounded = [round(v, 1) for v in x_series]
+        y_rounded = [round(v, 1) for v in y_series]
+
+        ux, uy, counts = aggregate_coordinate_counts(x_rounded, y_rounded)
+        areas = [base_marker_area * c for c in counts]
+
+        pair_key = f"{c1}–{c2}"
+        res_pair = res_map.get(pair_key, {})
+        r_filt = float(res_pair.get("filtered_correlation", 0.0))
+        r_raw = float(res_pair.get("raw_correlation", 0.0))
+        d_val = float(res_pair.get("correlation_delta", r_filt - r_raw))
+
+        scatter_color = "#d95f02" if "Eve" in title else "#1b9e77"
+        ax_scatter.scatter(
+            ux,
+            uy,
+            s=areas,
+            color=scatter_color,
+            alpha=0.6,
+            edgecolors="black",
+            linewidths=0.7,
+        )
+
+        ax_scatter.set_title(
+            f"{title} (Filtered)\n$\\rho_{{filt}} = {r_filt:+.4f}$ (Raw: ${r_raw:+.4f}$, $\\Delta$: ${d_val:+.4f}$)",
+            fontsize=11,
+            fontweight="bold",
+            pad=8,
+        )
+        ax_scatter.set_xlabel(f"{c1} Filtered RSSI (dBm)", fontsize=10)
+        ax_scatter.set_ylabel(f"{c2} Filtered RSSI (dBm)", fontsize=10)
+        ax_scatter.grid(True, linestyle=":", alpha=0.5)
+
+        max_c = max(counts) if counts else 1
+        if max_c <= 10:
+            legend_counts = [1, 5, 10]
+        elif max_c <= 40:
+            legend_counts = [1, 10, 25]
+        else:
+            legend_counts = [1, 15, 30, 50]
+
+        legend_handles = []
+        legend_labels = []
+        for lc in legend_counts:
+            if lc <= max_c * 1.2:
+                handle = ax_scatter.scatter(
+                    [],
+                    [],
+                    s=base_marker_area * lc,
+                    color="#666666",
+                    alpha=0.6,
+                    edgecolors="black",
+                    linewidths=0.7,
+                )
+                legend_handles.append(handle)
+                legend_labels.append(f"{lc} obs")
+
+        ax_scatter.legend(
+            legend_handles,
+            legend_labels,
+            title="Density (0.1 dBm bins)",
+            loc="upper left",
+            fontsize=8,
+            title_fontsize=8.5,
             framealpha=0.85,
         )
 

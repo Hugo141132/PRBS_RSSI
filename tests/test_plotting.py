@@ -92,3 +92,33 @@ def test_cli_csv_only_without_figure_prefix(tmp_path: Path) -> None:
     assert len(results) == 3
     assert fig_paths is None
     assert csv_out.is_file()
+
+
+def test_plot_filtering_comparison_figure(tmp_path: Path) -> None:
+    from rssi_skg.plotting import plot_filtering_comparison_figure
+
+    raw_data = {
+        "Alice": [-80.0, -80.0, -79.0, -76.0],
+        "Bob": [-79.0, -80.0, -79.0, -76.0],
+        "Eve1-Alice": [-31.0, -33.0, -32.0, -33.0],
+        "Eve1-Bob": [-83.0, -81.0, -78.0, -83.0],
+    }
+    filtered_data = {
+        "Alice": [-80.0, -80.0, -79.6, -79.2],
+        "Bob": [-79.0, -79.3, -79.1, -78.8],
+        "Eve1-Alice": [-31.0, -31.5, -31.5, -31.8],
+        "Eve1-Bob": [-83.0, -82.4, -81.7, -81.7],
+    }
+    results = [
+        {"pair": "Alice–Bob", "raw_correlation": 0.63, "filtered_correlation": 0.84, "correlation_delta": 0.21},
+        {"pair": "Alice–Eve1-Alice", "raw_correlation": 0.01, "filtered_correlation": -0.01, "correlation_delta": -0.02},
+        {"pair": "Bob–Eve1-Bob", "raw_correlation": 0.11, "filtered_correlation": 0.01, "correlation_delta": -0.10},
+    ]
+
+    prefix = tmp_path / "test_comparison_fig"
+    png_p, pdf_p = plot_filtering_comparison_figure(raw_data, filtered_data, results, prefix)
+
+    assert png_p.is_file()
+    assert pdf_p.is_file()
+    assert png_p.stat().st_size > 1000
+    assert pdf_p.stat().st_size > 1000

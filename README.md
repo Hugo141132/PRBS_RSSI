@@ -1,8 +1,8 @@
 # RSSI-based Secret Key Generation (SKG) Research
 
-Repositori ini menyediakan perancah (*scaffolding*) proyek Python minimal untuk penelitian Secret Key Generation (SKG) berbasis Received Signal Strength Indicator (RSSI).
+Repositori ini menyediakan perancah (*scaffolding*) proyek Python untuk penelitian Secret Key Generation (SKG) berbasis Received Signal Strength Indicator (RSSI).
 
-> **Dokumen Handoff Progres**: Lihat [docs/progress.md](docs/progress.md) untuk ringkasan mandiri status proyek, hasil validasi korelasi, dan instruksi reproduksi.
+> **Dokumen Handoff Progres**: Lihat [docs/progress.md](docs/progress.md) untuk ringkasan mandiri status proyek, hasil validasi filtering dan korelasi, serta instruksi reproduksi.
 
 ---
 
@@ -23,16 +23,18 @@ PRBS_RSSI/
 ├── outputs/                          # Artefak kalkulasi, plot, dan hasil eksekusi (diabaikan oleh Git via .gitignore)
 │   └── .gitkeep
 ├── src/
-│   └── rssi_skg/                     # Modul paket sumber utama Python (loader, correlation, plotting, cli)
+│   └── rssi_skg/                     # Modul paket sumber utama Python (loader, filter, correlation, plotting, cli)
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── cli.py
 │       ├── correlation.py
+│       ├── filter.py
 │       ├── loader.py
 │       └── plotting.py
 ├── tests/                            # Pengujian unit dan validasi software
 │   ├── __init__.py
 │   ├── test_correlation.py
+│   ├── test_filter.py
 │   ├── test_loader.py
 │   └── test_plotting.py
 ├── .gitignore                        # Konfigurasi pengabaian file cache, venv, dan outputs
@@ -42,8 +44,13 @@ PRBS_RSSI/
 ```
 
 ### Rincian Tanggung Jawab
-- `src/rssi_skg/`: Tempat kode pustaka Python untuk pipeline SKG (modul `loader`, `correlation`, `plotting`, dan `cli`).
-- `tests/`: Tempat pengujian otomatis (*unit tests*) untuk memastikan kebenaran algoritma dan integritas transformasi data (`test_correlation.py`, `test_loader.py`, `test_plotting.py`).
+- `src/rssi_skg/`: Tempat kode pustaka Python untuk pipeline SKG:
+  - `loader.py`: Pemuatan workbook Excel dan validasi integritas baris/kolom.
+  - `filter.py`: Implementasi Modified Sage–Husa Adaptive Kalman Filter (MSHKF) skalar (`PA.pdf` Bagian 3.2.2).
+  - `correlation.py`: Komputasi koefisien korelasi Pearson *zero lag* (`PA.pdf` Persamaan 3.62).
+  - `plotting.py`: Visualisasi bubble scatter agregat dan grafik komparasi sebelum/sesudah penapisan.
+  - `cli.py`: Antarmuka CLI terpadu yang mendukung mode korelasi murni (default) dan mode filtering opsional.
+- `tests/`: Tempat pengujian otomatis (*unit tests*) untuk memastikan kebenaran algoritma, isolasi kanal, safeguards numerik, dan pengujian regresi (`test_correlation.py`, `test_filter.py`, `test_loader.py`, `test_plotting.py`).
 - `data/raw/dummy/`: Tempat dataset dummy untuk keperluan validasi software. Berisi `Dummy RSSI (data Indoor).xlsx` dan dokumentasi lokal `README.md`.
 - `data/raw/measured/`: Folder cadangan khusus untuk data hasil pengukuran channel nirkabel riil (channel probing fisik empiris).
 - `outputs/`: Menyimpan output kalkulasi, visualisasi, dan laporan. Dikecualikan dari pelacakan Git kecuali `.gitkeep`.
@@ -66,32 +73,84 @@ PRBS_RSSI/
 
 ---
 
+## Implementasi Tahap Filtering (Modified Sage–Husa AKF)
+
+- **Referensi Metodologis**: Mengacu pada dokumen `PA.pdf`, **Bagian 3.2.2, Persamaan (3.10)–(3.20), halaman 26–27**:
+  - **Asumsi Pemodelan RSSI Skalar**:
+    - Matriks transisi status $\Phi = 1.0$ (model kanal RSSI statis/berubah lambat: $X_k = X_{k-1} + q_{k-1} + w_{k-1}$).
+    - Matriks pengukuran $H = 1.0$ (observasi langsung RSSI skalar dalam dBm: $Z_k = X_k + r_k + v_k$).
+  - **Mode Adaptasi Noise**:
+    - Nilai kovariansi *process noise* $Q$ dijaga **tetap (*fixed*)** sebesar $0.1\ \text{dBm}^2$.
+    - Nilai kovariansi *measurement noise* $\hat{R}_k$ diadaptasi secara online via Persamaan (3.15).
+    - Rerata derau proses $\hat{q}_k$ dan derau pengukuran $\hat{r}_k$ diperbarui secara rekursif via Persamaan (3.19) dan (3.13).
+  - **Rasionalisasi Peniadaan Update Adaptif $Q$ (Persamaan 3.20)**:
+    Implementasi ini secara spesifik mengikuti asumsi pemodelan pada paragraf akhir `PA.pdf` Bagian 3.2.2 (halaman 27), di mana nilai kovariansi *process noise* $Q$ diasumsikan bernilai konstan dan telah diketahui nilainya (*known prior*), sehingga kovariansi *measurement noise* $\hat{R}_k$ diestimasi secara adaptif online dan pembaruan adaptif $Q$ pada Persamaan (3.20) tidak dijalankan.
+  - **Urutan Perhitungan yang Dipelihara**:
+    1. Bobot adaptif: $D_k = \frac{D_{k-1}}{D_{k-1} + b}, \quad D_0 = 1$ (Persamaan 3.10)
+    2. Prediksi status: $\hat{X}(k|k-1) = \Phi \hat{X}_{k-1} + \hat{q}_{k-1}$ (Persamaan 3.11)
+    3. Prediksi kovariansi error: $P(k|k-1) = \Phi P_{k-1} \Phi^T + Q$ (Persamaan 3.12)
+    4. Pembaruan rerata measurement noise: $\hat{r}_k = (1 - D_k)\hat{r}_{k-1} + D_k (Z_k - H \hat{X}(k|k-1))$ (Persamaan 3.13)
+    5. Perhitungan inovasi (menggunakan $\hat{r}_k$ yang baru): $e_k = Z_k - H \hat{X}(k|k-1) - \hat{r}_k$ (Persamaan 3.14)
+    6. Pembaruan kovariansi measurement noise: $\hat{R}_k = (1 - D_k)\hat{R}_{k-1} + D_k e_k^2$ (Persamaan 3.15)
+    7. Penguatan Kalman: $K_k = \frac{P(k|k-1) H^T}{H P(k|k-1) H^T + \hat{R}_k}$ (Persamaan 3.16)
+    8. Pembaruan status: $\hat{X}_k = \hat{X}(k|k-1) + K_k e_k$ (Persamaan 3.17)
+    9. Pembaruan kovariansi error: $P_k = (1 - K_k H) P(k|k-1)$ (Persamaan 3.18)
+    10. Pembaruan rerata process noise: $\hat{q}_k = (1 - D_k)\hat{q}_{k-1} + D_k (\hat{X}_k - \Phi \hat{X}_{k-1})$ (Persamaan 3.19)
+
+### Parameter Konfigurasi, Satuan & Rasionalisasi
+
+| Parameter | Nilai Default | Satuan | Status Spesifikasi | Rasionalisasi |
+| :--- | :--- | :--- | :--- | :--- |
+| $b$ | `0.99` | Tak berdimensi | Nilai Terpilih dalam Rentang Literatur | Nilai terpilih dalam rentang literatur yang dinyatakan pada `PA.pdf` Bag. 3.2.2 ($0.95 \le b \le 0.999$), bukan nilai tunggal yang diwajibkan secara preskriptif. Memberikan horizon memori efektif $\approx 100$ sampel. |
+| $D_0$ | `1.0` | Tak berdimensi | Eksplisit (`PA.pdf` Pers. 3.10) | Bobot adaptif awal pada langkah $k=0$. |
+| $\Phi$ | `1.0` | Tak berdimensi | Asumsi Pemodelan | Asumsi transisi keadaan kanal nirkabel berubah lambat. |
+| $H$ | `1.0` | Tak berdimensi | Asumsi Pemodelan | Matriks observasi langsung sinyal RSSI skalar. |
+| $x_0$ | Auto (`z[0]`) | $\text{dBm}$ | Asumsi Implementasi | Menginisialisasi keadaan awal dari sampel pertama kanal agar tidak ada bias *transient*. |
+| $P_0$ | `1.0` | $\text{dBm}^2$ | Asumsi Validasi Perangkat Lunak | Kovariansi error awal belum terkalibrasi (*uncalibrated software-validation assumption*), bukan properti fisik transceiver/kanal terukur. |
+| $q_0$ | `0.0` | $\text{dBm}$ | Asumsi Implementasi | Rerata awal *process noise* (asumsi tanpa *drift* sistematis awal). |
+| $r_0$ | `0.0` | $\text{dBm}$ | Asumsi Implementasi | Rerata awal *measurement noise* (asumsi tanpa bias awal). |
+| $Q$ | `0.1` | $\text{dBm}^2$ | Asumsi Validasi Perangkat Lunak | Kovariansi *process noise* konstan belum terkalibrasi (*uncalibrated software-validation assumption*), bukan properti fisik transceiver/kanal terukur. Sesuai asumsi `PA.pdf` Bag. 3.2.2, nilai $Q$ diasumsikan diketahui (*known prior*). |
+| $R_0$ | `1.0` | $\text{dBm}^2$ | Asumsi Validasi Perangkat Lunak | Kovariansi *measurement noise* awal belum terkalibrasi (*uncalibrated software-validation assumption*), bukan properti fisik transceiver/kanal terukur. |
+
+### Kebijakan Pengindeksan Sampel (*Sample Indexing*)
+Untuk mencegah penghitungan ganda (*double-counting*) pada observasi pertama:
+- Ketika $x_0$ diinisialisasi otomatis dari observasi pertama ($x_0 = z_0$), sampel $z_0$ ditetapkan sebagai status pada indeks waktu 0 ($\hat{X}_0 = z_0$). Loop pembaruan rekursif Persamaan (3.10)–(3.19) dimulai dari pengukuran $z_1$ pada langkah $k=1$. Dengan demikian, $z_0$ digunakan tepat satu kali sebagai keadaan awal dan **tidak pernah dihitung ulang sebagai input inovasi pengukuran**.
+- Jika prior $x_0$ diberikan secara eksplisit dari luar, maka seluruh pengukuran $z_0, \dots, z_{N-1}$ diproses pada langkah $k = 1, \dots, N$.
+
+### Isolasi Kanal & Pengamanan Numerik (*Numerical Safeguards*)
+- **Isolasi Kanal**: Saluran Alice, Bob, Eve1-Alice, dan Eve1-Bob diproses menggunakan *instance filter* terpisah secara independen. Tidak ada *state* yang dibagi antarkanal.
+- **Validasi Nilai Terhingga**: Memeriksa `math.isfinite` pada seluruh sampel input; menolak nilai `NaN`, `+Inf`, dan `-Inf` secara eksplisit.
+- **Safeguard Kovariansi**: Memastikan $\hat{R}_k \ge R_{\min} = 10^{-8}\ \text{dBm}^2$, $P_k \ge 0.0$, memvalidasi penyebut penguatan Kalman tidak singular ($P_{\text{pred}} + \hat{R}_k > 0$), serta membangkitkan `FloatingPointError` jika terjadi kovariansi negatif signifikan atau hasil non-terhingga (tidak disembunyikan secara diam-diam).
+
 ---
 
 ## Implementasi Tahap Korelasi (Pearson Correlation Stage)
 
 - **Referensi Metodologis**: Mengacu pada dokumen `PA.pdf`, **Persamaan (3.62), halaman 34**:
   $$\rho_{X, Y} = \frac{\sum_{i=1}^{n} (X_i - \bar{X})(Y_i - \bar{Y})}{\sqrt{\sum_{i=1}^{n} (X_i - \bar{X})^2} \sqrt{\sum_{i=1}^{n} (Y_i - \bar{Y})^2}}$$
-- **Sifat Analisis**: Korelasi Pearson dihitung pada *zero lag* (bukan *lag-search cross-correlation*).
+- **Sifat Analisis**: Korelasi Pearson dihitung pada *zero lag*.
 - **Pasangan Kanal yang Dihitung**:
   1. `Alice–Bob`: Estimasi resiprositas antara pasangan sah.
   2. `Alice–Eve1-Alice`: Korelasi antara transmisi Alice dan penyadapan oleh Eve.
   3. `Bob–Eve1-Bob`: Korelasi antara transmisi Bob dan penyadapan oleh Eve.
-- **Integritas Sampel**:
-  - Penyejajaran sampel baris-ke-baris (*row-wise sample alignment*) terkonfirmasi mewakili indeks observasi yang sama untuk seluruh kolom. Urutan baris dipertahankan secara utuh.
-  - Validasi ketat menolak nilai *missing*, non-numerik, atau non-terhingga (*NaN/Inf*) dengan pelaporan nomor baris dan nama kolom secara spesifik.
-  - Deret bernilai konstan (variansi nol) diperlakukan sebagai korelasi tak terdefinisi (*undefined*) dan menghasilkan pesan kesalahan eksplisit.
-  - Jumlah observasi tidak dikunci pada 500 (mendukung sembarang $N \ge 2$).
+
+### Hasil Korelasi Sebelum vs Sesudah Filtering ($N=500$, `data_kind=dummy`)
+
+| Pasangan Kanal | Korelasi Raw ($\rho_{\text{raw}}$) | Korelasi Filtered ($\rho_{\text{filt}}$) | Perubahan ($\Delta\rho$) |
+| :--- | :--- | :--- | :--- |
+| `Alice–Bob` | `+0.632263` | `+0.842244` | `+0.209981` |
+| `Alice–Eve1-Alice` | `+0.017060` | `-0.013725` | `-0.030784` |
+| `Bob–Eve1-Bob` | `+0.119310` | `+0.015151` | `-0.104159` |
+
+*(Catatan: Penapisan MSHKF meningkatkan korelasi resiprokal pasangan sah Alice–Bob sekaligus menekan korelasi kanal penyadap Eve mendekati nol pada dataset dummy validasi software).*
 
 ---
 
 ## Petunjuk Penyiapan Lingkungan & Eksekusi
 
-Petunjuk eksekusi dari *root repository* pada Windows PowerShell menggunakan eksekutor langsung `.\.venv\Scripts\python.exe` sehingga aktivasi manual bersifat opsional:
+Petunjuk eksekusi dari *root repository* pada Windows PowerShell menggunakan eksekutor langsung `.\.venv\Scripts\python.exe`:
 
 ### 1. Inisialisasi Lingkungan Virtual Lokal (.venv)
-Gunakan *virtual environment* lokal proyek (bukan instalasi paket global):
-
 ```powershell
 # Membuat virtual environment lokal
 python -m venv .venv
@@ -104,38 +163,41 @@ python -m venv .venv
 ```
 
 ### 2. Menjalankan Pengujian Unit (*Unit Tests*)
-Pengujian mencakup korelasi sempurna (+1.0 dan -1.0), ortogonal/nol, deret konstan, panjang tidak sama, kolom hilang, nilai tidak valid, preservasi urutan baris, agregasi titik identik untuk scatter bubble, pembuatan gambar, serta perbandingan independen terhadap `scipy.stats.pearsonr`:
+Pengujian mencakup 31 tes otomatis (validasi intermediate step-by-step perhitungan independen MSHKF, isolasi kanal, pengindeksan sampel, safeguards numerik, korelasi Pearson, loader workbook, dan pembuatan visualisasi):
 
 ```powershell
-# Menjalankan seluruh pengujian unit (19 tests)
+# Menjalankan seluruh pengujian unit (31 tests)
 .\.venv\Scripts\python.exe -m pytest -v
-
-# Atau jika venv telah aktif:
-pytest -v
 ```
 
-### 3. Menjalankan Analisis Korelasi via CLI
+### 3. Menjalankan Analisis via CLI
 
-#### A. Eksekusi CSV Saja (Tanpa Pembuatan Grafik)
-Gunakan opsi `-i/--input` dan `-o/--output`:
-```powershell
-.\.venv\Scripts\python.exe -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv"
-```
-
-#### B. Eksekusi Lengkap (Ekspor CSV dan Grafik PNG 300 dpi + PDF)
-Sertakan opsi `--figure-prefix` untuk mengekspor gambar grafik gabungan:
+#### A. Eksekusi Korelasi Default (Tanpa Filtering - 100% Backward Compatible)
 ```powershell
 .\.venv\Scripts\python.exe -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv" --figure-prefix "outputs/dummy_rssi_correlation"
+```
 
-# Atau menggunakan console entry point yang terdaftar (jika venv aktif):
-rssi-skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv" --figure-prefix "outputs/dummy_rssi_correlation"
+#### B. Eksekusi Lengkap dengan Tahap Filtering MSHKF
+Jalankan CLI dengan menyertakan argumen `--filter` beserta pengeksporan artefak terpadu:
+```powershell
+.\.venv\Scripts\python.exe -m rssi_skg `
+  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -o "outputs/dummy_rssi_filtered_correlation.csv" `
+  --filter `
+  --filtered-samples-output "outputs/dummy_rssi_filtered_samples.csv" `
+  --filter-config-output "outputs/dummy_rssi_filter_config.json" `
+  --figure-prefix "outputs/dummy_rssi_filtered"
 ```
 
 ### 4. Lokasi File Keluaran (*Outputs*)
 Semua artefak yang dihasilkan tersimpan di direktori `outputs/` (diabaikan oleh Git melalui `.gitignore`, kecuali `.gitkeep`):
-- `outputs/dummy_rssi_correlation.csv`: Tabel koefisien korelasi Pearson dengan presisi penuh (`float64`) untuk ketiga pasangan kanal (`Alice–Bob`, `Alice–Eve1-Alice`, `Bob–Eve1-Bob`), jumlah sampel ($N=500$), dan kolom `data_kind`.
-- `outputs/dummy_rssi_correlation.png`: Grafik gabungan visualisasi korelasi resolusi tinggi (300 dpi) yang memuat *horizontal bar chart* di bagian atas dan 3 panel *bubble scatter* di bawahnya.
-- `outputs/dummy_rssi_correlation.pdf`: Grafik gabungan dalam format vektor PDF untuk dokumen/laporan penelitian.
+- `outputs/dummy_rssi_correlation.csv`: Tabel koefisien korelasi raw untuk ketiga pasangan kanal ($N=500$).
+- `outputs/dummy_rssi_correlation.png` / `.pdf`: Grafik visualisasi korelasi raw (horizontal bar + bubble scatter).
+- `outputs/dummy_rssi_filtered_correlation.csv`: Tabel perbandingan koefisien korelasi raw vs filtered beserta nilai $\Delta\rho$.
+- `outputs/dummy_rssi_filtered_samples.csv`: Deret sampel observasi mentah dan hasil filter yang disejajarkan per baris untuk 4 kanal.
+- `outputs/dummy_rssi_filter_config.json`: Metadata konfigurasi lengkap MSHKF, asumsi pemodelan, satuan, dan rasionalisasinya.
+- `outputs/dummy_rssi_filtered.png`: Visualisasi komparasi resolusi tinggi (300 dpi) yang memuat perbandingan bar horizontal, trayektori penghalusan waktu (*time series smoothing*), dan 3 panel scatter bubble terfilter.
+- `outputs/dummy_rssi_filtered.pdf`: Visualisasi komparasi dalam format vektor PDF.
 
 ---
 
