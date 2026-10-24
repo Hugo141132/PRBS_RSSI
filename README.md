@@ -80,9 +80,9 @@ PRBS_RSSI/
     - State transition matrix $\Phi = 1.0$ (static/slowly varying channel RSSI model: $X_k = X_{k-1} + q_{k-1} + w_{k-1}$).
     - Measurement matrix $H = 1.0$ (direct scalar RSSI observation in dBm: $Z_k = X_k + r_k + v_k$).
   - **Noise Adaptation Mode**:
-    - The fixed scalar process-noise covariance $Q$ is held constant at $0.1\ \text{dBm}^2$.
+    - The fixed scalar process-noise covariance Q is held constant at 0.1 (dBm)².
     - The adaptive measurement-noise covariance $\hat{R}_k$ is estimated online via Equation (3.15).
-    - The noise means $q$ and $r$ ($\hat{q}_k$ and $\hat{r}_k$) are recursively updated via Equations (3.19) and (3.13).
+    - The noise means q and r ($\hat{q}_k$ and $\hat{r}_k$) are recursively updated via Equations (3.19) and (3.13).
   - **Rationale for Omitting Adaptive $Q$ Update (Equation 3.20)**:
     This implementation specifically follows the modeling assumption stated in the final paragraph of `PA.pdf` Section 3.2.2 (page 27), where the process-noise covariance $Q$ is assumed to be known and held fixed (*known prior*). Consequently, the measurement-noise covariance $\hat{R}_k$ is adaptively estimated online and the adaptive $Q$ update in Equation (3.20) is not executed.
 
@@ -152,16 +152,16 @@ $$
 
 | Parameter | Default Value | Units | Specification Status | Rationale |
 | :--- | :--- | :--- | :--- | :--- |
-| $b$ | `0.99` | Dimensionless | Selected Value within Literature Range | Selected value within the literature range stated in `PA.pdf` Section 3.2.2 ($0.95 \le b \le 0.999$), not a single prescriptively mandated value. Yields an effective memory horizon of $\approx 100$ samples. |
-| $D_0$ | `1.0` | Dimensionless | Explicit (`PA.pdf` Eq. 3.10) | Initial adaptive weight at step $k=0$. |
+| $b$ | `0.99` | Dimensionless | Selected Value within Literature Range | Selected value within the literature range stated in `PA.pdf` Section 3.2.2 (0.95 ≤ b ≤ 0.999), not a single prescriptively mandated value. Yields an effective memory horizon of ≈ 100 samples. |
+| $D_0$ | `1.0` | Dimensionless | Explicit (`PA.pdf` Eq. 3.10) | Initial adaptive weight at step k = 0. |
 | $\Phi$ | `1.0` | Dimensionless | Modeling Assumption | Slowly varying wireless channel state transition assumption. |
 | $H$ | `1.0` | Dimensionless | Modeling Assumption | Direct observation matrix for scalar RSSI signals. |
-| $x_0$ | Auto (`z[0]`) | $\text{dBm}$ | Implementation Assumption | Initializes initial state from the channel's first sample to eliminate transient bias. |
-| $P_0$ | `1.0` | $\text{dBm}^2$ | Software Validation Assumption | Uncalibrated software-validation assumption for initial error covariance, not a measured physical transceiver/channel property. |
-| $q_0$ | `0.0` | $\text{dBm}$ | Implementation Assumption | Initial process noise mean (assuming no initial systematic drift). |
-| $r_0$ | `0.0` | $\text{dBm}$ | Implementation Assumption | Initial measurement noise mean (assuming no initial bias). |
-| $Q$ | `0.1` | $\text{dBm}^2$ | Software Validation Assumption | Uncalibrated software-validation assumption for fixed process-noise covariance, not a measured physical transceiver/channel property. Following `PA.pdf` Section 3.2.2, $Q$ is assumed to be a known prior. |
-| $R_0$ | `1.0` | $\text{dBm}^2$ | Software Validation Assumption | Uncalibrated software-validation assumption for initial measurement-noise covariance, not a measured physical transceiver/channel property. |
+| $x_0$ | Auto (`z[0]`) | dBm | Implementation Assumption | Initializes initial state from the channel's first sample to eliminate transient bias. |
+| $P_0$ | `1.0` | (dBm)² | Software Validation Assumption | Uncalibrated software-validation assumption for initial error covariance, not a measured physical transceiver/channel property. |
+| $q_0$ | `0.0` | dBm | Implementation Assumption | Initial process noise mean (assuming no initial systematic drift). |
+| $r_0$ | `0.0` | dBm | Implementation Assumption | Initial measurement noise mean (assuming no initial bias). |
+| $Q$ | `0.1` | (dBm)² | Software Validation Assumption | Uncalibrated software-validation assumption for fixed process-noise covariance, not a measured physical transceiver/channel property. Following `PA.pdf` Section 3.2.2, Q is assumed to be a known prior. |
+| $R_0$ | `1.0` | (dBm)² | Software Validation Assumption | Uncalibrated software-validation assumption for initial measurement-noise covariance, not a measured physical transceiver/channel property. |
 
 ### Sample Indexing Policy
 To prevent double-counting of the first observation:
@@ -171,7 +171,13 @@ To prevent double-counting of the first observation:
 ### Channel Isolation & Numerical Safeguards
 - **Channel Isolation**: The Alice, Bob, Eve1-Alice, and Eve1-Bob channels are filtered using separate, independent filter instances. No state is shared across channels.
 - **Finite-Value Validation**: Enforces `math.isfinite` across all input samples; explicitly rejects `NaN`, `+Inf`, and `-Inf`.
-- **Covariance Safeguards**: Enforces $\hat{R}_k \ge R_{\min} = 10^{-8}\ \text{dBm}^2$, $P_k \ge 0.0$, validates that the Kalman gain denominator is strictly non-singular ($P_{\text{pred}} + \hat{R}_k > 0$), and raises a `FloatingPointError` if significant negative covariance or non-finite values occur (never silently masked).
+- **Covariance Safeguards**: Enforces non-negative error covariance ($P_k \ge 0.0$), validates that the Kalman gain denominator is strictly non-singular ($P(k|k-1) + \hat{R}_k > 0$), and raises `FloatingPointError` if significant negative covariance or non-finite values occur (never silently masked).
+
+The measurement-noise covariance lower-bound constraint is enforced at each step:
+
+$$
+\hat{R}_k \ge R_{\min} = 10^{-8}\,(\mathrm{dBm})^2
+$$
 
 ---
 
@@ -194,15 +200,28 @@ $$
 Where:
 - $X_u(n)$: RSSI sample value on channel $u$ at observation index $n$.
 - $X_v(n)$: RSSI sample value on channel $v$ at observation index $n$.
-- $\mu_u$: Sample mean of channel $u$ RSSI over $N$ observations ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
-- $\mu_v$: Sample mean of channel $v$ RSSI over $N$ observations ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
-- $N$: Total number of paired observations ($N = 500$ in the dummy validation dataset).
-*(Note: Notations $u, v$ are mathematically equivalent to earlier $X, Y$ notations).*
+- $\mu_u$: Sample mean of channel $u$ RSSI over $N$ observations.
+- $\mu_v$: Sample mean of channel $v$ RSSI over $N$ observations.
+- $N$: Total number of paired observations (N = 500 in the dummy validation dataset).
+
+Sample mean of channel $u$:
+
+$$
+\mu_u = \frac{1}{N}\sum_{n=1}^{N} X_u(n)
+$$
+
+Sample mean of channel $v$:
+
+$$
+\mu_v = \frac{1}{N}\sum_{n=1}^{N} X_v(n)
+$$
+
+*(Note: The channel labels u and v correspond to the earlier X and Y notation).*
 - **Analysis Nature**: Pearson correlation is computed at zero lag.
 - **Evaluated Channel Pairs**:
-  1. `Alice–Bob`: Reciprocity estimate between legitimate communication partners ($u = \text{Alice}, v = \text{Bob}$).
-  2. `Alice–Eve1-Alice`: Correlation between Alice's transmission and Eve's eavesdropping ($u = \text{Alice}, v = \text{Eve1-Alice}$).
-  3. `Bob–Eve1-Bob`: Correlation between Bob's transmission and Eve's eavesdropping ($u = \text{Bob}, v = \text{Eve1-Bob}$).
+  1. `Alice–Bob`: Reciprocity estimate between legitimate communication partners (u = Alice, v = Bob).
+  2. `Alice–Eve1-Alice`: Correlation between Alice's transmission and Eve's eavesdropping (u = Alice, v = Eve1-Alice).
+  3. `Bob–Eve1-Bob`: Correlation between Bob's transmission and Eve's eavesdropping (u = Bob, v = Eve1-Bob).
 
 ### Pre- vs. Post-Filtering Correlation Results ($N=500$, `data_kind=dummy`)
 
@@ -262,9 +281,9 @@ Run the CLI with the `--filter` flag along with unified artifact export options:
 
 ### 4. Output File Locations (`outputs/`)
 All generated artifacts are stored in the `outputs/` directory (ignored by Git via `.gitignore`, except `.gitkeep`):
-- `outputs/dummy_rssi_correlation.csv`: Raw correlation coefficients table for all three channel pairs ($N=500$).
+- `outputs/dummy_rssi_correlation.csv`: Raw correlation coefficients table for all three channel pairs (N = 500).
 - `outputs/dummy_rssi_correlation.png` / `.pdf`: Raw correlation visualization charts (horizontal bar + bubble scatter).
-- `outputs/dummy_rssi_filtered_correlation.csv`: Comparative table of raw vs. filtered correlation coefficients along with $\Delta\rho$.
+- `outputs/dummy_rssi_filtered_correlation.csv`: Comparative table of raw vs. filtered correlation coefficients along with Δρ.
 - `outputs/dummy_rssi_filtered_samples.csv`: Time-aligned row-by-row raw and filtered observation samples across all 4 channels.
 - `outputs/dummy_rssi_filter_config.json`: Complete MSHKF configuration metadata, modeling assumptions, units, and rationale.
 - `outputs/dummy_rssi_filtered.png`: High-resolution (300 dpi) comparative visualization featuring horizontal bar comparison, time-series smoothing trajectories, and 3 filtered bubble scatter panels.
