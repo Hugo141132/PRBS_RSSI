@@ -64,10 +64,12 @@ $$\rho_{X, Y} = \frac{\sum_{i=1}^{n} (X_i - \bar{X})(Y_i - \bar{Y})}{\sqrt{\sum_
 .\.venv\Scripts\python.exe -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv" --figure-prefix "outputs/dummy_rssi_correlation"
 ```
 
-## 7. Current Git State
-- **Active Branch**: `main`.
-- **Commit Status**: All current changes are **uncommitted** in the working tree.
-- **Unrelated Modification**: `data/dummy/00_input/Dummy RSSI (data Indoor).xlsx` is recorded as deleted (`D`) in Git status from prior user actions and must be left untouched.
+## 7. Current Git State & Verification
+- **Active Branch**: `main`, confirmed up to date with `origin/main` (verified via `git fetch origin`).
+- **Verified Commits on Remote**:
+  - `a44fbba` (*Pearson Correlation*): Initialized correlation engine, loader, bubble plot generator, CLI, test suite (19 tests), configuration, and registered removal of `data/dummy/00_input/`.
+  - `c20b71e` (*Pearson Correlation* - `HEAD`, `origin/main`): Synchronized repository tree diagram and execution instructions in `README.md`.
+- **Working Tree Status**: The correlation implementation, plotting module, tests, and primary documentation are fully committed and pushed. This update to `docs/progress.md` itself represents a documentation-only handoff refinement pending manual user commit.
 
 ## 8. Remaining Limitations & Proposed Next Steps
 - **Limitations**: Analysis operates on synthetic indoor dummy data for software verification; cannot establish empirical secrecy; channel probing hardware is deferred.
