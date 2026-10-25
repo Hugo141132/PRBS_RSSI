@@ -241,47 +241,52 @@ $$
 ## Quantization Stage Implementation (Modified Adaptive Dual-Threshold Quantization)
 
 - **Methodological Reference**: Governed by `PA.pdf`, **Section 3.2.3, Equations (3.21)–(3.23), pages 27–28**, with performance evaluation via Key Agreement Rate (KAR) in **Section 3.2.8.c, Equation (3.64), page 35**:
-  - **Non-overlapping Adaptive Segmentation**:
-    The filtered RSSI sample sequence is partitioned into non-overlapping segments of length $W$ (configurable, default $W = 50$). For each segment $s$ and each channel independently, the local mean $\mu_X$ and population standard deviation $\sigma_X$ ($\text{ddof} = 0$) are computed:
 
-    $$
-    \mu_X = \frac{1}{M}\sum_{i=1}^{M} X_i, \qquad \sigma_X = \sqrt{\frac{1}{M}\sum_{i=1}^{M} (X_i - \mu_X)^2}
-    $$
+- **Non-overlapping Adaptive Segmentation**:
+  The filtered RSSI sample sequence is partitioned into non-overlapping segments of length $W$ (configurable, default $W = 50$). For each segment $s$ and each channel independently, the local mean $\mu_X$ and population standard deviation $\sigma_X$ ($\text{ddof} = 0$) are computed:
 
-  - **Adaptive Threshold Calculation**:
-    The upper threshold $q_i^+$ and lower threshold $q_i^-$ are determined per segment:
+$$
+\mu_X = \frac{1}{M}\sum_{i=1}^{M} X_i,
+\qquad
+\sigma_X = \sqrt{\frac{1}{M}\sum_{i=1}^{M}(X_i-\mu_X)^2}
+$$
 
-    $$
-    q_i^+ = \mu_X + \alpha \sigma_X \qquad (3.21)
-    $$
+- **Adaptive Threshold Calculation**:
+  The upper threshold $q_i^+$ and lower threshold $q_i^-$ are determined per segment:
 
-    $$
-    q_i^- = \mu_X - \alpha \sigma_X \qquad (3.22)
-    $$
+$$
+q_i^+ = \mu_X + \alpha\sigma_X \qquad (3.21)
+$$
 
-    where $\alpha$ is a sensitivity multiplier (default $\alpha = 0.5$).
+$$
+q_i^- = \mu_X - \alpha\sigma_X \qquad (3.22)
+$$
 
-  - **Quantization Level Assignment**:
-    Each sample $X_i$ is mapped into a discrete quantization level:
+  where $\alpha$ is a sensitivity multiplier (default $\alpha = 0.5$).
 
-    $$
-    Q(X_i) = \begin{cases}
-    0, & X_i < q_i^- \\
-    1, & q_i^- \le X_i \le q_i^+ \\
-    2, & X_i > q_i^+
-    \end{cases} \qquad (3.23)
-    $$
+- **Quantization Level Assignment**:
+  Each sample $X_i$ is mapped into a discrete quantization level:
 
-  - **Sample Retention Policy**:
-    Unlike conventional discard-based quantization schemes, Modified ADQ retains every sample. Samples falling in the intermediate zone $[q_i^-, q_i^+]$ are assigned to level 1 and retained for bit encoding. Constant segments ($\sigma_X = 0$) unconditionally produce level 1. Partial final segments (length $< W$) are fully processed with their own local mean and standard deviation.
+$$
+Q(X_i)=
+\begin{cases}
+0, & X_i < q_i^- \\
+1, & q_i^- \le X_i \le q_i^+ \\
+2, & X_i > q_i^+
+\end{cases}
+\qquad (3.23)
+$$
 
-  - **Dual Binary Encodings (Generated Simultaneously)**:
-    - **2-bit Gray Code** (implementation choice):
-      $$0 \rightarrow 00, \quad 1 \rightarrow 01, \quad 2 \rightarrow 11$$
-      Minimizes bit errors for small-scale signal fluctuations because adjacent quantization levels differ by exactly one bit.
-    - **4-bit Representation** (per `PA.pdf` Section 3.2.3, page 28):
-      $$0 \rightarrow 1010, \quad 1 \rightarrow 1011, \quad 2 \rightarrow 1001$$
-      Each quantization level is expanded into a 4-bit binary codeword.
+- **Sample Retention Policy**:
+  Unlike conventional discard-based quantization schemes, Modified ADQ retains every sample. Samples falling in the intermediate zone $[q_i^-, q_i^+]$ are assigned to level 1 and retained for bit encoding. Constant segments ($\sigma_X = 0$) unconditionally produce level 1. Partial final segments (length $< W$) are fully processed with their own local mean and standard deviation.
+
+- **Dual Binary Encodings (Generated Simultaneously)**:
+  - **2-bit Gray Code** (implementation choice):
+    $$0 \rightarrow 00, \quad 1 \rightarrow 01, \quad 2 \rightarrow 11$$
+    Minimizes bit errors for small-scale signal fluctuations because adjacent quantization levels differ by exactly one bit.
+  - **4-bit Representation** (per `PA.pdf` Section 3.2.3, page 28):
+    $$0 \rightarrow 1010, \quad 1 \rightarrow 1011, \quad 2 \rightarrow 1001$$
+    Each quantization level is expanded into a 4-bit binary codeword.
 
 ### Quantization Configuration Parameters & Rationale
 
