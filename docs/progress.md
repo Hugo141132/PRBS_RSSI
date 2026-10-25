@@ -41,14 +41,15 @@ Q(X_i) = \begin{cases}
 \text{KAR} = \left(1 - \frac{N_{\text{mismatch}}}{N_{\text{total}}}\right) \times 100\% = \frac{N_{\text{total}} - N_{\text{mismatch}}}{N_{\text{total}}} \times 100\% \qquad (3.64)
 ```
 
-4. **PRBS Expansion Stage (Galois XOR-LFSR)**: As defined in **`PA.pdf`, Section 3.2.4, Equations (3.24)–(3.26), pages 28–29**:
+4. **PRBS Expansion Stage (Galois XOR-LFSR)**: Citing LFSR principles in **`PA.pdf`, Section 3.2.4 (pages 28–29)** as background (with characteristic polynomial Equation 3.24 and period Equation 3.26):
 
 ```math
 f(x) = c_m x^m + c_{m-1} x^{m-1} + \dots + c_1 x + c_0 \qquad (3.24)
 ```
 
+**Implementation-specific Galois state update**:
 ```math
-S_{k+1} = \left((S_k \ll 1) \wedge (2^m - 1)\right) \oplus \left(c \cdot \text{MSB}(S_k)\right) \qquad (3.25)
+S_{k+1} = \left((S_k \ll 1) \wedge (2^m - 1)\right) \oplus \left(c \cdot \text{MSB}(S_k)\right)
 ```
 
 **Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic indoor dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance. Parameters such as $W=50$ and $\alpha=0.5$ are provisional software-validation settings, not optimized physical-channel parameters. Deterministic LFSR expansion does not add physical channel entropy.
@@ -250,7 +251,7 @@ S_{k+1} = \left((S_k \ll 1) \wedge (2^m - 1)\right) \oplus \left(c \cdot \text{M
 - **Pipeline Roadmap**:
   1. *Completed*: Implemented Modified Sage–Husa Adaptive Kalman Filter (MSHKF) stage.
   2. *Completed*: Implemented Modified Adaptive Dual-Threshold Quantization (MADQ) stage (`PA.pdf` Section 3.2.3, Equations 3.21–3.23) and KAR evaluation (Equation 3.64).
-  3. *Completed*: Implemented Bit Expansion with Galois XOR-LFSR PRBS generator (`PA.pdf` Section 3.2.4, Equations 3.24–3.26) and before/after KAR evaluation.
+  3. *Completed*: Implemented Bit Expansion with Galois XOR-LFSR PRBS generator (`PA.pdf` Section 3.2.4 as background) and before/after KAR evaluation.
   4. *Proposal*: Implement Information Reconciliation (Syndrome Reconciliation with BCH Codes).
   5. *Proposal*: Implement Privacy Amplification (SHA-256 compression).
   6. *Proposal*: Transition to physical channel probing with real wireless hardware when available.

@@ -53,7 +53,7 @@ PRBS_RSSI/
   - `filter.py`: Scalar Modified Sage–Husa Adaptive Kalman Filter (MSHKF) implementation (`PA.pdf` Section 3.2.2).
   - `correlation.py`: Zero-lag Pearson correlation coefficient computation (`PA.pdf` Equation 3.62).
   - `quantization.py`: Modified Adaptive Dual-Threshold Quantization (MADQ) engine, dual Gray 2-bit and 4-bit bitstream generation, and KAR calculation (`PA.pdf` Section 3.2.3 and Eq 3.64).
-  - `prbs.py`: Galois XOR-LFSR bit expansion engine, per-sample seed initialization, zero-seed lockup handling, and multi-channel KAR evaluation (`PA.pdf` Section 3.2.4, Equations 3.24–3.26).
+  - `prbs.py`: Galois XOR-LFSR bit expansion engine, per-sample seed initialization, zero-seed lockup handling, and multi-channel KAR evaluation (`PA.pdf` Section 3.2.4 as background).
   - `plotting.py`: Aggregate bubble scatter visualization, pre-/post-filtering comparison plots, and KAR comparison charts.
   - `cli.py`: Unified CLI supporting pure correlation mode (default), optional filtering mode, optional quantization mode, and optional PRBS expansion mode.
 - `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, PRBS maximal periods, and regression testing (`test_correlation.py`, `test_filter.py`, `test_loader.py`, `test_plotting.py`, `test_prbs.py`, `test_quantization.py`).
@@ -345,7 +345,7 @@ In addition, the **Sample-Level Agreement Rate** is computed as the proportion o
 
 ## PRBS Expansion Stage Implementation (Galois XOR-LFSR)
 
-- **Methodological Reference**: Governed by `PA.pdf`, **Section 3.2.4, Equations (3.24)–(3.26), pages 28–29**, with performance evaluation via Key Agreement Rate (KAR) in **Section 3.2.8.c, Equation (3.64), page 35**.
+- **Methodological Reference**: Governed by `PA.pdf`, **Section 3.2.4 (pages 28–29)** as background (with characteristic polynomial Equation 3.24 and maximal-period length Equation 3.26), with performance evaluation via Key Agreement Rate (KAR) in **Section 3.2.8.c, Equation (3.64), page 35**.
 
 ### Mathematical Recurrence & Galois Configuration
 A Pseudo-Random Binary Sequence (PRBS) is generated using an $m$-stage Linear Feedback Shift Register (LFSR) defined by a characteristic polynomial:
@@ -354,10 +354,10 @@ A Pseudo-Random Binary Sequence (PRBS) is generated using an $m$-stage Linear Fe
 f(x) = c_m x^m + c_{m-1} x^{m-1} + \dots + c_1 x + c_0 \qquad (3.24)
 ```
 
-where $`c_i \in \{0, 1\}`$, $`c_m = 1`$, and $`c_0 = 1`$. In the **Galois configuration** (Equations 3.25–3.26), feedback is applied internally across intermediate tap positions when shifting:
+where $`c_i \in \{0, 1\}`$, $`c_m = 1`$, and $`c_0 = 1`$. In the **Galois configuration**, citing `PA.pdf` Section 3.2.4 as background (without claiming this recurrence is its exact Equation 3.25, which denotes the standard scalar LFSR feedback), feedback is applied internally across intermediate tap positions when shifting. The **Implementation-specific Galois state update** is formulated as:
 
 ```math
-S_{k+1} = \left((S_k \ll 1) \wedge (2^m - 1)\right) \oplus \left(c \cdot \text{MSB}(S_k)\right) \qquad (3.25)
+S_{k+1} = \left((S_k \ll 1) \wedge (2^m - 1)\right) \oplus \left(c \cdot \text{MSB}(S_k)\right)
 ```
 
 - **Bitwise Operators in Recurrence**:
