@@ -458,3 +458,271 @@ def plot_filtering_comparison_figure(
     plt.close(fig)
 
     return png_path, pdf_path
+
+
+def plot_kar_comparison_figure(
+    quant_result: Any,
+    prefix_path: str | Path,
+) -> tuple[Path, Path]:
+    """Create and save Key Agreement Rate (KAR) comparison figure in PNG (300 dpi) and PDF formats.
+
+    Layout:
+    - Top Left Panel: Grouped bar chart comparing 2-bit Gray KAR and 4-bit KAR
+      across evaluation pairs with a fixed 0–100% axis and exact readable value labels.
+    - Top Right Panel: Bar chart of Sample-Level Agreement Rate (Q(A) == Q(B))
+      with a fixed 0–100% axis.
+    - Bottom Left Panel: Table summarizing exact numerical metrics (Level Agreement,
+      2-bit KAR, 4-bit KAR, equal mismatch counts, total bits).
+    - Bottom Right Panel: Explanatory text box detailing the mathematical origin of
+      the 4-bit KAR increase (fixed prefix '10', equal Hamming distances, exact
+      linear relation KAR_4bit = 50% + KAR_2bit / 2).
+
+    Args:
+        quant_result: ChannelQuantizationResult instance with metrics and configurations.
+        prefix_path: Path prefix for saving .png and .pdf figures.
+
+    Returns:
+        tuple[Path, Path]: (png_path, pdf_path) of the saved files.
+    """
+    prefix = Path(prefix_path)
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+
+    png_path = prefix.with_name(f"{prefix.name}.png")
+    pdf_path = prefix.with_name(f"{prefix.name}.pdf")
+
+    pair_metrics = quant_result.pair_metrics
+
+    fig = plt.figure(figsize=(15, 10), layout="constrained")
+    gs = gridspec.GridSpec(2, 2, figure=fig, height_ratios=[1.2, 0.9], width_ratios=[1.2, 0.8])
+
+    fig.suptitle(
+        "Dummy RSSI Quantization & Key Agreement Rate (KAR) Analysis (Modified ADQ)",
+        fontsize=13,
+        fontweight="bold",
+    )
+
+    # -------------------------------------------------------------
+    # 1. Top Left Panel: Grouped Bar Chart (2-bit Gray vs 4-bit KAR)
+    # -------------------------------------------------------------
+    ax_kar = fig.add_subplot(gs[0, 0])
+
+    display_labels = []
+    kar_2b_vals = []
+    kar_4b_vals = []
+    lvl_agr_vals = []
+    mismatch_counts = []
+    bit_counts_2b = []
+    bit_counts_4b = []
+
+    for pm in pair_metrics:
+        p_name = pm["pair"]
+        if "Eve" in p_name:
+            display_labels.append(f"{p_name}\n(Eavesdropper)")
+        else:
+            display_labels.append(f"{p_name}\n(Legitimate)")
+
+        k2 = float(pm["kar_2bit"])
+        k4 = float(pm["kar_4bit"])
+        la = float(pm["level_agreement_rate"])
+        b2_cnt = int(pm["bit_count_2bit"])
+        b4_cnt = int(pm["bit_count_4bit"])
+
+        kar_2b_vals.append(k2)
+        kar_4b_vals.append(k4)
+        lvl_agr_vals.append(la)
+        bit_counts_2b.append(b2_cnt)
+        bit_counts_4b.append(b4_cnt)
+
+        # Compute mismatches
+        ch_a = pm.get("channel_a")
+        ch_b = pm.get("channel_b")
+        if ch_a and ch_b and hasattr(quant_result, "bitstreams_2bit"):
+            bs_a = quant_result.bitstreams_2bit.get(ch_a, "")
+            bs_b = quant_result.bitstreams_2bit.get(ch_b, "")
+            if bs_a and bs_b and len(bs_a) == len(bs_b):
+                mismatches = sum(1 for a, b in zip(bs_a, bs_b) if a != b)
+            else:
+                mismatches = round((100.0 - k2) / 100.0 * b2_cnt)
+        else:
+            mismatches = round((100.0 - k2) / 100.0 * b2_cnt)
+        mismatch_counts.append(mismatches)
+
+    n_pairs = len(display_labels)
+    x = [float(i) for i in range(n_pairs)]
+    bar_w = 0.35
+
+    x_2b = [xi - bar_w / 2.0 for xi in x]
+    x_4b = [xi + bar_w / 2.0 for xi in x]
+
+    rects1 = ax_kar.bar(
+        x_2b,
+        kar_2b_vals,
+        width=bar_w,
+        color="#2b5c8f",
+        edgecolor="black",
+        alpha=0.9,
+        label="2-bit Gray KAR (PA.pdf Eq 3.64)",
+    )
+    rects2 = ax_kar.bar(
+        x_4b,
+        kar_4b_vals,
+        width=bar_w,
+        color="#7570b3",
+        edgecolor="black",
+        alpha=0.9,
+        label="4-bit KAR (PA.pdf Section 3.2.3)",
+    )
+
+    # Annotate bar values
+    for rect in rects1:
+        h = rect.get_height()
+        ax_kar.annotate(
+            f"{h:.2f}%",
+            xy=(rect.get_x() + rect.get_width() / 2.0, h),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+    for rect in rects2:
+        h = rect.get_height()
+        ax_kar.annotate(
+            f"{h:.2f}%",
+            xy=(rect.get_x() + rect.get_width() / 2.0, h),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+
+    ax_kar.set_ylim(0, 105)
+    ax_kar.set_ylabel("Key Agreement Rate (%)", fontsize=11, fontweight="bold")
+    ax_kar.set_title(
+        "Key Agreement Rate Comparison (2-bit Gray vs 4-bit)",
+        fontsize=11.5,
+        fontweight="bold",
+        pad=8,
+    )
+    ax_kar.set_xticks(x)
+    ax_kar.set_xticklabels(display_labels, fontsize=10)
+    ax_kar.grid(True, axis="y", linestyle=":", alpha=0.6)
+    ax_kar.legend(loc="lower right", fontsize=9.5, framealpha=0.95)
+
+    # -------------------------------------------------------------
+    # 2. Top Right Panel: Sample-Level Agreement Rate
+    # -------------------------------------------------------------
+    ax_lvl = fig.add_subplot(gs[0, 1])
+
+    lvl_colors = ["#1b9e77" if "Legitimate" in lbl else "#d95f02" for lbl in display_labels]
+    rects_lvl = ax_lvl.bar(
+        x,
+        lvl_agr_vals,
+        width=0.48,
+        color=lvl_colors,
+        edgecolor="black",
+        alpha=0.88,
+        label="Sample-Level Agreement",
+    )
+
+    for rect in rects_lvl:
+        h = rect.get_height()
+        ax_lvl.annotate(
+            f"{h:.2f}%",
+            xy=(rect.get_x() + rect.get_width() / 2.0, h),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+
+    ax_lvl.set_ylim(0, 105)
+    ax_lvl.set_ylabel("Agreement Rate (%)", fontsize=11, fontweight="bold")
+    ax_lvl.set_title("Quantization Level Agreement (Q(A) == Q(B))", fontsize=12, fontweight="bold", pad=8)
+    ax_lvl.set_xticks(x)
+    ax_lvl.set_xticklabels(display_labels, fontsize=10)
+    ax_lvl.grid(True, axis="y", linestyle=":", alpha=0.6)
+
+    # -------------------------------------------------------------
+    # 3. Bottom Left Panel: Metrics Summary Table
+    # -------------------------------------------------------------
+    ax_tbl = fig.add_subplot(gs[1, 0])
+    ax_tbl.axis("off")
+
+    table_data = []
+    for i in range(n_pairs):
+        p_name = pair_metrics[i]["pair"]
+        table_data.append([
+            p_name,
+            f"{lvl_agr_vals[i]:.2f}%",
+            f"{kar_2b_vals[i]:.2f}%",
+            f"{kar_4b_vals[i]:.2f}%",
+            f"{mismatch_counts[i]}",
+            f"{bit_counts_2b[i]:,} / {bit_counts_4b[i]:,}",
+        ])
+
+    col_labels = ["Pair", "Level Agreement", "2-bit Gray KAR", "4-bit KAR", "Bit Mismatches", "Bits (2b / 4b)"]
+    tbl = ax_tbl.table(
+        cellText=table_data,
+        colLabels=col_labels,
+        loc="center",
+        cellLoc="center",
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(10)
+    tbl.scale(1.0, 1.9)
+
+    for (r_idx, c_idx), cell in tbl.get_celld().items():
+        if r_idx == 0:
+            cell.set_facecolor("#2b5c8f")
+            cell.set_text_props(color="white", weight="bold")
+        else:
+            cell.set_facecolor("#f8f9fa" if r_idx % 2 == 1 else "white")
+
+    ax_tbl.set_title("Quantitative Metric Summary Across Evaluated Pairs", fontsize=11, fontweight="bold", pad=12)
+
+    # -------------------------------------------------------------
+    # 4. Bottom Right Panel: Explanatory Annotation Box
+    # -------------------------------------------------------------
+    ax_note = fig.add_subplot(gs[1, 1])
+    ax_note.axis("off")
+
+    explanation_text = (
+        "Mathematical Origin of 4-bit KAR Gain:\n\n"
+        "1. Fixed-Prefix Effect:\n"
+        "   4-bit encoding {0: '1010', 1: '1011', 2: '1001'} shares the\n"
+        "   fixed prefix '10' across all symbols, guaranteeing a\n"
+        "   structural minimum agreement of 50%.\n\n"
+        "2. Identical Hamming Distances:\n"
+        "   Pairwise distances between symbols are identical across encodings:\n"
+        "   d_H(0, 1) = 1, d_H(1, 2) = 1, d_H(0, 2) = 2 in both 2-bit & 4-bit.\n"
+        "   Hence: N_mismatch,4bit ≡ N_mismatch,2bit for any sequence.\n\n"
+        "3. Exact Linear Relation:\n"
+        "   KAR_4bit = 50% + KAR_2bit / 2\n"
+        "   Doubling total bits mechanically halves the disagreement rate.\n\n"
+        "4. Security Conclusion:\n"
+        "   Higher 4-bit KAR reflects encoding structure, NOT enhanced\n"
+        "   channel agreement or additional secret key entropy."
+    )
+
+    ax_note.text(
+        0.02,
+        0.5,
+        explanation_text,
+        fontsize=9.2,
+        va="center",
+        ha="left",
+        family="monospace",
+        bbox=dict(boxstyle="round,pad=0.7", facecolor="#f4f6f9", edgecolor="#b0bec5", linewidth=1.2),
+    )
+
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    plt.close(fig)
+
+    return png_path, pdf_path

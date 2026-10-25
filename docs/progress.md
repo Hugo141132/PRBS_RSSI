@@ -3,7 +3,7 @@
 ## 1. Project Purpose & Methodological Reference
 This research project develops a physical-layer Secret Key Generation (SKG) pipeline based on Received Signal Strength Indicator (RSSI) measurements.
 
-The project currently implements two key sequential stages:
+The project currently implements three sequential pipeline stages:
 1. **RSSI Filtering Stage**: Modified Sage–Husa Adaptive Kalman Filter (MSHKF) based on **`PA.pdf`, Section 3.2.2, Equations (3.10)–(3.20), pages 26–27**.
 2. **Zero-Lag Pearson Correlation Analysis**: As defined in **`PA.pdf`, Equation (3.62), page 34**:
 
@@ -19,62 +19,115 @@ $$
 }
 $$
 
-Where:
-- $X_u(n)$: RSSI sample value of channel $u$ at observation index $n$.
-- $X_v(n)$: RSSI sample value of channel $v$ at observation index $n$.
-- $\mu_u$: Sample mean of RSSI channel $u$ over $N$ observations ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
-- $\mu_v$: Sample mean of RSSI channel $v$ over $N$ observations ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
-- $N$: Total number of observation pairs ($N = 500$ in validation dummy dataset).
-*(Note: The $u, v$ notation is mathematically equivalent to the previous $X, Y$ notation).*
+3. **Modified Adaptive Dual-Threshold Quantization (MADQ)**: As defined in **`PA.pdf`, Section 3.2.3, Equations (3.21)–(3.23), pages 27–28**, with performance evaluation via Key Agreement Rate (KAR) in **`PA.pdf`, Section 3.2.8.c, Equation (3.64), page 35**:
 
-**Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic indoor dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance.
+$$
+q_i^+ = \mu_X + \alpha \sigma_X \qquad (3.21)
+$$
+
+$$
+q_i^- = \mu_X - \alpha \sigma_X \qquad (3.22)
+$$
+
+$$
+Q(X_i) = \begin{cases}
+0, & X_i < q_i^- \\
+1, & q_i^- \le X_i \le q_i^+ \\
+2, & X_i > q_i^+
+\end{cases} \qquad (3.23)
+$$
+
+$$
+\text{KAR} = \left(1 - \frac{N_{\text{mismatch}}}{N_{\text{total}}}\right) \times 100\% = \frac{N_{\text{total}} - N_{\text{mismatch}}}{N_{\text{total}}} \times 100\% \qquad (3.64)
+$$
+
+**Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic indoor dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance. Parameters such as $W=50$ and $\alpha=0.5$ are provisional software-validation settings, not optimized physical-channel parameters.
 
 ## 2. Dataset & Semantics
 - **File Path**: `data/raw/dummy/Dummy RSSI (data Indoor).xlsx`
 - **SHA-256**: `50A3459CB0A09D0A2897A2872E18D977EF6ECE0C7FCB68C0549BDB4CD780A0EE`
-- **Observations**: 500 rows. Row-wise pairing is strictly confirmed: row index $i$ corresponds to the exact same observation instance across all channels. Row order is preserved without sorting.
+- **Observations**: 500 rows. Row-wise pairing is strictly confirmed: row index $i$ corresponds to the exact same observation instance across all channels. Row order and sample alignment are strictly preserved throughout filtering and quantization.
 - **Column Definitions**:
   - `Alice`: RSSI received by Alice from Bob's signal transmission.
   - `Bob`: RSSI received by Bob from Alice's signal transmission.
   - `Eve1-Alice`: RSSI overheard by eavesdropper Eve from Alice's transmission.
   - `Eve1-Bob`: RSSI overheard by eavesdropper Eve from Bob's transmission.
 
-## 3. Implemented Modules & Filter/Correlation Results
+## 3. Implemented Modules & Validated Results
 - **Workbook Loader (`src/rssi_skg/loader.py`)**: Uses `openpyxl` to read raw workbooks; validates presence of all 4 required headers; enforces numeric cell types; reports exact row and column upon encountering missing/invalid values; supports arbitrary sample sizes $N \ge 2$.
 - **Modified Sage–Husa Adaptive Kalman Filter (`src/rssi_skg/filter.py`)**:
   - Implements scalar MSHKF with modeling assumptions $\Phi = 1.0$ and $H = 1.0$.
-  - Adaptive memory parameter $b = 0.99$ is a selected value within the literature range $(0.95, 0.999)$ mentioned in `PA.pdf` Section 3.2.2, not an explicitly prescribed single value. Initial weight $D_0 = 1.0$.
-  - Parameters $P_0 = 1.0\ \text{dBm}^2, Q = 0.1\ \text{dBm}^2, R_0 = 1.0\ \text{dBm}^2$ are uncalibrated software-validation assumptions, not measured channel or transceiver properties.
-  - Process noise covariance $Q = 0.1\ \text{dBm}^2$ is held fixed based on `PA.pdf` Section 3.2.2's final modeling assumption (process noise covariance assumed known). Consequently, online adaptation is performed on measurement noise covariance $\hat{R}_k$ while Equation (3.20) for adaptive $Q$ update is not executed.
-  - Adaptive measurement noise covariance $\hat{R}_k$ and recursive updates for noise means $\hat{q}_k$ and $\hat{r}_k$ are retained.
-  - Preserves exact update sequence, using the updated $\hat{r}_k$ in calculating innovation $e_k$.
+  - Adaptive memory parameter $b = 0.99$ is a selected value within the literature range $(0.95, 0.999)$ mentioned in `PA.pdf` Section 3.2.2. Initial weight $D_0 = 1.0$.
+  - Parameters $P_0 = 1.0\ \text{dBm}^2, Q = 0.1\ \text{dBm}^2, R_0 = 1.0\ \text{dBm}^2$ are uncalibrated software-validation assumptions.
+  - Process noise covariance $Q = 0.1\ \text{dBm}^2$ is held fixed based on `PA.pdf` Section 3.2.2's final modeling assumption (known prior). Consequently, online adaptation is performed on measurement noise covariance $\hat{R}_k$ while Equation (3.20) for adaptive $Q$ update is not executed.
+  - Online adaptation of $\hat{R}_k$ and recursive updates for noise means $\hat{q}_k$ and $\hat{r}_k$ are retained.
   - Sample indexing policy: auto-initialization from first sample $x_0 = z_0$ sets output[0] = $z_0$ and starts recursion at sample $1$ ($k=1$), strictly avoiding double-counting $z_0$.
   - Enforces independent filter instances across Alice, Bob, Eve1-Alice, and Eve1-Bob for strict channel isolation.
 - **Correlation Calculation (`src/rssi_skg/correlation.py`)**: Computes centered zero-lag Pearson correlation $\rho$ in `float64` precision; validates equal lengths; rejects $N < 2$, NaN, and Inf; raises explicit `ValueError` on constant sequences (zero variance).
-- **Plotting & Visualization (`src/rssi_skg/plotting.py`)**:
-  - `plot_combined_correlation_figure`: Top horizontal bar chart + bottom 3 bubble scatter panels for raw correlation.
-  - `plot_filtering_comparison_figure`: Top-left grouped horizontal bar chart (Raw vs Filtered $\rho$) + top-right time-series trajectory smoothing snippet (samples 0–79) + bottom 3 bubble scatter panels for filtered data.
-  - Exports: 300 dpi PNG and vector PDF using Matplotlib `Agg` backend.
+- **Modified Adaptive Dual-Threshold Quantization (`src/rssi_skg/quantization.py`)**:
+  - Segment-based adaptive threshold calculation: non-overlapping segments with configurable default window size $W = 50$, multiplier $\alpha = 0.5$, and population standard deviation ($\text{ddof} = 0$).
+  - Full sample coverage: processes all samples, including any shorter final segment.
+  - Sample retention: all samples are retained; no sample in the intermediate zone is discarded. Constant segments ($\sigma = 0$) unconditionally produce level 1.
+  - Channel isolation: each channel's mean, standard deviation, and thresholds are calculated independently with zero cross-channel contamination.
+  - Dual binary encodings generated simultaneously in every run:
+    - **2-bit Gray code**: $0 \rightarrow 00$, $1 \rightarrow 01$, $2 \rightarrow 11$ (implementation choice to minimize bit errors for adjacent state transitions).
+    - **4-bit code**: $0 \rightarrow 1010$, $1 \rightarrow 1011$, $2 \rightarrow 1001$ (per `PA.pdf` Section 3.2.3, page 28).
+  - Bitstreams preserve temporal sample order.
+  - Evaluation: Bit-level Key Agreement Rate (KAR) per `PA.pdf` Equation (3.64), sample-level agreement rate, and per-channel level frequencies.
+  - **Companion XLSX Export (`export_quantized_workbook_xlsx`)**:
+    - Creates a 4-sheet multi-tab workbook (`Quantized Samples`, `Bitstreams`, `Agreement Metrics`, `Segment Thresholds`) using existing `openpyxl`.
+    - Stores bit encodings (`"00"`, `"01"`, `"11"`, `"1010"`, etc.) explicitly as string cells (`cell.data_type = 's'`) with Text format (`cell.number_format = '@'`), overcoming Microsoft Excel's automatic number conversion that drops leading zeros from CSVs.
+    - Explicitly handles Excel's single-cell limit of 32,767 characters by splitting long bitstreams across sequential parts (`part`, `total_parts`) with zero silent data truncation.
+  - **KAR Comparison Visualization (`plot_kar_comparison_figure`)**:
+    - Generates 4-panel 300-dpi PNG and vector PDF (`_quantization.png` / `_quantization.pdf`).
+    - Top-Left: Grouped bar chart comparing 2-bit Gray KAR and 4-bit KAR across Alice–Bob, Alice–Eve1-Alice, and Bob–Eve1-Bob with fixed 0–100% axis, explicit value labels, and annotation noting the fixed-prefix relation ($\text{KAR}_{\text{4bit}} = 50\% + \text{KAR}_{\text{2bit}} / 2$).
+    - Top-Right: Companion sample-level agreement rate panel clearly separated from bitstream KAR.
+    - Bottom-Left: Formatted metrics summary table.
+    - Bottom-Right: Monospace mathematical explanation box explaining why 4-bit KAR is elevated due to fixed `'10'` prefix structure (structural minimum agreement of 50%, with exact relation $\text{KAR}_{\text{4bit}} = 50\% + \text{KAR}_{\text{2bit}} / 2$) rather than genuine physical reciprocity or added entropy.
 - **CLI Interface (`src/rssi_skg/cli.py`)**:
   - Default behavior: raw correlation only (backward compatible).
   - Optional `--filter`: executes MSHKF, exports aligned raw/filtered samples CSV, metadata JSON, and comparison plots.
+  - Optional `--quantize`: executes MADQ on MSHKF-filtered RSSI, exports aligned sample-level quantization CSV, segment thresholds CSV, bitstreams CSV, quantization metrics CSV, configuration metadata JSON, companion XLSX workbook (`--quantized-xlsx-output`), and quantization comparison plots (`--quantize-figure-prefix`).
 - **Validated Results on Dummy Dataset ($N=500$, `data_kind=dummy`)**:
-  - `Alice–Bob`: Raw $\rho = +0.632263$, Filtered $\rho = +0.842244$ ($\Delta\rho = +0.209981$)
-  - `Alice–Eve1-Alice`: Raw $\rho = +0.017060$, Filtered $\rho = -0.013725$ ($\Delta\rho = -0.030784$)
-  - `Bob–Eve1-Bob`: Raw $\rho = +0.119310$, Filtered $\rho = +0.015151$ ($\Delta\rho = -0.104159$)
-  - Generated output files in `outputs/`:
+  - **Correlation Results**:
+    - `Alice–Bob`: Raw $\rho = +0.632263$, Filtered $\rho = +0.842244$ ($\Delta\rho = +0.209981$)
+    - `Alice–Eve1-Alice`: Raw $\rho = +0.017060$, Filtered $\rho = -0.013725$ ($\Delta\rho = -0.030784$)
+    - `Bob–Eve1-Bob`: Raw $\rho = +0.119310$, Filtered $\rho = +0.015151$ ($\Delta\rho = -0.104159$)
+  - **Quantization & Agreement Results ($W=50, \alpha=0.5, \text{ddof}=0$)**:
+    - Segments: exactly 10 segments (50 samples each).
+    - Bitstream Lengths: exactly 1,000 bits per channel (2-bit Gray) and 2,000 bits per channel (4-bit).
+    - `Alice–Bob`: Level Agreement = 64.4000% (322/500), 2-bit Gray KAR = 80.4000% (804/1000), 4-bit KAR = 90.2000% (1804/2000).
+    - `Alice–Eve1-Alice`: Level Agreement = 34.8000% (174/500), 2-bit Gray KAR = 58.2000% (582/1000), 4-bit KAR = 79.1000% (1582/2000).
+    - `Bob–Eve1-Bob`: Level Agreement = 34.4000% (172/500), 2-bit Gray KAR = 55.4000% (554/1000), 4-bit KAR = 77.7000% (1554/2000).
+  - **Channel Level Distributions**:
+    - `Alice`: Level 0 = 127 (25.40%), Level 1 = 219 (43.80%), Level 2 = 154 (30.80%)
+    - `Bob`: Level 0 = 169 (33.80%), Level 1 = 161 (32.20%), Level 2 = 170 (34.00%)
+    - `Eve1-Alice`: Level 0 = 147 (29.40%), Level 1 = 193 (38.60%), Level 2 = 160 (32.00%)
+    - `Eve1-Bob`: Level 0 = 164 (32.80%), Level 1 = 147 (29.40%), Level 2 = 189 (37.80%)
+  - **Critical Encoding Analysis**:
+    In the 4-bit representation (`1010`, `1011`, `1001`), the first two bits (`10`) are identical across all levels. Consequently, 50% of the bits match unconditionally, elevating eavesdropper KAR to ~77–79% even when level agreement is only ~34%. Reporting level agreement alongside bit-level KAR keeps encoding effects fully visible. Encoded bit length must not be equated with physical entropy or cryptographic security.
+  - **Generated Output Artifacts in `outputs/`**:
     - `dummy_rssi_filtered_correlation.csv`
     - `dummy_rssi_filtered_samples.csv`
     - `dummy_rssi_filter_config.json`
+    - `dummy_rssi_quantized_samples.csv` (clean machine-readable CSV)
+    - `dummy_rssi_quantized_segments.csv`
+    - `dummy_rssi_quantized_bitstreams.csv`
+    - `dummy_rssi_quantize_metrics.csv`
+    - `dummy_rssi_quantize_config.json`
+    - `dummy_rssi_quantized.xlsx` (multi-sheet companion Excel workbook)
     - `dummy_rssi_filtered.png` & `.pdf`
+    - `dummy_rssi_quantization.png` & `.pdf` (KAR comparison visualization)
     - `dummy_rssi_correlation.csv`, `.png` & `.pdf` (legacy raw run)
 
 ## 4. Key Source & Test File Responsibilities
+- `src/rssi_skg/quantization.py`: Modified ADQ engine, `QuantizationConfig`, `SegmentThresholds`, `ChannelQuantizationResult`, `quantize_series`, `quantize_channels`, `encode_levels_to_bits`, `calculate_kar`, `calculate_level_agreement`, `calculate_level_frequencies`, CSV/JSON export functions, and `export_quantized_workbook_xlsx` (with `EXCEL_MAX_CELL_CHARS` limit chunking).
 - `src/rssi_skg/filter.py`: Scalar MSHKF engine, `FilterConfig`, `ModifiedSageHusaFilter`, `filter_rssi_channels`.
 - `src/rssi_skg/correlation.py`: Pure mathematical Pearson implementation and input sanity checking.
 - `src/rssi_skg/loader.py`: Excel workbook ingestion, column validation, and row pairing.
-- `src/rssi_skg/plotting.py`: Bubble aggregation, raw figure rendering, and filtered comparison figure rendering.
-- `src/rssi_skg/cli.py`: Command-line parsing, optional filtering dispatch, CSV/JSON/figure export.
+- `src/rssi_skg/plotting.py`: Bubble aggregation, raw figure rendering, filtered comparison figure rendering, and `plot_kar_comparison_figure`.
+- `src/rssi_skg/cli.py`: Command-line parsing, optional filtering and quantization dispatch, companion XLSX export dispatch, figure prefix quantization routing, and stdout user guidance.
+- `tests/test_quantization.py`: 16 tests (threshold calculation, boundary conditions, both encodings, sample sequence preservation, constant segments, partial segments, channel isolation, KAR formula, level agreement, invalid configs, invalid inputs, dummy dataset verification, CLI artifact export, XLSX companion export with leading zeros, XLSX 32,767 cell limit chunking, and KAR comparison plotting integration).
 - `tests/test_filter.py`: 11 tests (intermediate step validation against independent 2-step example, channel isolation, sample indexing, constant-input behavior, numerical safeguards, invalid configs, non-finite inputs, dummy dataset, CLI integration).
 - `tests/test_correlation.py`: 8 tests (perfect positive/negative, zero correlation, zero variance, invalid dimensions, NaN/Inf, SciPy reference parity).
 - `tests/test_loader.py`: 6 tests (missing columns, non-numeric values, empty cells, row ordering preservation, arbitrary $N$).
@@ -82,15 +135,14 @@ Where:
 
 ## 5. Verification Records
 - **Clean Environment**: Project installed in isolated local `.venv` via `pip install -e ".[dev]"`.
-- **Test Suite**: Recorded full pass of all 31 automated tests (`pytest -v` exited 0). Reused without re-running for documentation-only edits.
-- **CLI Execution**: Executed both default (unfiltered) and filtered analysis pipelines against the dummy workbook; verified 500-sample count, float64 precision in CSV, metadata JSON, and simultaneous PNG/PDF generation.
-- **Visual Inspection**: Inspected both `outputs/dummy_rssi_filtered.png` and `outputs/dummy_rssi_filtered.pdf`; confirmed grouped bar chart labels, time-series smoothing plot, density bubble scatter panels, zero text clipping, and software-validation disclaimer.
+- **Test Suite**: 50 automated tests pass (`pytest -v` exited 0 with 50/50 passing).
+- **CLI Execution**: Executed raw-only, filtering-only, and full quantization pipelines against the dummy workbook; verified 500-sample count, 10 segments, 1,000 bits (2-bit Gray), 2,000 bits (4-bit), CSV float precision, JSON metadata, XLSX companion workbook with text cells, and 300-dpi/PDF KAR visualization figures.
 
 ## 6. Windows PowerShell Reproduction Commands
 > The primary execution guide with output locations is maintained in [README.md](../README.md#petunjuk-penyiapan-lingkungan--eksekusi).
 
 ```powershell
-# 1. Run automated test suite (31 tests)
+# 1. Run automated test suite (50 tests)
 .\.venv\Scripts\python.exe -m pytest -v
 
 # 2. Run default correlation analysis (raw only)
@@ -104,17 +156,39 @@ Where:
   --filtered-samples-output "outputs/dummy_rssi_filtered_samples.csv" `
   --filter-config-output "outputs/dummy_rssi_filter_config.json" `
   --figure-prefix "outputs/dummy_rssi_filtered"
+
+# 4. Run full pipeline with Modified ADQ Quantization stage, companion XLSX, and KAR comparison charts
+.\.venv\Scripts\python.exe -m rssi_skg `
+  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -o "outputs/dummy_rssi_filtered_correlation.csv" `
+  --filter `
+  --quantize `
+  --quantize-window 50 `
+  --quantize-alpha 0.5 `
+  --filtered-samples-output "outputs/dummy_rssi_filtered_samples.csv" `
+  --filter-config-output "outputs/dummy_rssi_filter_config.json" `
+  --quantized-samples-output "outputs/dummy_rssi_quantized_samples.csv" `
+  --quantized-segments-output "outputs/dummy_rssi_quantized_segments.csv" `
+  --quantized-bitstreams-output "outputs/dummy_rssi_quantized_bitstreams.csv" `
+  --quantize-metrics-output "outputs/dummy_rssi_quantize_metrics.csv" `
+  --quantize-config-output "outputs/dummy_rssi_quantize_config.json" `
+  --quantized-xlsx-output "outputs/dummy_rssi_quantized.xlsx" `
+  --figure-prefix "outputs/dummy_rssi_filtered"
 ```
 
 ## 7. Current Git State & Verification
 - **Active Branch**: `main`.
 - **Working Tree Policy**: All modified and untracked files remain strictly unstaged in the working tree awaiting user review. No commits or pushes have been performed.
+- **Gitignore Status**: Inspected `.gitignore`. The existing rule `outputs/*` (with `!outputs/.gitkeep`) already covers all generated quantization artifacts. No `.gitignore` modification was required.
 
 ## 8. Remaining Limitations & Proposed Next Steps
-- **Limitations**: Analysis operates on synthetic indoor dummy data for software verification; cannot establish empirical secrecy; channel probing hardware is deferred.
-- **Proposed Future Steps**:
+- **Limitations**:
+  - Operates on synthetic indoor dummy data for software verification; cannot establish empirical secrecy.
+  - Channel probing hardware is deferred to a subsequent physical testing phase.
+  - Parameters $W=50$ and $\alpha=0.5$ are provisional software-validation settings, not optimized physical-channel parameters.
+- **Pipeline Roadmap**:
   1. *Completed*: Implemented Modified Sage–Husa Adaptive Kalman Filter (MSHKF) stage.
-  2. *Proposal*: Implement Modified Adaptive Dual-Threshold Quantization (MADQ) stage (`PA.pdf` Section 3.2.3, Equations 3.21–3.23).
+  2. *Completed*: Implemented Modified Adaptive Dual-Threshold Quantization (MADQ) stage (`PA.pdf` Section 3.2.3, Equations 3.21–3.23) and KAR evaluation (Equation 3.64).
   3. *Proposal*: Implement Bit Expansion with Galois LFSR PRBS generator (`PA.pdf` Section 3.2.4).
   4. *Proposal*: Implement Information Reconciliation (Syndrome Reconciliation with BCH Codes).
   5. *Proposal*: Implement Privacy Amplification (SHA-256 compression).
