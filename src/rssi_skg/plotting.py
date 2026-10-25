@@ -8,6 +8,8 @@ Generates a combined figure containing:
 from __future__ import annotations
 
 from collections import Counter
+import csv
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -725,4 +727,534 @@ def plot_kar_comparison_figure(
     fig.savefig(pdf_path, bbox_inches="tight")
     plt.close(fig)
 
+    return png_path, pdf_path
+
+
+STANDARD_PRBS_EVALUATION_PAIRS: tuple[str, ...] = (
+    "Alice–Bob",
+    "Alice–Eve1-Alice",
+    "Bob–Eve1-Bob",
+)
+
+
+def _normalize_pair_name(pair_str: str) -> str:
+    """Normalize pair label string to canonical en-dash representation."""
+    cleaned = pair_str.strip()
+    cleaned = cleaned.replace(" vs ", "–").replace(" - ", "–").replace("-", "–")
+    if "Alice" in cleaned and "Bob" in cleaned and "Eve" not in cleaned:
+        return "Alice–Bob"
+    if "Alice" in cleaned and "Eve1" in cleaned:
+        return "Alice–Eve1-Alice"
+    if "Bob" in cleaned and "Eve1" in cleaned:
+        return "Bob–Eve1-Bob"
+    return cleaned
+
+
+def plot_prbs_kar_comparison_figure(
+    prbs_metrics: Sequence[Mapping[str, Any]] | Any | str | Path,
+    prefix_path: str | Path,
+    title_prefix: str = "Dummy RSSI",
+) -> tuple[Path, Path]:
+    """Create and save reproducible 2x2 figure comparing before/after PRBS Key Agreement Rates (KAR).
+
+    Layout:
+    - Top-Left: Grouped bars comparing pre- vs post-PRBS KAR for 2-bit Gray path (0-100% axis).
+    - Top-Right: Grouped bars comparing pre- vs post-PRBS KAR for 4-bit path (0-100% axis).
+    - Bottom-Left: Sample-level agreement rate Q(A) == Q(B) across channel pairs (0-100% axis).
+    - Bottom-Right: Compact summary table with before/after KAR and signed differences in percentage points (pp),
+      accompanied by scientific constraints notes.
+
+    Evaluation Pairs are strictly ordered:
+    1. Alice–Bob (Legitimate)
+    2. Alice–Eve1-Alice (Eavesdropper)
+    3. Bob–Eve1-Bob (Eavesdropper)
+
+    Args:
+        prbs_metrics: Sequence of metric dicts, MultiChannelPRBSResult instance, or path to CSV metrics.
+        prefix_path: Path prefix for output files (.png and .pdf).
+        title_prefix: Prefix string for figure title (default: "Dummy RSSI").
+
+    Returns:
+        tuple[Path, Path]: (png_path, pdf_path) of the saved 300 dpi PNG and vector PDF files.
+
+    Raises:
+        ValueError: If prbs_metrics is invalid, missing required evaluation pairs, contains non-finite
+                    values, or percentage rates are outside [0.0, 100.0].
+    """
+    prefix = Path(prefix_path)
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+
+    png_path = prefix.with_name(f"{prefix.name}.png")
+    pdf_path = prefix.with_name(f"{prefix.name}.pdf")
+
+    # 1. Ingest input metrics
+    raw_records: list[dict[str, Any]] = []
+    if isinstance(prbs_metrics, (str, Path)):
+        csv_p = Path(prbs_metrics)
+        if not csv_p.exists():
+            raise ValueError(f"PRBS metrics CSV file does not exist: {csv_p}")
+        with open(csv_p, mode="r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            raw_records = [dict(row) for row in reader]
+    elif hasattr(prbs_metrics, "pair_metrics"):
+        raw_records = [dict(pm) for pm in getattr(prbs_metrics, "pair_metrics")]
+    elif isinstance(prbs_metrics, Sequence):
+        raw_records = [dict(item) for item in prbs_metrics]
+    else:
+        raise ValueError(
+            f"Unsupported prbs_metrics type: {type(prbs_metrics)}. Expected CSV path, MultiChannelPRBSResult, or list of dicts."
+        )
+
+    if not raw_records:
+        raise ValueError("PRBS metrics record list is empty.")
+
+    # 2. Build normalized lookup keyed by canonical pair name
+    pair_lookup: dict[str, dict[str, Any]] = {}
+    for row in raw_records:
+        pair_val = str(row.get("pair", row.get("pair_label", "")))
+        canonical = _normalize_pair_name(pair_val)
+        pair_lookup[canonical] = row
+
+    # 3. Validate required pairs coverage
+    for required_pair in STANDARD_PRBS_EVALUATION_PAIRS:
+        if required_pair not in pair_lookup:
+            raise ValueError(
+                f"Missing required evaluation pair '{required_pair}' in PRBS metrics. Available pairs: {list(pair_lookup.keys())}"
+            )
+
+    # 4. Extract and validate metrics for each required pair
+    display_pairs = list(STANDARD_PRBS_EVALUATION_PAIRS)
+    display_labels = [
+        "Alice–Bob\n(Legitimate)",
+        "Alice–Eve1-Alice\n(Eavesdropper)",
+        "Bob–Eve1-Bob\n(Eavesdropper)",
+    ]
+
+    level_agreements: list[float] = []
+    kar_2b_before: list[float] = []
+    kar_2b_after: list[float] = []
+    kar_2b_delta: list[float] = []
+    kar_4b_before: list[float] = []
+    kar_4b_after: list[float] = []
+    kar_4b_delta: list[float] = []
+
+    sample_counts: list[int] = []
+    bit_counts_2b_pre: list[int] = []
+    bit_counts_2b_post: list[int] = []
+    bit_counts_4b_pre: list[int] = []
+    bit_counts_4b_post: list[int] = []
+
+    def _extract_float(row: dict[str, Any], *keys: str, name: str) -> float:
+        for k in keys:
+            if k in row and row[k] is not None and str(row[k]).strip() != "":
+                try:
+                    val = float(row[k])
+                    if not math.isfinite(val):
+                        raise ValueError(f"Metric '{name}' for pair '{row.get('pair')}' is non-finite: {val}")
+                    if val < 0.0 or val > 100.0:
+                        raise ValueError(f"Percentage metric '{name}' for pair '{row.get('pair')}' out of range [0.0, 100.0]: {val}")
+                    return val
+                except ValueError as e:
+                    if "out of range" in str(e) or "non-finite" in str(e):
+                        raise
+                    raise ValueError(f"Cannot parse metric '{name}' as float: {row[k]!r}") from e
+        raise ValueError(f"Missing required metric field for '{name}'. Checked keys: {keys} in {row}")
+
+    def _extract_int(row: dict[str, Any], *keys: str, default: int) -> int:
+        for k in keys:
+            if k in row and row[k] is not None and str(row[k]).strip() != "":
+                try:
+                    return int(row[k])
+                except (ValueError, TypeError):
+                    pass
+        return default
+
+    for p_name in display_pairs:
+        row = pair_lookup[p_name]
+        lvl_agr = _extract_float(row, "level_agreement_rate", "level_agreement", name="level_agreement_rate")
+        k2_pre = _extract_float(row, "kar_2bit_before", "pre_prbs_kar_2bit", name="kar_2bit_before")
+        k2_post = _extract_float(row, "kar_2bit_after", "post_prbs_kar_2bit", name="kar_2bit_after")
+        k4_pre = _extract_float(row, "kar_4bit_before", "pre_prbs_kar_4bit", name="kar_4bit_before")
+        k4_post = _extract_float(row, "kar_4bit_after", "post_prbs_kar_4bit", name="kar_4bit_after")
+
+        # Full precision delta in percentage points (pp)
+        d2 = k2_post - k2_pre
+        d4 = k4_post - k4_pre
+
+        s_cnt = _extract_int(row, "sample_count", default=500)
+        b2_pre = _extract_int(row, "bit_count_2bit_before", "pre_prbs_bits_2bit", default=1000)
+        b2_post = _extract_int(row, "bit_count_2bit_after", "post_prbs_bits_2bit", default=1500)
+        b4_pre = _extract_int(row, "bit_count_4bit_before", "pre_prbs_bits_4bit", default=2000)
+        b4_post = _extract_int(row, "bit_count_4bit_after", "post_prbs_bits_4bit", default=7500)
+
+        level_agreements.append(lvl_agr)
+        kar_2b_before.append(k2_pre)
+        kar_2b_after.append(k2_post)
+        kar_2b_delta.append(d2)
+        kar_4b_before.append(k4_pre)
+        kar_4b_after.append(k4_post)
+        kar_4b_delta.append(d4)
+
+        sample_counts.append(s_cnt)
+        bit_counts_2b_pre.append(b2_pre)
+        bit_counts_2b_post.append(b2_post)
+        bit_counts_4b_pre.append(b4_pre)
+        bit_counts_4b_post.append(b4_post)
+
+    # 5. Build 2x2 Figure
+    fig = plt.figure(figsize=(16, 12), layout="constrained")
+    gs = gridspec.GridSpec(2, 2, figure=fig, height_ratios=[1.15, 1.0])
+
+    fig.suptitle(
+        f"{title_prefix} Key Agreement Rate (KAR) Analysis: Per-Sample PRBS Expansion\n"
+        "Galois XOR-LFSR Evaluation (PA.pdf Section 3.2.4, Equations 3.24–3.26)",
+        fontsize=14,
+        fontweight="bold",
+    )
+
+    n_pairs = len(display_labels)
+    x = [float(i) for i in range(n_pairs)]
+    bar_w = 0.35
+    x_pre = [xi - bar_w / 2.0 for xi in x]
+    x_post = [xi + bar_w / 2.0 for xi in x]
+
+    # Accessible palette: Navy for Pre-PRBS, Deep Orange for Post-PRBS
+    c_pre = "#2b5c8f"
+    c_post = "#e66101"
+
+    # -------------------------------------------------------------
+    # Panel 1: Top-Left: Grouped Bars 2-bit Gray Path
+    # -------------------------------------------------------------
+    ax_2b = fig.add_subplot(gs[0, 0])
+    rects_2b_pre = ax_2b.bar(
+        x_pre,
+        kar_2b_before,
+        width=bar_w,
+        color=c_pre,
+        edgecolor="black",
+        linewidth=0.8,
+        label="Pre-PRBS (Quantization Baseline, 2b Gray)",
+    )
+    rects_2b_post = ax_2b.bar(
+        x_post,
+        kar_2b_after,
+        width=bar_w,
+        color=c_post,
+        edgecolor="black",
+        linewidth=0.8,
+        label="Post-PRBS (Galois XOR-LFSR, 3b/sample)",
+    )
+
+    ax_2b.set_ylim(0, 100)
+    ax_2b.set_ylabel("Key Agreement Rate (%)", fontsize=11, fontweight="bold")
+    ax_2b.set_title(
+        "(a) 2-bit Gray Path: Pre- vs Post-PRBS Key Agreement Rate\n"
+        f"Samples: N={sample_counts[0]} | Bit Counts: {bit_counts_2b_pre[0]:,}b (Pre) → {bit_counts_2b_post[0]:,}b (Post)",
+        fontsize=11,
+        fontweight="bold",
+        pad=10,
+    )
+    ax_2b.set_xticks(x)
+    ax_2b.set_xticklabels(display_labels, fontsize=10)
+    ax_2b.grid(True, linestyle="--", alpha=0.4, axis="y")
+    ax_2b.legend(loc="upper right", framealpha=0.95, fontsize=9.0)
+
+    for i, rect in enumerate(rects_2b_pre):
+        h = rect.get_height()
+        ax_2b.annotate(
+            f"{h:.2f}%",
+            xy=(rect.get_x() + rect.get_width() / 2.0, h),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=9.2,
+            fontweight="bold",
+            color=c_pre,
+        )
+    for i, rect in enumerate(rects_2b_post):
+        h = rect.get_height()
+        ax_2b.annotate(
+            f"{h:.2f}%",
+            xy=(rect.get_x() + rect.get_width() / 2.0, h),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=9.2,
+            fontweight="bold",
+            color=c_post,
+        )
+        d_val = kar_2b_delta[i]
+        d_color = "#b2182b" if d_val < 0 else "#2166ac"
+        max_h = max(kar_2b_before[i], kar_2b_after[i])
+        ax_2b.annotate(
+            f"Δ = {d_val:+.2f} pp",
+            xy=(x[i], max_h),
+            xytext=(0, 16),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8.8,
+            fontweight="bold",
+            color=d_color,
+            bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor=d_color, alpha=0.95, linewidth=0.8),
+        )
+
+    # -------------------------------------------------------------
+    # Panel 2: Top-Right: Grouped Bars 4-bit Path
+    # -------------------------------------------------------------
+    ax_4b = fig.add_subplot(gs[0, 1])
+    rects_4b_pre = ax_4b.bar(
+        x_pre,
+        kar_4b_before,
+        width=bar_w,
+        color=c_pre,
+        edgecolor="black",
+        linewidth=0.8,
+        label="Pre-PRBS (Quantization Baseline, 4b Code)",
+    )
+    rects_4b_post = ax_4b.bar(
+        x_post,
+        kar_4b_after,
+        width=bar_w,
+        color=c_post,
+        edgecolor="black",
+        linewidth=0.8,
+        label="Post-PRBS (Galois XOR-LFSR, 15b/sample)",
+    )
+
+    ax_4b.set_ylim(0, 100)
+    ax_4b.set_ylabel("Key Agreement Rate (%)", fontsize=11, fontweight="bold")
+    ax_4b.set_title(
+        "(b) 4-bit Path: Pre- vs Post-PRBS Key Agreement Rate\n"
+        f"Samples: N={sample_counts[0]} | Bit Counts: {bit_counts_4b_pre[0]:,}b (Pre) → {bit_counts_4b_post[0]:,}b (Post)",
+        fontsize=11,
+        fontweight="bold",
+        pad=10,
+    )
+    ax_4b.set_xticks(x)
+    ax_4b.set_xticklabels(display_labels, fontsize=10)
+    ax_4b.grid(True, linestyle="--", alpha=0.4, axis="y")
+    ax_4b.legend(loc="upper right", framealpha=0.95, fontsize=9.0)
+
+    for i, rect in enumerate(rects_4b_pre):
+        h = rect.get_height()
+        if h > 85.0:
+            ax_4b.annotate(
+                f"{h:.2f}%",
+                xy=(rect.get_x() + rect.get_width() / 2.0, h - 2.0),
+                ha="center",
+                va="top",
+                fontsize=9.2,
+                fontweight="bold",
+                color="white",
+            )
+        else:
+            ax_4b.annotate(
+                f"{h:.2f}%",
+                xy=(rect.get_x() + rect.get_width() / 2.0, h),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=9.2,
+                fontweight="bold",
+                color=c_pre,
+            )
+    for i, rect in enumerate(rects_4b_post):
+        h = rect.get_height()
+        ax_4b.annotate(
+            f"{h:.2f}%",
+            xy=(rect.get_x() + rect.get_width() / 2.0, h),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=9.2,
+            fontweight="bold",
+            color=c_post,
+        )
+        d_val = kar_4b_delta[i]
+        d_color = "#b2182b" if d_val < 0 else "#2166ac"
+        if i == 0:
+            ax_4b.annotate(
+                f"Δ = {d_val:+.2f} pp",
+                xy=(x[i], 94.0),
+                ha="center",
+                va="center",
+                fontsize=8.8,
+                fontweight="bold",
+                color=d_color,
+                bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor=d_color, alpha=0.95, linewidth=0.8),
+            )
+        elif i == 1:
+            ax_4b.annotate(
+                f"Δ = {d_val:+.2f} pp",
+                xy=(x[i], 85.5),
+                ha="center",
+                va="center",
+                fontsize=8.8,
+                fontweight="bold",
+                color=d_color,
+                bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor=d_color, alpha=0.95, linewidth=0.8),
+            )
+        else:
+            ax_4b.annotate(
+                f"Δ = {d_val:+.2f} pp",
+                xy=(x_post[i], 74.5),
+                ha="center",
+                va="center",
+                fontsize=8.8,
+                fontweight="bold",
+                color=d_color,
+                bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor=d_color, alpha=0.95, linewidth=0.8),
+            )
+
+    # -------------------------------------------------------------
+    # Panel 3: Bottom-Left: Sample-Level Agreement Rate Q(A) == Q(B)
+    # -------------------------------------------------------------
+    ax_lvl = fig.add_subplot(gs[1, 0])
+    lvl_colors = ["#1b9e77", "#7570b3", "#7570b3"]
+    rects_lvl = ax_lvl.bar(
+        x,
+        level_agreements,
+        width=0.45,
+        color=lvl_colors,
+        edgecolor="black",
+        linewidth=0.8,
+    )
+    ax_lvl.set_ylim(0, 100)
+    ax_lvl.set_ylabel("Agreement Rate (%)", fontsize=11, fontweight="bold")
+    ax_lvl.set_title(
+        "(c) Quantization-Level Agreement\n"
+        f"Sample-Level Agreement: Q(Channel A) == Q(Channel B) (N={sample_counts[0]} samples)",
+        fontsize=11,
+        fontweight="bold",
+        pad=10,
+    )
+    ax_lvl.set_xticks(x)
+    ax_lvl.set_xticklabels(display_labels, fontsize=10)
+    ax_lvl.grid(True, linestyle="--", alpha=0.4, axis="y")
+
+    for rect in rects_lvl:
+        h = rect.get_height()
+        ax_lvl.annotate(
+            f"{h:.2f}%",
+            xy=(rect.get_x() + rect.get_width() / 2.0, h),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+
+    ax_lvl.text(
+        0.5,
+        0.86,
+        "Percentage of paired samples assigned the same quantization level before encoding.\n"
+        "This metric is distinct from bit-level KAR.",
+        transform=ax_lvl.transAxes,
+        ha="center",
+        va="center",
+        fontsize=9.2,
+        style="italic",
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="#eef5f2", edgecolor="#80cbc4", linewidth=1.0),
+    )
+
+    # -------------------------------------------------------------
+    # Panel 4: Bottom-Right: Inner GridSpec with Summary Table & Notes
+    # -------------------------------------------------------------
+    sub_gs = gs[1, 1].subgridspec(2, 1, height_ratios=[0.85, 1.15], hspace=0.08)
+
+    # Top Sub-panel: Compact Table
+    ax_tbl = fig.add_subplot(sub_gs[0])
+    ax_tbl.axis("off")
+
+    table_data = []
+    for i, p_canonical in enumerate(display_pairs):
+        table_data.append([
+            p_canonical,
+            f"{level_agreements[i]:.2f}%",
+            f"{kar_2b_before[i]:.2f}%",
+            f"{kar_2b_after[i]:.2f}%",
+            f"{kar_2b_delta[i]:+.2f} pp",
+            f"{kar_4b_before[i]:.2f}%",
+            f"{kar_4b_after[i]:.2f}%",
+            f"{kar_4b_delta[i]:+.2f} pp",
+        ])
+
+    col_labels = [
+        "Channel Pair",
+        "Level Agr.",
+        "2b Pre",
+        "2b Post",
+        "Δ 2b",
+        "4b Pre",
+        "4b Post",
+        "Δ 4b",
+    ]
+    col_widths = [0.26, 0.11, 0.10, 0.10, 0.11, 0.10, 0.10, 0.12]
+
+    tbl = ax_tbl.table(
+        cellText=table_data,
+        colLabels=col_labels,
+        colWidths=col_widths,
+        loc="center",
+        cellLoc="center",
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(9.2)
+    tbl.scale(1.0, 1.6)
+
+    for (r_idx, c_idx), cell in tbl.get_celld().items():
+        if r_idx == 0:
+            cell.set_facecolor("#2b5c8f")
+            cell.set_text_props(color="white", weight="bold")
+        else:
+            cell.set_facecolor("#f8f9fa" if r_idx % 2 == 1 else "white")
+            if c_idx in (4, 7):
+                cell.set_text_props(weight="bold")
+
+    ax_tbl.set_title(
+        "(d) Quantitative Summary: Before vs After PRBS Expansion (Signed Differences in pp)",
+        fontsize=10.5,
+        fontweight="bold",
+        pad=8,
+    )
+
+    # Bottom Sub-panel: Notes Box
+    ax_notes = fig.add_subplot(sub_gs[1])
+    ax_notes.axis("off")
+
+    notes_text = (
+        "Methodological Notes & Scientific Constraints:\n"
+        "• Dummy data: software validation only; empirical channel probing is postponed.\n"
+        "• Deterministic PRBS expansion does not add source entropy:\n"
+        "  Generated bits derive deterministically from the 3 quantization codewords.\n"
+        "  Expansion increases bitstream volume, not underlying physical randomness.\n"
+        "• Zero-seed '00' behavior:\n"
+        "  Seed '00' remains unmodified and generates '000' with actual period 1.\n"
+        "  Zero state is preserved (never remapped, discarded, or reseeded).\n"
+        "• Security interpretation:\n"
+        "  Post-expansion KAR depends on quantization-level matches and pairwise Hamming\n"
+        "  distances between expanded codewords. Lower eavesdropper KAR does not establish\n"
+        "  cryptographic security."
+    )
+
+    ax_notes.text(
+        0.01,
+        0.95,
+        notes_text,
+        fontsize=8.8,
+        va="top",
+        ha="left",
+        family="sans-serif",
+        bbox=dict(boxstyle="round,pad=0.6", facecolor="#f4f6f9", edgecolor="#b0bec5", linewidth=1.1),
+    )
+
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    plt.close(fig)
     return png_path, pdf_path

@@ -13,6 +13,7 @@ from rssi_skg.plotting import (
     plot_combined_correlation_figure,
     plot_filtering_comparison_figure,
     plot_kar_comparison_figure,
+    plot_prbs_kar_comparison_figure,
 )
 from rssi_skg.quantization import (
     CODE_4BIT_MAP,
@@ -30,6 +31,28 @@ from rssi_skg.quantization import (
     quantize_series,
 )
 
+from rssi_skg.prbs import (
+    DEFAULT_POLY_2BIT_DEGREE,
+    DEFAULT_POLY_2BIT_MASK,
+    DEFAULT_POLY_2BIT_NAME,
+    DEFAULT_POLY_4BIT_DEGREE,
+    DEFAULT_POLY_4BIT_MASK,
+    DEFAULT_POLY_4BIT_NAME,
+    ChannelPRBSResult,
+    GaloisLFSR,
+    MultiChannelPRBSResult,
+    PRBSConfig,
+    SamplePRBSResult,
+    expand_channel_prbs,
+    expand_channels_prbs,
+    expand_seed,
+    export_prbs_bitstreams_csv,
+    export_prbs_config_json,
+    export_prbs_metrics_csv,
+    export_prbs_samples_csv,
+    export_prbs_workbook_xlsx,
+)
+
 __all__ = [
     "pearson_correlation",
     "FilterConfig",
@@ -40,6 +63,7 @@ __all__ = [
     "plot_combined_correlation_figure",
     "plot_filtering_comparison_figure",
     "plot_kar_comparison_figure",
+    "plot_prbs_kar_comparison_figure",
     "QuantizationConfig",
     "SegmentThresholds",
     "ChannelQuantizationResult",
@@ -53,4 +77,23 @@ __all__ = [
     "calculate_level_agreement",
     "calculate_level_frequencies",
     "export_quantized_workbook_xlsx",
+    "GaloisLFSR",
+    "PRBSConfig",
+    "SamplePRBSResult",
+    "ChannelPRBSResult",
+    "MultiChannelPRBSResult",
+    "expand_seed",
+    "expand_channel_prbs",
+    "expand_channels_prbs",
+    "export_prbs_samples_csv",
+    "export_prbs_bitstreams_csv",
+    "export_prbs_metrics_csv",
+    "export_prbs_config_json",
+    "export_prbs_workbook_xlsx",
+    "DEFAULT_POLY_2BIT_NAME",
+    "DEFAULT_POLY_2BIT_DEGREE",
+    "DEFAULT_POLY_2BIT_MASK",
+    "DEFAULT_POLY_4BIT_NAME",
+    "DEFAULT_POLY_4BIT_DEGREE",
+    "DEFAULT_POLY_4BIT_MASK",
 ]

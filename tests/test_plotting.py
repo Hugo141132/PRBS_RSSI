@@ -122,3 +122,168 @@ def test_plot_filtering_comparison_figure(tmp_path: Path) -> None:
     assert pdf_p.is_file()
     assert png_p.stat().st_size > 1000
     assert pdf_p.stat().st_size > 1000
+
+
+def test_plot_prbs_kar_comparison_figure_from_records(tmp_path: Path) -> None:
+    from rssi_skg.plotting import plot_prbs_kar_comparison_figure
+
+    records = [
+        {
+            "pair": "Alice–Bob",
+            "sample_count": 500,
+            "level_agreement_rate": 64.4,
+            "kar_2bit_before": 80.4,
+            "kar_2bit_after": 76.2667,
+            "bit_count_2bit_before": 1000,
+            "bit_count_2bit_after": 1500,
+            "kar_4bit_before": 90.2,
+            "kar_4bit_after": 81.0133,
+            "bit_count_4bit_before": 2000,
+            "bit_count_4bit_after": 7500,
+        },
+        {
+            "pair": "Alice–Eve1-Alice",
+            "sample_count": 500,
+            "level_agreement_rate": 34.8,
+            "kar_2bit_before": 58.2,
+            "kar_2bit_after": 56.5333,
+            "bit_count_2bit_before": 1000,
+            "bit_count_2bit_after": 1500,
+            "kar_4bit_before": 79.1,
+            "kar_4bit_after": 65.2267,
+            "bit_count_4bit_before": 2000,
+            "bit_count_4bit_after": 7500,
+        },
+        {
+            "pair": "Bob–Eve1-Bob",
+            "sample_count": 500,
+            "level_agreement_rate": 34.4,
+            "kar_2bit_before": 55.4,
+            "kar_2bit_after": 56.2667,
+            "bit_count_2bit_before": 1000,
+            "bit_count_2bit_after": 1500,
+            "kar_4bit_before": 77.7,
+            "kar_4bit_after": 65.0133,
+            "bit_count_4bit_before": 2000,
+            "bit_count_4bit_after": 7500,
+        },
+    ]
+
+    prefix = tmp_path / "prbs_test_fig"
+    png_p, pdf_p = plot_prbs_kar_comparison_figure(records, prefix)
+
+    assert png_p.is_file()
+    assert pdf_p.is_file()
+    assert png_p.stat().st_size > 10000
+    assert pdf_p.stat().st_size > 10000
+    assert png_p.name == "prbs_test_fig.png"
+    assert pdf_p.name == "prbs_test_fig.pdf"
+
+
+def test_plot_prbs_kar_comparison_figure_from_csv(tmp_path: Path) -> None:
+    from rssi_skg.plotting import plot_prbs_kar_comparison_figure
+
+    csv_path = Path("outputs/dummy_rssi_prbs_metrics.csv")
+    assert csv_path.is_file()
+
+    prefix = tmp_path / "from_csv_fig"
+    png_p, pdf_p = plot_prbs_kar_comparison_figure(csv_path, prefix)
+
+    assert png_p.is_file()
+    assert pdf_p.is_file()
+    assert png_p.stat().st_size > 10000
+    assert pdf_p.stat().st_size > 10000
+
+
+def test_plot_prbs_kar_comparison_figure_validation(tmp_path: Path) -> None:
+    from rssi_skg.plotting import plot_prbs_kar_comparison_figure
+
+    prefix = tmp_path / "val_fig"
+
+    # Empty
+    with pytest.raises(ValueError, match="empty"):
+        plot_prbs_kar_comparison_figure([], prefix)
+
+    # Missing required pair
+    incomplete = [
+        {
+            "pair": "Alice–Bob",
+            "level_agreement_rate": 64.4,
+            "kar_2bit_before": 80.4,
+            "kar_2bit_after": 76.2667,
+            "kar_4bit_before": 90.2,
+            "kar_4bit_after": 81.0133,
+        }
+    ]
+    with pytest.raises(ValueError, match="Missing required evaluation pair"):
+        plot_prbs_kar_comparison_figure(incomplete, prefix)
+
+    # Out of range percentage (> 100)
+    out_of_range = [
+        {
+            "pair": "Alice–Bob",
+            "level_agreement_rate": 104.4,
+            "kar_2bit_before": 80.4,
+            "kar_2bit_after": 76.2667,
+            "kar_4bit_before": 90.2,
+            "kar_4bit_after": 81.0133,
+        },
+        {
+            "pair": "Alice–Eve1-Alice",
+            "level_agreement_rate": 34.8,
+            "kar_2bit_before": 58.2,
+            "kar_2bit_after": 56.5333,
+            "kar_4bit_before": 79.1,
+            "kar_4bit_after": 65.2267,
+        },
+        {
+            "pair": "Bob–Eve1-Bob",
+            "level_agreement_rate": 34.4,
+            "kar_2bit_before": 55.4,
+            "kar_2bit_after": 56.2667,
+            "kar_4bit_before": 77.7,
+            "kar_4bit_after": 65.0133,
+        },
+    ]
+    with pytest.raises(ValueError, match="out of range"):
+        plot_prbs_kar_comparison_figure(out_of_range, prefix)
+
+
+def test_cli_prbs_figure_export(tmp_path: Path) -> None:
+    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    prbs_fig_prefix = tmp_path / "custom_prbs_fig"
+
+    results, fig_paths, quant_res, prbs_res = run_correlation_analysis(
+        input_path=dummy_path,
+        enable_prbs=True,
+        prbs_figure_prefix=prbs_fig_prefix,
+        return_prbs_result=True,
+    )
+
+    assert prbs_res is not None
+    assert prbs_res.figure_paths is not None
+    png_p, pdf_p = prbs_res.figure_paths
+    assert png_p.is_file()
+    assert pdf_p.is_file()
+    assert png_p.name == "custom_prbs_fig.png"
+    assert pdf_p.name == "custom_prbs_fig.pdf"
+
+
+def test_cli_prbs_figure_auto_derivation(tmp_path: Path) -> None:
+    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    base_fig_prefix = tmp_path / "dummy_filtered"
+
+    results, fig_paths, quant_res, prbs_res = run_correlation_analysis(
+        input_path=dummy_path,
+        enable_prbs=True,
+        figure_prefix=base_fig_prefix,
+        return_prbs_result=True,
+    )
+
+    assert prbs_res is not None
+    assert prbs_res.figure_paths is not None
+    png_p, pdf_p = prbs_res.figure_paths
+    assert png_p.is_file()
+    assert pdf_p.is_file()
+    assert png_p.name == "dummy_prbs_kar.png"
+    assert pdf_p.name == "dummy_prbs_kar.pdf"

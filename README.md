@@ -31,6 +31,7 @@ PRBS_RSSI/
 │       ├── filter.py
 │       ├── loader.py
 │       ├── plotting.py
+│       ├── prbs.py
 │       └── quantization.py
 ├── tests/                            # Unit tests and software validation
 │   ├── __init__.py
@@ -38,6 +39,7 @@ PRBS_RSSI/
 │   ├── test_filter.py
 │   ├── test_loader.py
 │   ├── test_plotting.py
+│   ├── test_prbs.py
 │   └── test_quantization.py
 ├── .gitignore                        # Ignore rules for cache files, venv, and outputs
 ├── PA.pdf                            # Primary methodological reference document
@@ -51,9 +53,10 @@ PRBS_RSSI/
   - `filter.py`: Scalar Modified Sage–Husa Adaptive Kalman Filter (MSHKF) implementation (`PA.pdf` Section 3.2.2).
   - `correlation.py`: Zero-lag Pearson correlation coefficient computation (`PA.pdf` Equation 3.62).
   - `quantization.py`: Modified Adaptive Dual-Threshold Quantization (MADQ) engine, dual Gray 2-bit and 4-bit bitstream generation, and KAR calculation (`PA.pdf` Section 3.2.3 and Eq 3.64).
-  - `plotting.py`: Aggregate bubble scatter visualization and pre-/post-filtering comparison plots.
-  - `cli.py`: Unified CLI supporting pure correlation mode (default), optional filtering mode, and optional quantization mode.
-- `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, and regression testing (`test_correlation.py`, `test_filter.py`, `test_loader.py`, `test_plotting.py`, `test_quantization.py`).
+  - `prbs.py`: Galois XOR-LFSR bit expansion engine, per-sample seed initialization, zero-seed lockup handling, and multi-channel KAR evaluation (`PA.pdf` Section 3.2.4, Equations 3.24–3.26).
+  - `plotting.py`: Aggregate bubble scatter visualization, pre-/post-filtering comparison plots, and KAR comparison charts.
+  - `cli.py`: Unified CLI supporting pure correlation mode (default), optional filtering mode, optional quantization mode, and optional PRBS expansion mode.
+- `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, PRBS maximal periods, and regression testing (`test_correlation.py`, `test_filter.py`, `test_loader.py`, `test_plotting.py`, `test_prbs.py`, `test_quantization.py`).
 - `data/raw/dummy/`: Dummy dataset for software validation. Contains `Dummy RSSI (data Indoor).xlsx` and local `README.md`.
 - `data/raw/measured/`: Reserved folder for real wireless channel measurement data (empirical physical channel probing).
 - `outputs/`: Stores calculation outputs, visual artifacts, and reports. Excluded from Git tracking except for `.gitkeep`.
@@ -336,6 +339,75 @@ $$
 
 ---
 
+## PRBS Expansion Stage Implementation (Galois XOR-LFSR)
+
+- **Methodological Reference**: Governed by `PA.pdf`, **Section 3.2.4, Equations (3.24)–(3.26), pages 28–29**, with performance evaluation via Key Agreement Rate (KAR) in **Section 3.2.8.c, Equation (3.64), page 35**.
+
+### Mathematical Recurrence & Galois Configuration
+A Pseudo-Random Binary Sequence (PRBS) is generated using an $m$-stage Linear Feedback Shift Register (LFSR) defined by a characteristic polynomial:
+
+$$
+f(x) = c_m x^m + c_{m-1} x^{m-1} + \dots + c_1 x + c_0 \qquad (3.24)
+$$
+
+where $c_i \in \{0, 1\}$, $c_m = 1$, and $c_0 = 1$. In the **Galois configuration** (Equations 3.25–3.26), feedback is applied internally across intermediate tap positions when shifting:
+
+$$
+S_{k+1} = \left((S_k \ll 1) \ \& \ (2^m - 1)\right) \oplus \left(c \cdot \text{MSB}(S_k)\right) \qquad (3.25)
+$$
+
+- **Shift Direction & Bit Ordering**: Left-shift (`<< 1`), big-endian representation (index 0 is the most significant bit, matching string bitstream conventions).
+- **Output Timing**: The output bit emitted at each clock step is the pre-shift MSB (`(state >> (degree - 1)) & 1`). If the emitted bit is 1, the new shifted state is XORed with the feedback mask.
+- **Per-Sample Deterministic Resets**: Each sample's quantization encoding is fed as an exact seed into the LFSR. The LFSR state is reset to that sample's seed, stepped exactly $2^m - 1$ times to emit $2^m - 1$ bits, and the expanded bits are concatenated in the original temporal sample sequence. The two encoding paths are processed completely independently across Alice, Bob, Eve1-Alice, and Eve1-Bob.
+
+### Primitive Polynomials & Register Sizes
+The register degree $m$ and per-sample resets are explicit implementation choices matching quantization codeword lengths:
+1. **2-bit Path ($m=2$)**:
+   - Primitive polynomial: $f(x) = x^2 + x + 1$
+   - Galois feedback mask: `0b11` (integer 3)
+   - Requested output length: exactly $2^2 - 1 = 3$ bits per sample (1,500 bits per channel for 500 samples).
+   - Maximal period: $L = 2^2 - 1 = 3$ for any non-zero seed (`01`, `11`).
+2. **4-bit Path ($m=4$)**:
+   - Primitive polynomial: $f(x) = x^4 + x + 1$
+   - Galois feedback mask: `0b0011` (integer 3)
+   - Requested output length: exactly $2^4 - 1 = 15$ bits per sample (7,500 bits per channel for 500 samples).
+   - Maximal period: $L = 2^4 - 1 = 15$ for any non-zero seed (`1010`, `1011`, `1001`).
+
+### Zero-Seed Handling (Deliberate Exception to `PA.pdf`)
+In `PA.pdf` Section 3.2.4, an LFSR is assumed to operate from a non-zero initial seed because the all-zero state produces no feedback (`0 ^ 0 = 0`). In this research pipeline:
+- **Zero-seed `"00"` is strictly preserved** and is **NEVER** remapped to `"10"` or any other state.
+- Samples are **never discarded**, reseeded, or injected with artificial randomness.
+- Standard Galois XOR recurrence runs unmodified: state 0 locks up at state 0, producing exactly `"000"`.
+- Each sample records `is_zero_state = True` and `actual_period = 1`.
+- The requested output length (3 bits) is rigorously distinguished from the actual period (1). Maximal-period guarantees apply strictly to non-zero seeds with primitive polynomials.
+
+### Pre- vs. Post-PRBS Key Agreement Rate (KAR) ($N=500$, `data_kind=dummy`)
+
+| Channel Pair | Pre-PRBS 2-bit KAR | Post-PRBS 2-bit KAR | Δ 2-bit KAR | Pre-PRBS 4-bit KAR | Post-PRBS 4-bit KAR | Δ 4-bit KAR |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `Alice–Bob` | `80.4000%` | `76.2667%` (1144/1500) | `-4.1333 pp` | `90.2000%` | `81.0133%` (6076/7500) | `-9.1867 pp` |
+| `Alice–Eve1-Alice` | `58.2000%` | `56.5333%` (848/1500) | `-1.6667 pp` | `79.1000%` | `65.2267%` (4892/7500) | `-13.8733 pp` |
+| `Bob–Eve1-Bob` | `55.4000%` | `56.2667%` (844/1500) | `+0.8667 pp` | `77.7000%` | `65.0133%` (4876/7500) | `-12.6867 pp` |
+
+#### Zero-Seed Distribution per Channel ($N=500$ samples)
+- **2-bit Gray Path**:
+  - `Alice`: 127 zero seeds (25.40%)
+  - `Bob`: 169 zero seeds (33.80%)
+  - `Eve1-Alice`: 147 zero seeds (29.40%)
+  - `Eve1-Bob`: 164 zero seeds (32.80%)
+- **4-bit Path**:
+  - `Alice`: 0 zero seeds (0.00%)
+  - `Bob`: 0 zero seeds (0.00%)
+  - `Eve1-Alice`: 0 zero seeds (0.00%)
+  - `Eve1-Bob`: 0 zero seeds (0.00%)
+
+> [!WARNING]
+> **Scientific Limitation & Information-Theoretic Entropy Warning**:
+> Deterministic Galois LFSR expansion **does not add physical channel entropy or cryptographic security**. A pseudo-random sequence is entirely determined by its seed. Repeated quantization levels produce identical expanded output blocks.
+> Furthermore, KAR can and does decrease after expansion: In the 4-bit quantization scheme, all codewords share the static `'10'` prefix (forcing a 50% minimum match). The LFSR expands and disperses these bits across 15 pseudo-random cycle states, diffusing the prefix artifact and pulling the observed KAR closer to the true underlying sample-level agreement rate (~64.4% for Alice–Bob and ~34% for Eve).
+
+---
+
 <a id="petunjuk-penyiapan-lingkungan--eksekusi"></a>
 ## Environment Setup & Execution Instructions
 
@@ -354,10 +426,10 @@ python -m venv .venv
 ```
 
 ### 2. Running Unit Tests
-The test suite comprises 50 automated tests (MSHKF step-by-step intermediate numerical equations, channel isolation, sample indexing, numerical safeguards, Pearson correlation, workbook loading, visualization generation, MADQ threshold calculations, exact boundary conditions, encodings, KAR validation, companion XLSX string-cell formatting with leading zero preservation and >32k character limit chunking, and KAR comparison plotting):
+The test suite comprises 67 automated tests (MSHKF step-by-step intermediate numerical equations, channel isolation, sample indexing, numerical safeguards, Pearson correlation, workbook loading, visualization generation, MADQ threshold calculations, exact boundary conditions, encodings, KAR validation, PRBS primitive polynomial verification, zero-state lockup, known-answer sequences, deterministic resets, companion XLSX string-cell formatting with leading zero preservation and >32k character limit chunking, quantization KAR plotting, and PRBS KAR 2x2 comparison figure generation):
 
 ```powershell
-# Run all unit tests (50 tests)
+# Run all unit tests (67 tests)
 .\.venv\Scripts\python.exe -m pytest -v
 ```
 
@@ -401,11 +473,28 @@ Run the CLI with both `--filter` and `--quantize` (or `--quantize` alone, which 
   --figure-prefix "outputs/dummy_rssi_filtered"
 ```
 
+#### D. Full Execution with MSHKF Filtering, Modified ADQ, and PRBS Expansion Stages
+Run the CLI with `--prbs` (which automatically invokes `--quantize` and `--filter` prerequisites when omitted) to generate all sample-level PRBS expansions, concatenated bitstreams, before/after KAR metrics, companion multi-sheet Excel workbook, and the 2×2 PRBS KAR visualization figure:
+```powershell
+.\.venv\Scripts\python.exe -m rssi_skg `
+  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -o "outputs/dummy_rssi_filtered_correlation.csv" `
+  --filter `
+  --quantize `
+  --prbs `
+  --prbs-samples-output "outputs/dummy_rssi_prbs_samples.csv" `
+  --prbs-bitstreams-output "outputs/dummy_rssi_prbs_bitstreams.csv" `
+  --prbs-metrics-output "outputs/dummy_rssi_prbs_metrics.csv" `
+  --prbs-config-output "outputs/dummy_rssi_prbs_config.json" `
+  --prbs-xlsx-output "outputs/dummy_rssi_prbs.xlsx" `
+  --prbs-figure-prefix "outputs/dummy_rssi_prbs_kar"
+```
+
 > [!TIP]
 > **Microsoft Excel Guidance for Leading Zeros (`00` vs `0`, `01` vs `1`)**:
-> - The raw CSV export (`outputs/dummy_rssi_quantized_samples.csv`) preserves exact string literals (`"00"`, `"01"`). However, Microsoft Excel automatically strips leading zeros when directly double-clicking a CSV file, displaying `00` as `0` and `01` as `1`.
-> - **Excel users should open the companion XLSX workbook** (`outputs/dummy_rssi_quantized.xlsx`) instead of the CSV. In the XLSX export, all bitstream strings and sample codes are stored explicitly as string cells (`data_type='s'`) with Text format (`@`), ensuring leading zeros are preserved identically across all spreadsheet viewers.
-> - For bitstreams exceeding Excel's single-cell limit of 32,767 characters, the XLSX exporter automatically chunks long bit sequences across sequential rows (`part`, `total_parts`) so that data is never silently truncated.
+> - The raw CSV exports (`outputs/dummy_rssi_quantized_samples.csv` and `outputs/dummy_rssi_prbs_samples.csv`) preserve exact string literals (`"00"`, `"01"`, `"000"`). However, Microsoft Excel automatically strips leading zeros when directly double-clicking a CSV file, displaying `00` as `0` and `000` as `0`.
+> - **Excel users should open the companion XLSX workbooks** (`outputs/dummy_rssi_quantized.xlsx` and `outputs/dummy_rssi_prbs.xlsx`) instead of the CSVs. In the XLSX exports, all bitstream strings and sample codes are stored explicitly as string cells (`data_type='s'`) with Text format (`@`), ensuring leading zeros are preserved identically across all spreadsheet viewers.
+> - For bitstreams exceeding Excel's single-cell limit of 32,767 characters, the XLSX exporters automatically chunk long bit sequences across sequential rows (`part`, `total_parts`) so that data is never silently truncated.
 
 ### 4. Output File Locations (`outputs/`)
 All generated artifacts are stored in the `outputs/` directory (ignored by Git via `.gitignore`, except `.gitkeep`):
@@ -421,10 +510,16 @@ All generated artifacts are stored in the `outputs/` directory (ignored by Git v
 - `outputs/dummy_rssi_quantize_config.json`: Complete quantization configuration metadata, rationale, and execution summary.
 - `outputs/dummy_rssi_quantized.xlsx`: Companion multi-sheet Excel workbook (`Quantized Samples`, `Bitstreams`, `Agreement Metrics`, `Segment Thresholds`) with explicit Text formatting preserving leading zeros and handling the 32,767 cell character limit.
 - `outputs/dummy_rssi_filtered.png` & `.pdf`: High-resolution (300 dpi) and vector PDF comparative MSHKF filtering visualizations.
-- `outputs/dummy_rssi_quantization.png` & `.pdf`: High-resolution (300 dpi) and vector PDF KAR comparison figure (grouped 2-bit vs. 4-bit KAR bars, sample-level agreement panel, metrics summary table, and mathematical explanation of the fixed-prefix effect $\text{KAR}_{\text{4bit}} = 50\% + \text{KAR}_{\text{2bit}} / 2$).
+- `outputs/dummy_rssi_quantization.png` & `.pdf`: High-resolution (300 dpi) and vector PDF quantization KAR comparison figure.
+- `outputs/dummy_rssi_prbs_samples.csv`: Per-sample PRBS expansion details (sample index, level, original encoding, seed integer, expanded bits, zero-state status, actual period) for all 4 channels.
+- `outputs/dummy_rssi_prbs_bitstreams.csv`: Concatenated PRBS bitstreams for 2-bit (1,500 bits) and 4-bit (7,500 bits) paths per channel.
+- `outputs/dummy_rssi_prbs_metrics.csv`: Pre- vs. post-PRBS KAR comparison metrics and agreement rates across Alice–Bob, Alice–Eve1-Alice, and Bob–Eve1-Bob.
+- `outputs/dummy_rssi_prbs_config.json`: PRBS configuration metadata, polynomial details, zero-seed counts, and implementation choices.
+- `outputs/dummy_rssi_prbs.xlsx`: Companion multi-sheet Excel workbook (`PRBS Samples`, `PRBS Bitstreams`, `KAR Comparison`, `Configuration & Zero Seeds`) with explicit Text formatting and >32k cell chunking.
+- `outputs/dummy_rssi_prbs_kar.png` & `.pdf`: High-resolution (300 dpi) and vector PDF 2×2 PRBS KAR visualization figure comparing pre- vs. post-PRBS KAR for 2-bit Gray and 4-bit paths, sample-level agreement rate, and compact metrics summary table with concise scientific notes.
 
 ---
 
 ## Methodological Limitations & Warnings
 
-The results of this analysis are strictly for **software validation** using synthetic dummy data. The resulting correlation coefficients and Key Agreement Rates **must not be used to draw empirical security conclusions or characterize real physical channel propagation**, as physical channel probing is postponed, not replaced. Parameters such as $W=50$ and $\alpha=0.5$ are provisional software-validation settings, not optimized physical-channel parameters.
+The results of this analysis are strictly for **software validation** using synthetic dummy data. The resulting correlation coefficients and Key Agreement Rates **must not be used to draw empirical security conclusions or characterize real physical channel propagation**, as physical channel probing is postponed, not replaced. Parameters such as $W=50$ and $\alpha=0.5$ are provisional software-validation settings, not optimized physical-channel parameters. Deterministic LFSR expansion does not add physical channel entropy.

@@ -32,6 +32,7 @@ from rssi_skg.plotting import (
     plot_combined_correlation_figure,
     plot_filtering_comparison_figure,
     plot_kar_comparison_figure,
+    plot_prbs_kar_comparison_figure,
 )
 from rssi_skg.quantization import (
     ChannelQuantizationResult,
@@ -44,6 +45,17 @@ from rssi_skg.quantization import (
     export_quantized_workbook_xlsx,
     quantize_channels,
 )
+from rssi_skg.prbs import (
+    MultiChannelPRBSResult,
+    PRBSConfig,
+    expand_channels_prbs,
+    export_prbs_bitstreams_csv,
+    export_prbs_config_json,
+    export_prbs_metrics_csv,
+    export_prbs_samples_csv,
+    export_prbs_workbook_xlsx,
+)
+
 
 
 TARGET_PAIRS: tuple[tuple[str, str, str], ...] = (
@@ -139,8 +151,26 @@ def run_correlation_analysis(
     quantized_xlsx_output: str | Path | None = None,
     quantize_figure_prefix: str | Path | None = None,
     return_quant_result: bool = False,
-) -> tuple[list[dict[str, Any]], tuple[Path, Path] | None] | tuple[list[dict[str, Any]], tuple[Path, Path] | None, ChannelQuantizationResult | None]:
-    """Execute correlation analysis on the given workbook, optionally filtering, quantizing, and saving artifacts.
+    enable_prbs: bool = False,
+    prbs_config: PRBSConfig | None = None,
+    prbs_samples_output: str | Path | None = None,
+    prbs_bitstreams_output: str | Path | None = None,
+    prbs_metrics_output: str | Path | None = None,
+    prbs_config_output: str | Path | None = None,
+    prbs_xlsx_output: str | Path | None = None,
+    prbs_figure_prefix: str | Path | None = None,
+    return_prbs_result: bool = False,
+) -> (
+    tuple[list[dict[str, Any]], tuple[Path, Path] | None]
+    | tuple[list[dict[str, Any]], tuple[Path, Path] | None, ChannelQuantizationResult | None]
+    | tuple[
+        list[dict[str, Any]],
+        tuple[Path, Path] | None,
+        ChannelQuantizationResult | None,
+        MultiChannelPRBSResult | None,
+    ]
+):
+    """Execute correlation analysis on the given workbook, optionally filtering, quantizing, expanding via PRBS, and saving artifacts.
 
     Args:
         input_path: Path to the Excel workbook.
@@ -161,17 +191,30 @@ def run_correlation_analysis(
         quantized_xlsx_output: Optional path to export companion Excel workbook (.xlsx) preserving leading zeros.
         quantize_figure_prefix: Optional file prefix to export quantization KAR figures.
         return_quant_result: If True, return (results, figure_paths, quant_result). Default False.
+        enable_prbs: If True, execute per-sample PRBS bit expansion stage (PA.pdf Section 3.2.4).
+        prbs_config: Optional PRBSConfig instance (uses defaults if None).
+        prbs_samples_output: Optional path to export per-sample PRBS expansion CSV.
+        prbs_bitstreams_output: Optional path to export concatenated PRBS bitstreams CSV.
+        prbs_metrics_output: Optional path to export before/after PRBS KAR comparison metrics CSV.
+        prbs_config_output: Optional path to export PRBS configuration metadata JSON.
+        prbs_xlsx_output: Optional path to export companion PRBS Excel workbook (.xlsx).
+        prbs_figure_prefix: Optional file prefix to export PRBS KAR comparison figures.
+        return_prbs_result: If True, return (results, figure_paths, quant_result, prbs_result). Default False.
 
     Returns:
-        tuple: (results, figure_paths) by default, or (results, figure_paths, quant_result) if return_quant_result is True.
+        tuple: (results, figure_paths) by default,
+               (results, figure_paths, quant_result) if return_quant_result is True,
+               (results, figure_paths, quant_result, prbs_result) if return_prbs_result is True.
     """
     in_path = Path(input_path)
     raw_data = load_rssi_workbook(in_path)
 
     results: list[dict[str, Any]] = []
 
-    # If quantization is requested, filtering is automatically required as a prerequisite
-    effective_filter = enable_filter or enable_quantize
+    # Automatic prerequisite chaining: PRBS requires quantization, quantization requires filtering
+    effective_prbs = enable_prbs
+    effective_quantize = enable_quantize or effective_prbs
+    effective_filter = enable_filter or effective_quantize
 
     if not effective_filter:
         # Default correlation-only behavior (strictly backward compatible)
@@ -208,6 +251,8 @@ def run_correlation_analysis(
                 prefix_path=figure_prefix,
             )
 
+        if return_prbs_result:
+            return results, fig_paths, None, None
         if return_quant_result:
             return results, fig_paths, None
         return results, fig_paths
@@ -290,7 +335,7 @@ def run_correlation_analysis(
 
     # Quantization Stage (Modified Adaptive Dual-Threshold Quantization)
     quant_res: ChannelQuantizationResult | None = None
-    if enable_quantize:
+    if effective_quantize:
         q_cfg = quantize_config if quantize_config is not None else QuantizationConfig()
         quant_res = quantize_channels(channels=filtered_data, config=q_cfg)
 
@@ -350,6 +395,64 @@ def run_correlation_analysis(
                 prefix_path=effective_quant_fig_prefix,
             )
             quant_res.figure_paths = q_fig_paths
+
+    # PRBS Bit Expansion Stage (Galois XOR-LFSR per PA.pdf Section 3.2.4)
+    prbs_res: MultiChannelPRBSResult | None = None
+    if effective_prbs and quant_res is not None:
+        p_cfg = prbs_config if prbs_config is not None else PRBSConfig()
+        prbs_res = expand_channels_prbs(quant_result=quant_res, config=p_cfg)
+
+        if prbs_samples_output is not None:
+            export_prbs_samples_csv(
+                prbs_result=prbs_res,
+                output_path=prbs_samples_output,
+            )
+
+        if prbs_bitstreams_output is not None:
+            export_prbs_bitstreams_csv(
+                prbs_result=prbs_res,
+                output_path=prbs_bitstreams_output,
+            )
+
+        if prbs_metrics_output is not None:
+            export_prbs_metrics_csv(
+                prbs_result=prbs_res,
+                output_path=prbs_metrics_output,
+            )
+
+        if prbs_config_output is not None:
+            export_prbs_config_json(
+                prbs_result=prbs_res,
+                output_path=prbs_config_output,
+                extra_metadata={
+                    "data_kind": data_kind,
+                    "input_file": str(in_path),
+                },
+            )
+
+        if prbs_xlsx_output is not None:
+            export_prbs_workbook_xlsx(
+                prbs_result=prbs_res,
+                output_path=prbs_xlsx_output,
+            )
+
+        effective_prbs_fig_prefix = prbs_figure_prefix
+        if effective_prbs_fig_prefix is None and figure_prefix is not None:
+            p_str = str(figure_prefix)
+            if p_str.endswith("_filtered"):
+                effective_prbs_fig_prefix = p_str[: -len("_filtered")] + "_prbs_kar"
+            else:
+                effective_prbs_fig_prefix = f"{p_str}_prbs_kar"
+
+        if effective_prbs_fig_prefix is not None:
+            p_fig_paths = plot_prbs_kar_comparison_figure(
+                prbs_metrics=prbs_res,
+                prefix_path=effective_prbs_fig_prefix,
+            )
+            prbs_res.figure_paths = p_fig_paths
+
+    if return_prbs_result:
+        return results, fig_paths, quant_res, prbs_res
 
     if return_quant_result:
         return results, fig_paths, quant_res
@@ -495,19 +598,65 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path prefix to export quantization KAR figures in PNG (300 dpi) and PDF (optional; defaults to figure-prefix with '_quantization' suffix).",
     )
 
+    # PRBS Expansion Options
+    prbs_group = parser.add_argument_group("Per-Sample PRBS Bit Expansion Options (PA.pdf Section 3.2.4)")
+    prbs_group.add_argument(
+        "--prbs",
+        action="store_true",
+        help="Enable per-sample PRBS bit expansion stage (PA.pdf Section 3.2.4, Equations 3.24-3.26).",
+    )
+    prbs_group.add_argument(
+        "--prbs-samples-output",
+        default=None,
+        help="Path to export per-sample PRBS expansion CSV (optional).",
+    )
+    prbs_group.add_argument(
+        "--prbs-bitstreams-output",
+        default=None,
+        help="Path to export concatenated PRBS bitstreams CSV (optional).",
+    )
+    prbs_group.add_argument(
+        "--prbs-metrics-output",
+        default=None,
+        help="Path to export before/after PRBS KAR comparison metrics CSV (optional).",
+    )
+    prbs_group.add_argument(
+        "--prbs-config-output",
+        default=None,
+        help="Path to export PRBS configuration metadata JSON (optional).",
+    )
+    prbs_group.add_argument(
+        "--prbs-xlsx-output",
+        default=None,
+        help="Path to export companion PRBS Excel workbook (.xlsx) preserving leading zeros and long bitstrings (optional).",
+    )
+    prbs_group.add_argument(
+        "--prbs-figure-prefix",
+        default=None,
+        help="Path prefix to export PRBS KAR comparison figures in PNG (300 dpi) and PDF (optional; defaults to figure-prefix with '_prbs_kar' suffix).",
+    )
+
     args = parser.parse_args(argv)
 
+    prbs_active = args.prbs
+    quant_active = args.quantize or prbs_active
+    filter_active = args.filter or quant_active
 
     print("=" * 70)
     print("RSSI SECRET KEY GENERATION (SKG) - ANALYSIS PIPELINE")
     print(f"[STATUS] Data Kind:         {args.data_kind.upper()}")
-    filter_active = args.filter or args.quantize
     filter_desc = "ENABLED (Modified Sage–Husa AKF)" if filter_active else "DISABLED (Raw Correlation Only)"
-    if args.quantize and not args.filter:
+    if prbs_active and not args.filter:
+        filter_desc += " [prerequisite for PRBS]"
+    elif args.quantize and not args.filter:
         filter_desc += " [prerequisite for quantization]"
     print(f"[STATUS] Filtering Mode:    {filter_desc}")
-    quant_desc = "ENABLED (Modified ADQ)" if args.quantize else "DISABLED"
+    quant_desc = "ENABLED (Modified ADQ)" if quant_active else "DISABLED"
+    if prbs_active and not args.quantize:
+        quant_desc += " [prerequisite for PRBS]"
     print(f"[STATUS] Quantization Mode: {quant_desc}")
+    prbs_desc = "ENABLED (Galois XOR-LFSR, per-sample reset)" if prbs_active else "DISABLED"
+    print(f"[STATUS] PRBS Expansion:    {prbs_desc}")
     print("[NOTICE] Software validation only; empirical channel probing is postponed.")
     print("=" * 70)
 
@@ -526,7 +675,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
 
     quant_cfg: QuantizationConfig | None = None
-    if args.quantize:
+    if quant_active:
         try:
             quant_cfg = QuantizationConfig(
                 window_size=args.quantize_window,
@@ -535,6 +684,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (ValueError, TypeError) as qcfg_err:
             print(f"\n[ERROR] Invalid quantization configuration: {qcfg_err}", file=sys.stderr)
             return 1
+
+    prbs_cfg: PRBSConfig | None = None
+    if prbs_active:
+        prbs_cfg = PRBSConfig()
 
     try:
         ret_val = run_correlation_analysis(
@@ -556,8 +709,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             quantized_xlsx_output=args.quantized_xlsx_output,
             quantize_figure_prefix=args.quantize_figure_prefix,
             return_quant_result=True,
+            enable_prbs=args.prbs,
+            prbs_config=prbs_cfg,
+            prbs_samples_output=args.prbs_samples_output,
+            prbs_bitstreams_output=args.prbs_bitstreams_output,
+            prbs_metrics_output=args.prbs_metrics_output,
+            prbs_config_output=args.prbs_config_output,
+            prbs_xlsx_output=args.prbs_xlsx_output,
+            prbs_figure_prefix=args.prbs_figure_prefix,
+            return_prbs_result=True,
         )
-        results, fig_paths, quant_res = ret_val  # type: ignore[misc]
+        results, fig_paths, quant_res, prbs_res = ret_val  # type: ignore[misc]
     except Exception as err:
         print(f"\n[ERROR] Analysis failed: {err}", file=sys.stderr)
         return 1
@@ -621,6 +783,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print("-" * 95)
 
+    if prbs_res is not None:
+        print("\nCalculated PRBS Expansion & Key Agreement Rate (KAR) Results (PA.pdf Section 3.2.4 & 3.2.8.c):")
+        print("-" * 125)
+        print(
+            f"{'Pair':<20} | {'Samples':<8} | {'2-bit Pre-KAR':<14} | {'2-bit Post-KAR':<15} | {'2b Delta':<10} | {'4-bit Pre-KAR':<14} | {'4-bit Post-KAR':<15} | {'4b Delta':<10} | {'Bits (2b/4b)':<12}"
+        )
+        print("-" * 125)
+        for pm in prbs_res.pair_metrics:
+            k2_pre = f"{float(pm['pre_prbs_kar_2bit']):.4f}%"
+            k2_post = f"{float(pm['post_prbs_kar_2bit']):.4f}%"
+            d2 = f"{float(pm['kar_delta_2bit']):+.4f}%"
+            k4_pre = f"{float(pm['pre_prbs_kar_4bit']):.4f}%"
+            k4_post = f"{float(pm['post_prbs_kar_4bit']):.4f}%"
+            d4 = f"{float(pm['kar_delta_4bit']):+.4f}%"
+            bits = f"{pm['post_prbs_bits_2bit']} / {pm['post_prbs_bits_4bit']}"
+            print(
+                f"{pm['pair']:<20} | {pm['sample_count']:<8} | {k2_pre:<14} | {k2_post:<15} | {d2:<10} | {k4_pre:<14} | {k4_post:<15} | {d4:<10} | {bits:<12}"
+            )
+        print("-" * 125)
+
+        print("\nZero-Seed and Lockup Statistics per Channel (Galois XOR-LFSR, zero-seed -> 000 with period 1):")
+        print("-" * 95)
+        print(
+            f"{'Channel':<15} | {'Total':<6} | {'2-bit Zero Seeds':<22} | {'4-bit Zero Seeds':<22} | {'Lockup Behavior':<25}"
+        )
+        print("-" * 95)
+        for ch, ch_res in prbs_res.channels.items():
+            z2 = f"{ch_res.zero_seed_count_2bit} ({ch_res.zero_seed_percentage_2bit:5.2f}%)"
+            z4 = f"{ch_res.zero_seed_count_4bit} ({ch_res.zero_seed_percentage_4bit:5.2f}%)"
+            lockup_desc = "Locked at 0 (actual period 1)" if ch_res.zero_seed_count_2bit > 0 else "None (all nonzero)"
+            print(
+                f"{ch:<15} | {ch_res.sample_count:<6} | {z2:<22} | {z4:<22} | {lockup_desc:<25}"
+            )
+        print("-" * 95)
+
     if args.output:
         print(f"\n[OUTPUT] Correlation CSV exported to:              {args.output}")
 
@@ -649,6 +846,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[OUTPUT] Quantized Excel workbook (.xlsx):         {args.quantized_xlsx_output}")
         print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in '00' and '01')")
 
+    if args.prbs_samples_output:
+        print(f"[OUTPUT] PRBS sample-level expansion CSV:         {args.prbs_samples_output}")
+
+    if args.prbs_bitstreams_output:
+        print(f"[OUTPUT] PRBS concatenated bitstreams CSV:         {args.prbs_bitstreams_output}")
+
+    if args.prbs_metrics_output:
+        print(f"[OUTPUT] PRBS before/after KAR metrics CSV:        {args.prbs_metrics_output}")
+
+    if args.prbs_config_output:
+        print(f"[OUTPUT] PRBS configuration metadata JSON:        {args.prbs_config_output}")
+
+    if args.prbs_xlsx_output:
+        print(f"[OUTPUT] PRBS companion Excel workbook (.xlsx):    {args.prbs_xlsx_output}")
+        print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in '000', '00', and split bitstreams beyond 32,767 limit)")
+
     if fig_paths is not None:
         png_p, pdf_p = fig_paths
         print(f"[OUTPUT] Figure plot (PNG 300 dpi) exported to:    {png_p}")
@@ -658,6 +871,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         q_png_p, q_pdf_p = quant_res.figure_paths
         print(f"[OUTPUT] Quantization KAR figure (PNG 300 dpi):    {q_png_p}")
         print(f"[OUTPUT] Quantization KAR figure (PDF):            {q_pdf_p}")
+
+    if prbs_res is not None and prbs_res.figure_paths is not None:
+        p_png_p, p_pdf_p = prbs_res.figure_paths
+        print(f"[OUTPUT] PRBS KAR figure (PNG 300 dpi):            {p_png_p}")
+        print(f"[OUTPUT] PRBS KAR figure (PDF vector):             {p_pdf_p}")
 
     return 0
 
