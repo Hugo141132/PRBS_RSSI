@@ -83,76 +83,76 @@ PRBS_RSSI/
 
 - **Methodological Reference**: Governed by `PA.pdf`, **Section 3.2.2, Equations (3.10)–(3.20), pages 26–27**:
   - **Scalar RSSI Modeling Assumptions**:
-    - State transition matrix $\Phi = 1.0$ (static/slowly varying channel RSSI model: $X_k = X_{k-1} + q_{k-1} + w_{k-1}$).
-    - Measurement matrix $H = 1.0$ (direct scalar RSSI observation in dBm: $Z_k = X_k + r_k + v_k$).
+    - State transition matrix $`\Phi = 1.0`$ (static/slowly varying channel RSSI model: $`X_k = X_{k-1} + q_{k-1} + w_{k-1}`$).
+    - Measurement matrix $`H = 1.0`$ (direct scalar RSSI observation in dBm: $`Z_k = X_k + r_k + v_k`$).
   - **Noise Adaptation Mode**:
     - The fixed scalar process-noise covariance Q is held constant at 0.1 (dBm)².
-    - The adaptive measurement-noise covariance $\hat{R}_k$ is estimated online via Equation (3.15).
-    - The noise means q and r ($\hat{q}_k$ and $\hat{r}_k$) are recursively updated via Equations (3.19) and (3.13).
+    - The adaptive measurement-noise covariance $`\hat{R}_k`$ is estimated online via Equation (3.15).
+    - The noise means q and r ($`\hat{q}_k`$ and $`\hat{r}_k`$) are recursively updated via Equations (3.19) and (3.13).
   - **Rationale for Omitting Adaptive $Q$ Update (Equation 3.20)**:
-    This implementation specifically follows the modeling assumption stated in the final paragraph of `PA.pdf` Section 3.2.2 (page 27), where the process-noise covariance $Q$ is assumed to be known and held fixed (*known prior*). Consequently, the measurement-noise covariance $\hat{R}_k$ is adaptively estimated online and the adaptive $Q$ update in Equation (3.20) is not executed.
+    This implementation specifically follows the modeling assumption stated in the final paragraph of `PA.pdf` Section 3.2.2 (page 27), where the process-noise covariance $Q$ is assumed to be known and held fixed (*known prior*). Consequently, the measurement-noise covariance $`\hat{R}_k`$ is adaptively estimated online and the adaptive $Q$ update in Equation (3.20) is not executed.
 
 ### Preserved Calculation Sequence (Equations 3.10–3.19)
 
 **a. Adaptive weight (Equation 3.10)**
 
-$$
+```math
 D_k = \frac{D_{k-1}}{D_{k-1} + b}, \qquad D_0 = 1
-$$
+```
 
 **b. State prediction (Equation 3.11)**
 
-$$
+```math
 \hat{X}(k|k-1) = \Phi \hat{X}_{k-1} + \hat{q}_{k-1}
-$$
+```
 
 **c. Error covariance prediction (Equation 3.12)**
 
-$$
+```math
 P(k|k-1) = \Phi P_{k-1} \Phi^T + Q
-$$
+```
 
 **d. Measurement noise mean update (Equation 3.13)**
 
-$$
+```math
 \hat{r}_k = (1 - D_k)\hat{r}_{k-1} + D_k \left(Z_k - H \hat{X}(k|k-1)\right)
-$$
+```
 
-**e. Innovation calculation using updated $\hat{r}_k$ (Equation 3.14)**
+**e. Innovation calculation using updated $`\hat{r}_k`$ (Equation 3.14)**
 
-$$
+```math
 e_k = Z_k - H \hat{X}(k|k-1) - \hat{r}_k
-$$
+```
 
 **f. Measurement noise covariance update (Equation 3.15)**
 
-$$
+```math
 \hat{R}_k = (1 - D_k)\hat{R}_{k-1} + D_k e_k^2
-$$
+```
 
 **g. Kalman gain (Equation 3.16)**
 
-$$
+```math
 K_k = \frac{P(k|k-1) H^T}{H P(k|k-1) H^T + \hat{R}_k}
-$$
+```
 
 **h. State update (Equation 3.17)**
 
-$$
+```math
 \hat{X}_k = \hat{X}(k|k-1) + K_k e_k
-$$
+```
 
 **i. Error covariance update (Equation 3.18)**
 
-$$
+```math
 P_k = (1 - K_k H) P(k|k-1)
-$$
+```
 
 **j. Process noise mean update (Equation 3.19)**
 
-$$
+```math
 \hat{q}_k = (1 - D_k)\hat{q}_{k-1} + D_k \left(\hat{X}_k - \Phi \hat{X}_{k-1}\right)
-$$
+```
 
 ### Configuration Parameters, Units & Rationale
 
@@ -171,19 +171,19 @@ $$
 
 ### Sample Indexing Policy
 To prevent double-counting of the first observation:
-- When $x_0$ is automatically initialized from the first observation ($x_0 = z_0$), the sample $z_0$ is assigned directly as the state at time index 0 ($\hat{X}_0 = z_0$). The recursive update loop of Equations (3.10)–(3.19) starts from measurement $z_1$ at step $k=1$. Thus, $z_0$ is used exactly once as the initial condition and **is never re-fed as a measurement innovation input**.
-- If a prior $x_0$ is explicitly supplied externally, all measurements $z_0, \dots, z_{N-1}$ are processed through steps $k = 1, \dots, N$.
+- When $x_0$ is automatically initialized from the first observation ($x_0 = z_0$), the sample $z_0$ is assigned directly as the state at time index 0 ($`\hat{X}_0 = z_0`$). The recursive update loop of Equations (3.10)–(3.19) starts from measurement $z_1$ at step $k=1$. Thus, $z_0$ is used exactly once as the initial condition and **is never re-fed as a measurement innovation input**.
+- If a prior $x_0$ is explicitly supplied externally, all measurements $`z_0, \dots, z_{N-1}`$ are processed through steps $`k = 1, \dots, N`$.
 
 ### Channel Isolation & Numerical Safeguards
 - **Channel Isolation**: The Alice, Bob, Eve1-Alice, and Eve1-Bob channels are filtered using separate, independent filter instances. No state is shared across channels.
 - **Finite-Value Validation**: Enforces `math.isfinite` across all input samples; explicitly rejects `NaN`, `+Inf`, and `-Inf`.
-- **Covariance Safeguards**: Enforces non-negative error covariance ($P_k \ge 0.0$), validates that the Kalman gain denominator is strictly non-singular ($P(k|k-1) + \hat{R}_k > 0$), and raises `FloatingPointError` if significant negative covariance or non-finite values occur (never silently masked).
+- **Covariance Safeguards**: Enforces non-negative error covariance ($`P_k \ge 0.0`$), validates that the Kalman gain denominator is strictly non-singular ($`P(k|k-1) + \hat{R}_k > 0`$), and raises `FloatingPointError` if significant negative covariance or non-finite values occur (never silently masked).
 
 The measurement-noise covariance lower-bound constraint is enforced at each step:
 
-$$
+```math
 \hat{R}_k \ge R_{\min} = 10^{-8}\,(\mathrm{dBm})^2
-$$
+```
 
 ---
 
@@ -191,7 +191,7 @@ $$
 
 - **Methodological Reference**: Governed by `PA.pdf`, **Equation (3.62), page 34**:
 
-$$
+```math
 \rho_{u,v} =
 \frac{
 \sum_{n=1}^{N}
@@ -201,26 +201,26 @@ $$
 \sqrt{\sum_{n=1}^{N}\left(X_u(n)-\mu_u\right)^2}
 \sqrt{\sum_{n=1}^{N}\left(X_v(n)-\mu_v\right)^2}
 }
-$$
+```
 
 Where:
-- $X_u(n)$: RSSI sample value on channel $u$ at observation index $n$.
-- $X_v(n)$: RSSI sample value on channel $v$ at observation index $n$.
-- $\mu_u$: Sample mean of channel $u$ RSSI over $N$ observations.
-- $\mu_v$: Sample mean of channel $v$ RSSI over $N$ observations.
+- $`X_u(n)`$: RSSI sample value on channel $u$ at observation index $n$.
+- $`X_v(n)`$: RSSI sample value on channel $v$ at observation index $n$.
+- $`\mu_u`$: Sample mean of channel $u$ RSSI over $N$ observations.
+- $`\mu_v`$: Sample mean of channel $v$ RSSI over $N$ observations.
 - $N$: Total number of paired observations (N = 500 in the dummy validation dataset).
 
 Sample mean of channel $u$:
 
-$$
+```math
 \mu_u = \frac{1}{N}\sum_{n=1}^{N} X_u(n)
-$$
+```
 
 Sample mean of channel $v$:
 
-$$
+```math
 \mu_v = \frac{1}{N}\sum_{n=1}^{N} X_v(n)
-$$
+```
 
 *(Note: The channel labels u and v correspond to the earlier X and Y notation).*
 - **Analysis Nature**: Pearson correlation is computed at zero lag.
@@ -231,7 +231,7 @@ $$
 
 ### Pre- vs. Post-Filtering Correlation Results ($N=500$, `data_kind=dummy`)
 
-| Channel Pair | Raw Correlation ($\rho_{\text{raw}}$) | Filtered Correlation ($\rho_{\text{filt}}$) | Change ($\Delta\rho$) |
+| Channel Pair | Raw Correlation ($`\rho_{\text{raw}}`$) | Filtered Correlation ($`\rho_{\text{filt}}`$) | Change ($`\Delta\rho`$) |
 | :--- | :--- | :--- | :--- |
 | `Alice–Bob` | `+0.632263` | `+0.842244` | `+0.209981` |
 | `Alice–Eve1-Alice` | `+0.017060` | `-0.013725` | `-0.030784` |
@@ -246,31 +246,31 @@ $$
 - **Methodological Reference**: Governed by `PA.pdf`, **Section 3.2.3, Equations (3.21)–(3.23), pages 27–28**, with performance evaluation via Key Agreement Rate (KAR) in **Section 3.2.8.c, Equation (3.64), page 35**:
 
 - **Non-overlapping Adaptive Segmentation**:
-  The filtered RSSI sample sequence is partitioned into non-overlapping segments of length $W$ (configurable, default $W = 50$). For each segment $s$ and each channel independently, the local mean $\mu_X$ and population standard deviation $\sigma_X$ ($\text{ddof} = 0$) are computed:
+  The filtered RSSI sample sequence is partitioned into non-overlapping segments of length $W$ (configurable, default $W = 50$). For each segment $s$ and each channel independently, the local mean $`\mu_X`$ and population standard deviation $`\sigma_X`$ ($`\text{ddof} = 0`$) are computed:
 
-$$
+```math
 \mu_X = \frac{1}{M}\sum_{i=1}^{M} X_i,
 \qquad
 \sigma_X = \sqrt{\frac{1}{M}\sum_{i=1}^{M}(X_i-\mu_X)^2}
-$$
+```
 
 - **Adaptive Threshold Calculation**:
-  The upper threshold $q_i^+$ and lower threshold $q_i^-$ are determined per segment:
+  The upper threshold $`q_i^+`$ and lower threshold $`q_i^-`$ are determined per segment:
 
-$$
+```math
 q_i^+ = \mu_X + \alpha\sigma_X \qquad (3.21)
-$$
+```
 
-$$
+```math
 q_i^- = \mu_X - \alpha\sigma_X \qquad (3.22)
-$$
+```
 
   where $\alpha$ is a sensitivity multiplier (default $\alpha = 0.5$).
 
 - **Quantization Level Assignment**:
   Each sample $X_i$ is mapped into a discrete quantization level:
 
-$$
+```math
 Q(X_i)=
 \begin{cases}
 0, & X_i < q_i^- \\
@@ -278,17 +278,21 @@ Q(X_i)=
 2, & X_i > q_i^+
 \end{cases}
 \qquad (3.23)
-$$
+```
 
 - **Sample Retention Policy**:
-  Unlike conventional discard-based quantization schemes, Modified ADQ retains every sample. Samples falling in the intermediate zone $[q_i^-, q_i^+]$ are assigned to level 1 and retained for bit encoding. Constant segments ($\sigma_X = 0$) unconditionally produce level 1. Partial final segments (length $< W$) are fully processed with their own local mean and standard deviation.
+  Unlike conventional discard-based quantization schemes, Modified ADQ retains every sample. Samples falling in the intermediate zone $`[q_i^-, q_i^+]`$ are assigned to level 1 and retained for bit encoding. Constant segments ($`\sigma_X = 0`$) unconditionally produce level 1. Partial final segments (length $< W$) are fully processed with their own local mean and standard deviation.
 
 - **Dual Binary Encodings (Generated Simultaneously)**:
   - **2-bit Gray Code** (implementation choice):
-    $$0 \rightarrow 00, \quad 1 \rightarrow 01, \quad 2 \rightarrow 11$$
+    ```math
+    0 \rightarrow 00, \quad 1 \rightarrow 01, \quad 2 \rightarrow 11
+    ```
     Minimizes bit errors for small-scale signal fluctuations because adjacent quantization levels differ by exactly one bit.
   - **4-bit Representation** (per `PA.pdf` Section 3.2.3, page 28):
-    $$0 \rightarrow 1010, \quad 1 \rightarrow 1011, \quad 2 \rightarrow 1001$$
+    ```math
+    0 \rightarrow 1010, \quad 1 \rightarrow 1011, \quad 2 \rightarrow 1001
+    ```
     Each quantization level is expanded into a 4-bit binary codeword.
 
 ### Quantization Configuration Parameters & Rationale
@@ -304,17 +308,17 @@ $$
 
 Key Agreement Rate is computed at the bit level per `PA.pdf` Equation (3.64):
 
-$$
+```math
 \text{KAR} = \left(1 - \frac{N_{\text{mismatch}}}{N_{\text{total}}}\right) \times 100\% = \frac{N_{\text{total}} - N_{\text{mismatch}}}{N_{\text{total}}} \times 100\% \qquad (3.64)
-$$
+```
 
-where $N_{\text{total}}$ is total compared bits and $N_{\text{mismatch}}$ is number of differing bit positions.
+where $`N_{\text{total}}`$ is total compared bits and $`N_{\text{mismatch}}`$ is number of differing bit positions.
 
-In addition, the **Sample-Level Agreement Rate** is computed as the proportion of samples where discrete levels match ($Q(X_{A,i}) = Q(X_{B,i})$):
+In addition, the **Sample-Level Agreement Rate** is computed as the proportion of samples where discrete levels match ($`Q(X_{A,i}) = Q(X_{B,i})`$):
 
-$$
+```math
 \text{Agreement}_{\text{level}} = \frac{1}{N}\sum_{i=1}^{N} \mathbf{1}\left(Q(X_{A,i}) = Q(X_{B,i})\right) \times 100\%
-$$
+```
 
 ### Measured Quantization Results ($N=500$, $W=50$, $\alpha=0.5$, `data_kind=dummy`)
 
@@ -346,32 +350,35 @@ $$
 ### Mathematical Recurrence & Galois Configuration
 A Pseudo-Random Binary Sequence (PRBS) is generated using an $m$-stage Linear Feedback Shift Register (LFSR) defined by a characteristic polynomial:
 
-$$
+```math
 f(x) = c_m x^m + c_{m-1} x^{m-1} + \dots + c_1 x + c_0 \qquad (3.24)
-$$
+```
 
-where $c_i \in \{0, 1\}$, $c_m = 1$, and $c_0 = 1$. In the **Galois configuration** (Equations 3.25–3.26), feedback is applied internally across intermediate tap positions when shifting:
+where $`c_i \in \{0, 1\}`$, $`c_m = 1`$, and $`c_0 = 1`$. In the **Galois configuration** (Equations 3.25–3.26), feedback is applied internally across intermediate tap positions when shifting:
 
-$$
-S_{k+1} = \left((S_k \ll 1) \ \& \ (2^m - 1)\right) \oplus \left(c \cdot \text{MSB}(S_k)\right) \qquad (3.25)
-$$
+```math
+S_{k+1} = \left((S_k \ll 1) \wedge (2^m - 1)\right) \oplus \left(c \cdot \text{MSB}(S_k)\right) \qquad (3.25)
+```
 
-- **Shift Direction & Bit Ordering**: Left-shift (`<< 1`), big-endian representation (index 0 is the most significant bit, matching string bitstream conventions).
-- **Output Timing**: The output bit emitted at each clock step is the pre-shift MSB (`(state >> (degree - 1)) & 1`). If the emitted bit is 1, the new shifted state is XORed with the feedback mask.
-- **Per-Sample Deterministic Resets**: Each sample's quantization encoding is fed as an exact seed into the LFSR. The LFSR state is reset to that sample's seed, stepped exactly $2^m - 1$ times to emit $2^m - 1$ bits, and the expanded bits are concatenated in the original temporal sample sequence. The two encoding paths are processed completely independently across Alice, Bob, Eve1-Alice, and Eve1-Bob.
+- **Bitwise Operators in Recurrence**:
+  - $`\ll 1`$: Bitwise left-shift by 1 bit.
+  - $`\wedge`$: Bitwise AND with mask $`(2^m - 1)`$ to constrain state within register degree $`m`$.
+  - $`\oplus`$: Bitwise XOR (modulo-2 addition).
+  - $`\text{MSB}(S_k)`$: Most significant bit emitted at step $`k`$ (`(state >> (m - 1)) & 1`), which gates the feedback polynomial mask $`c`$.
+- **Per-Sample Deterministic Resets**: Each sample's quantization encoding is fed as an exact seed into the LFSR. The LFSR state is reset to that sample's seed, stepped exactly $`2^m - 1`$ times to emit $`2^m - 1`$ bits, and the expanded bits are concatenated in the original temporal sample sequence. The two encoding paths are processed completely independently across Alice, Bob, Eve1-Alice, and Eve1-Bob.
 
 ### Primitive Polynomials & Register Sizes
 The register degree $m$ and per-sample resets are explicit implementation choices matching quantization codeword lengths:
 1. **2-bit Path ($m=2$)**:
-   - Primitive polynomial: $f(x) = x^2 + x + 1$
+   - Primitive polynomial: $`f(x) = x^2 + x + 1`$
    - Galois feedback mask: `0b11` (integer 3)
-   - Requested output length: exactly $2^2 - 1 = 3$ bits per sample (1,500 bits per channel for 500 samples).
-   - Maximal period: $L = 2^2 - 1 = 3$ for any non-zero seed (`01`, `11`).
+   - Requested output length: exactly $`2^2 - 1 = 3`$ bits per sample (1,500 bits per channel for 500 samples).
+   - Maximal period: $`L = 2^2 - 1 = 3`$ for any non-zero seed (`01`, `11`).
 2. **4-bit Path ($m=4$)**:
-   - Primitive polynomial: $f(x) = x^4 + x + 1$
+   - Primitive polynomial: $`f(x) = x^4 + x + 1`$
    - Galois feedback mask: `0b0011` (integer 3)
-   - Requested output length: exactly $2^4 - 1 = 15$ bits per sample (7,500 bits per channel for 500 samples).
-   - Maximal period: $L = 2^4 - 1 = 15$ for any non-zero seed (`1010`, `1011`, `1001`).
+   - Requested output length: exactly $`2^4 - 1 = 15`$ bits per sample (7,500 bits per channel for 500 samples).
+   - Maximal period: $`L = 2^4 - 1 = 15`$ for any non-zero seed (`1010`, `1011`, `1001`).
 
 ### Zero-Seed Handling (Deliberate Exception to `PA.pdf`)
 In `PA.pdf` Section 3.2.4, an LFSR is assumed to operate from a non-zero initial seed because the all-zero state produces no feedback (`0 ^ 0 = 0`). In this research pipeline:
