@@ -284,16 +284,16 @@ Q(X_i)=
   Unlike conventional discard-based quantization schemes, Modified ADQ retains every sample. Samples falling in the intermediate zone $`[q_i^-, q_i^+]`$ are assigned to level 1 and retained for bit encoding. Constant segments ($`\sigma_X = 0`$) unconditionally produce level 1. Partial final segments (length $< W$) are fully processed with their own local mean and standard deviation.
 
 - **Dual Binary Encodings (Generated Simultaneously)**:
-  - **2-bit Gray Code** (implementation choice):
-    ```math
-    0 \rightarrow 00, \quad 1 \rightarrow 01, \quad 2 \rightarrow 11
-    ```
-    Minimizes bit errors for small-scale signal fluctuations because adjacent quantization levels differ by exactly one bit.
-  - **4-bit Representation** (per `PA.pdf` Section 3.2.3, page 28):
-    ```math
-    0 \rightarrow 1010, \quad 1 \rightarrow 1011, \quad 2 \rightarrow 1001
-    ```
-    Each quantization level is expanded into a 4-bit binary codeword.
+  Each discrete quantization level is mapped into both a 2-bit Gray code and a 4-bit representation simultaneously:
+
+| Level | 2-bit Gray code | 4-bit representation |
+| :---: | :---: | :---: |
+| 0 | `00` | `1010` |
+| 1 | `01` | `1011` |
+| 2 | `11` | `1001` |
+
+  - **2-bit Gray Code** (implementation choice): Minimizes bit errors for small-scale signal fluctuations because adjacent quantization levels differ by exactly one bit.
+  - **4-bit Representation** (per `PA.pdf` Section 3.2.3, page 28): Each quantization level is expanded into a 4-bit binary codeword.
 
 ### Quantization Configuration Parameters & Rationale
 
