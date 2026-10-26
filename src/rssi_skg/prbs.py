@@ -11,6 +11,17 @@ Mathematical Formulation:
 
     Bit recurrence relation (Equation 3.25):
         S_{i+m} = (sum_{j=0}^{m-1} C_j S_{i+j}) mod 2
+        Note on Equation 3.25 vs. Galois LFSR Implementation:
+            Equation (3.25) defines the scalar linear recurrence relation on the emitted output
+            bitstream (the mathematical recurrence characteristic of LFSR output sequences).
+            While classical Fibonacci LFSRs directly store past output bits in the register delay
+            chain, the Galois LFSR implemented here updates the internal vector register state
+            in-place at each clock cycle via bitwise shifts and conditional XOR taps:
+                S_{k+1} = ((S_k << 1) & (2^m - 1)) ^ (feedback_mask if MSB == 1 else 0)
+            Crucially, the emitted output bitstream from this Galois LFSR mathematically satisfies
+            Equation (3.25) throughout any uninterrupted sample expansion:
+                - Degree m=2 (x^2 + x + 1, C_0=1, C_1=1): S_{i+2} = (S_i + S_{i+1}) mod 2
+                - Degree m=4 (x^4 + x + 1, C_0=1, C_1=1): S_{i+4} = (S_i + S_{i+1}) mod 2
 
     Maximal output period for non-zero seeds with primitive polynomial (Equation 3.26):
         L = 2^m - 1
@@ -28,16 +39,26 @@ Implementation Choices & Design Decisions:
        - Degree 4: f(x) = x^4 + x + 1 (standard primitive polynomial of degree 4 over GF(2)).
          In Left-shift Galois LFSR, feedback is taken from MSB (r_3) and XORed into lower taps.
          Mask = 0b0011 (decimal 3), corresponding to x^1 + x^0.
-    3. Shift Direction & Bit Ordering:
+    3. Shift Direction, Bit Ordering & Seed-to-Output Mapping:
        - Shift Direction: Left-shift (bits shift toward MSB; MSB is emitted as the output bit).
        - Bit Ordering: Big-endian representation where index 0 of the binary seed string is MSB.
+       - Register Seeds vs. Initial Output Bits: The quantization codeword initializes the internal
+         register state vector. In a Galois LFSR, because feedback taps modify internal bits during
+         transitions, the initial m emitted bits are an isomorphic linear transformation of the seed,
+         not an identical bit-by-bit copy for all states (e.g., m=2 seed '10' emits initial bits '11',
+         and seed '11' emits initial bits '10'). Nonetheless, the emitted sequence strictly adheres
+         to Equation (3.25) at every step i >= 0.
     4. Output Timing:
        - The current MSB state bit is emitted as the output bit for step t, then the register
          executes the internal Galois XOR shift to transition to state t+1.
-    5. Per-Sample Resets:
+    5. Per-Sample Resets & Boundary Behavior:
        - For every individual sample, the shift register is deterministically reset to that sample's
          seed codeword. The LFSR runs for exactly 2^m - 1 steps, emitting 1 bit per step.
        - The resulting bit segments are concatenated strictly in original sample order.
+       - Boundary Condition: Equation (3.25) holds strictly within each uninterrupted sample block.
+         Because each sample resets the state independently to a new quantization codeword, the
+         recurrence is NOT guaranteed across concatenated sample boundaries (certain seed transitions
+         may satisfy it coincidentally, but it does not hold in general).
     6. Zero-Seed Handling (Deliberate Exception to PA.pdf's Non-Zero Seed Condition):
        - PA.pdf Equation (3.26) states that maximal-period sequence generation requires a non-zero seed.
        - In this research experiment, the 2-bit Gray encoding maps quantization level 0 to "00".
