@@ -181,9 +181,56 @@ def test_plot_prbs_kar_comparison_figure_from_records(tmp_path: Path) -> None:
 
 
 def test_plot_prbs_kar_comparison_figure_from_csv(tmp_path: Path) -> None:
+    import csv
     from rssi_skg.plotting import plot_prbs_kar_comparison_figure
 
-    csv_path = Path("outputs/dummy_rssi_prbs_metrics.csv")
+    csv_path = tmp_path / "dummy_rssi_prbs_metrics.csv"
+    records = [
+        {
+            "pair": "Alice–Bob",
+            "sample_count": 500,
+            "level_agreement_rate": 64.4,
+            "kar_2bit_before": 80.4,
+            "kar_2bit_after": 76.2667,
+            "bit_count_2bit_before": 1000,
+            "bit_count_2bit_after": 1500,
+            "kar_4bit_before": 90.2,
+            "kar_4bit_after": 81.0133,
+            "bit_count_4bit_before": 2000,
+            "bit_count_4bit_after": 7500,
+        },
+        {
+            "pair": "Alice–Eve1-Alice",
+            "sample_count": 500,
+            "level_agreement_rate": 34.8,
+            "kar_2bit_before": 58.2,
+            "kar_2bit_after": 56.5333,
+            "bit_count_2bit_before": 1000,
+            "bit_count_2bit_after": 1500,
+            "kar_4bit_before": 79.1,
+            "kar_4bit_after": 65.2267,
+            "bit_count_4bit_before": 2000,
+            "bit_count_4bit_after": 7500,
+        },
+        {
+            "pair": "Bob–Eve1-Bob",
+            "sample_count": 500,
+            "level_agreement_rate": 34.4,
+            "kar_2bit_before": 55.4,
+            "kar_2bit_after": 56.2667,
+            "bit_count_2bit_before": 1000,
+            "bit_count_2bit_after": 1500,
+            "kar_4bit_before": 77.7,
+            "kar_4bit_after": 65.0133,
+            "bit_count_4bit_before": 2000,
+            "bit_count_4bit_after": 7500,
+        },
+    ]
+    with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(records[0].keys()))
+        writer.writeheader()
+        writer.writerows(records)
+
     assert csv_path.is_file()
 
     prefix = tmp_path / "from_csv_fig"

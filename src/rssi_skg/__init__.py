@@ -8,13 +8,6 @@ __version__ = "0.1.0"
 from rssi_skg.correlation import pearson_correlation
 from rssi_skg.filter import FilterConfig, ModifiedSageHusaFilter, filter_rssi_channels
 from rssi_skg.loader import load_rssi_workbook
-from rssi_skg.plotting import (
-    aggregate_coordinate_counts,
-    plot_combined_correlation_figure,
-    plot_filtering_comparison_figure,
-    plot_kar_comparison_figure,
-    plot_prbs_kar_comparison_figure,
-)
 from rssi_skg.quantization import (
     CODE_4BIT_MAP,
     EXCEL_MAX_CELL_CHARS,
@@ -52,6 +45,33 @@ from rssi_skg.prbs import (
     export_prbs_samples_csv,
     export_prbs_workbook_xlsx,
 )
+from rssi_skg.plotting import (
+    aggregate_coordinate_counts,
+    plot_combined_correlation_figure,
+    plot_filtering_comparison_figure,
+    plot_kar_comparison_figure,
+    plot_prbs_kar_comparison_figure,
+    plot_reconciliation_figure,
+    plot_shared_bch_figure,
+)
+from rssi_skg.reconciliation import (
+    DEFAULT_BCH_CODE,
+    GLOBAL_BCH_CODE,
+    INTERLEAVING_STATUS,
+    BlockReconciliationDetail,
+    MultiPathReconciliationResult,
+    PairReconciliationResult,
+    ReconciliationConfig,
+    evaluate_reconciliation_pair,
+    export_reconciliation_blocks_csv,
+    export_reconciliation_config_json,
+    export_reconciliation_metrics_csv,
+    export_reconciliation_workbook_xlsx,
+    generate_helper_data,
+    get_bch_code,
+    reconcile_all_paths,
+    reconstruct_receiver_bitstream,
+)
 
 __all__ = [
     "pearson_correlation",
@@ -64,6 +84,8 @@ __all__ = [
     "plot_filtering_comparison_figure",
     "plot_kar_comparison_figure",
     "plot_prbs_kar_comparison_figure",
+    "plot_reconciliation_figure",
+    "plot_shared_bch_figure",
     "QuantizationConfig",
     "SegmentThresholds",
     "ChannelQuantizationResult",
@@ -96,4 +118,20 @@ __all__ = [
     "DEFAULT_POLY_4BIT_NAME",
     "DEFAULT_POLY_4BIT_DEGREE",
     "DEFAULT_POLY_4BIT_MASK",
+    "DEFAULT_BCH_CODE",
+    "GLOBAL_BCH_CODE",
+    "INTERLEAVING_STATUS",
+    "BlockReconciliationDetail",
+    "PairReconciliationResult",
+    "MultiPathReconciliationResult",
+    "ReconciliationConfig",
+    "get_bch_code",
+    "generate_helper_data",
+    "reconstruct_receiver_bitstream",
+    "evaluate_reconciliation_pair",
+    "reconcile_all_paths",
+    "export_reconciliation_metrics_csv",
+    "export_reconciliation_blocks_csv",
+    "export_reconciliation_config_json",
+    "export_reconciliation_workbook_xlsx",
 ]

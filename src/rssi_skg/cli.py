@@ -33,6 +33,8 @@ from rssi_skg.plotting import (
     plot_filtering_comparison_figure,
     plot_kar_comparison_figure,
     plot_prbs_kar_comparison_figure,
+    plot_reconciliation_figure,
+    plot_shared_bch_figure,
 )
 from rssi_skg.quantization import (
     ChannelQuantizationResult,
@@ -55,7 +57,44 @@ from rssi_skg.prbs import (
     export_prbs_samples_csv,
     export_prbs_workbook_xlsx,
 )
+from rssi_skg.reconciliation import (
+    DEFAULT_BCH_CODE,
+    GLOBAL_BCH_CODE,
+    INTERLEAVING_STATUS,
+    MultiPathReconciliationResult,
+    ReconciliationConfig,
+    export_reconciliation_blocks_csv,
+    export_reconciliation_config_json,
+    export_reconciliation_metrics_csv,
+    export_reconciliation_workbook_xlsx,
+    reconcile_all_paths,
+)
 
+
+
+
+class ObsoleteReconciliationFlagAction(argparse.Action):
+    """Action that rejects obsolete reconciliation CLI flags with actionable migration instructions."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> None:
+        flag = option_string or "This flag"
+        if flag == "--reconcile-keys-output":
+            parser.error(
+                f"'{flag}' is obsolete. Post-reconciliation SHA-256 privacy amplification (candidate-key "
+                "derivation) has been removed from BCH reconciliation scope. Privacy amplification is a separate "
+                "future stage requiring a separate request. Please run '--reconcile' without candidate-key options."
+            )
+        parser.error(
+            f"'{flag}' is obsolete. Both quant_2bit and prbs_2bit paths now automatically "
+            "use the global BCH(1023, 46, 200) configuration (designed d=401, interleaving OFF). "
+            "Please use '--reconcile' without mode or shared flags."
+        )
 
 
 TARGET_PAIRS: tuple[tuple[str, str, str], ...] = (
@@ -160,6 +199,14 @@ def run_correlation_analysis(
     prbs_xlsx_output: str | Path | None = None,
     prbs_figure_prefix: str | Path | None = None,
     return_prbs_result: bool = False,
+    enable_reconcile: bool = False,
+    reconcile_config: ReconciliationConfig | None = None,
+    reconcile_metrics_output: str | Path | None = None,
+    reconcile_blocks_output: str | Path | None = None,
+    reconcile_config_output: str | Path | None = None,
+    reconciled_xlsx_output: str | Path | None = None,
+    reconcile_figure_prefix: str | Path | None = None,
+    return_reconcile_result: bool = False,
 ) -> (
     tuple[list[dict[str, Any]], tuple[Path, Path] | None]
     | tuple[list[dict[str, Any]], tuple[Path, Path] | None, ChannelQuantizationResult | None]
@@ -169,8 +216,15 @@ def run_correlation_analysis(
         ChannelQuantizationResult | None,
         MultiChannelPRBSResult | None,
     ]
+    | tuple[
+        list[dict[str, Any]],
+        tuple[Path, Path] | None,
+        ChannelQuantizationResult | None,
+        MultiChannelPRBSResult | None,
+        MultiPathReconciliationResult | None,
+    ]
 ):
-    """Execute correlation analysis on the given workbook, optionally filtering, quantizing, expanding via PRBS, and saving artifacts.
+    """Execute correlation analysis on the given workbook, optionally filtering, quantizing, expanding via PRBS, reconciling, and saving artifacts.
 
     Args:
         input_path: Path to the Excel workbook.
@@ -200,21 +254,32 @@ def run_correlation_analysis(
         prbs_xlsx_output: Optional path to export companion PRBS Excel workbook (.xlsx).
         prbs_figure_prefix: Optional file prefix to export PRBS KAR comparison figures.
         return_prbs_result: If True, return (results, figure_paths, quant_result, prbs_result). Default False.
+        enable_reconcile: If True, execute BCH information reconciliation and SHA-256 key extraction.
+        reconcile_config: Optional ReconciliationConfig instance (uses calibrated defaults if None).
+        reconcile_metrics_output: Optional path to export reconciliation metrics CSV.
+        reconcile_blocks_output: Optional path to export per-block reconciliation details CSV.
+        reconcile_config_output: Optional path to export reconciliation configuration metadata JSON.
+        reconciled_xlsx_output: Optional path to export companion reconciliation Excel workbook (.xlsx).
+        reconcile_figure_prefix: Optional file prefix to export reconciliation comparison figures.
+        return_reconcile_result: If True, return (results, figure_paths, quant_result, prbs_result, reconcile_result). Default False.
 
     Returns:
         tuple: (results, figure_paths) by default,
                (results, figure_paths, quant_result) if return_quant_result is True,
-               (results, figure_paths, quant_result, prbs_result) if return_prbs_result is True.
+               (results, figure_paths, quant_result, prbs_result) if return_prbs_result is True,
+               (results, figure_paths, quant_result, prbs_result, reconcile_result) if return_reconcile_result is True.
     """
     in_path = Path(input_path)
     raw_data = load_rssi_workbook(in_path)
 
     results: list[dict[str, Any]] = []
 
-    # Automatic prerequisite chaining: PRBS requires quantization, quantization requires filtering
-    effective_prbs = enable_prbs
+    # Automatic prerequisite chaining: Reconcile requires PRBS & Quantization, PRBS requires Quantization, Quantization requires Filtering
+    effective_reconcile = enable_reconcile
+    effective_prbs = enable_prbs or effective_reconcile
     effective_quantize = enable_quantize or effective_prbs
     effective_filter = enable_filter or effective_quantize
+
 
     if not effective_filter:
         # Default correlation-only behavior (strictly backward compatible)
@@ -251,6 +316,8 @@ def run_correlation_analysis(
                 prefix_path=figure_prefix,
             )
 
+        if return_reconcile_result:
+            return results, fig_paths, None, None, None
         if return_prbs_result:
             return results, fig_paths, None, None
         if return_quant_result:
@@ -451,6 +518,65 @@ def run_correlation_analysis(
             )
             prbs_res.figure_paths = p_fig_paths
 
+    # Information Reconciliation & SHA-256 Privacy Amplification (PA.pdf Sections 3.2.5–3.2.6)
+    reconcile_res: MultiPathReconciliationResult | None = None
+    if effective_reconcile and quant_res is not None and prbs_res is not None:
+        r_cfg = reconcile_config if reconcile_config is not None else ReconciliationConfig()
+        reconcile_res = reconcile_all_paths(
+            quant_result=quant_res,
+            prbs_result=prbs_res,
+            config=r_cfg,
+        )
+
+        if reconcile_metrics_output is not None:
+            export_reconciliation_metrics_csv(
+                reconcile_result=reconcile_res,
+                output_path=reconcile_metrics_output,
+            )
+
+        if reconcile_blocks_output is not None:
+            export_reconciliation_blocks_csv(
+                reconcile_result=reconcile_res,
+                output_path=reconcile_blocks_output,
+            )
+
+        if reconcile_config_output is not None:
+            export_reconciliation_config_json(
+                reconcile_result=reconcile_res,
+                output_path=reconcile_config_output,
+                extra_metadata={
+                    "data_kind": data_kind,
+                    "input_file": str(in_path),
+                },
+            )
+
+
+
+        if reconciled_xlsx_output is not None:
+            export_reconciliation_workbook_xlsx(
+                reconcile_result=reconcile_res,
+                output_path=reconciled_xlsx_output,
+            )
+
+        effective_rec_fig_prefix = reconcile_figure_prefix
+        if effective_rec_fig_prefix is None and figure_prefix is not None:
+            p_str = str(figure_prefix)
+            sub_suffix = "_reconciliation"
+            if p_str.endswith("_filtered"):
+                effective_rec_fig_prefix = p_str[: -len("_filtered")] + sub_suffix
+            else:
+                effective_rec_fig_prefix = f"{p_str}{sub_suffix}"
+
+        if effective_rec_fig_prefix is not None:
+            rec_fig_paths = plot_reconciliation_figure(
+                reconcile_result=reconcile_res,
+                prefix_path=effective_rec_fig_prefix,
+            )
+            reconcile_res.figure_paths = rec_fig_paths
+
+    if return_reconcile_result:
+        return results, fig_paths, quant_res, prbs_res, reconcile_res
+
     if return_prbs_result:
         return results, fig_paths, quant_res, prbs_res
 
@@ -458,6 +584,7 @@ def run_correlation_analysis(
         return results, fig_paths, quant_res
 
     return results, fig_paths
+
 
 
 
@@ -636,9 +763,67 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path prefix to export PRBS KAR comparison figures in PNG (300 dpi) and PDF (optional; defaults to figure-prefix with '_prbs_kar' suffix).",
     )
 
+    # Reconciliation Options
+    reconcile_group = parser.add_argument_group("BCH Information Reconciliation (PA.pdf Section 3.2.5)")
+    reconcile_group.add_argument(
+        "--reconcile",
+        action="store_true",
+        help="Enable BCH Information Reconciliation (PA.pdf Section 3.2.5).",
+    )
+    reconcile_group.add_argument(
+        "--reconcile-seed",
+        type=int,
+        default=42,
+        help="Random seed for Alice's independent k-bit random message generation (default: 42).",
+    )
+    reconcile_group.add_argument(
+        "--reconcile-metrics-output",
+        default=None,
+        help="Path to export reconciliation summary metrics CSV (optional).",
+    )
+    reconcile_group.add_argument(
+        "--reconcile-blocks-output",
+        default=None,
+        help="Path to export per-block reconciliation details CSV (optional).",
+    )
+    reconcile_group.add_argument(
+        "--reconcile-config-output",
+        default=None,
+        help="Path to export reconciliation configuration metadata JSON (optional).",
+    )
+    reconcile_group.add_argument(
+        "--reconcile-keys-output",
+        nargs="?",
+        action=ObsoleteReconciliationFlagAction,
+        help=argparse.SUPPRESS,
+    )
+    reconcile_group.add_argument(
+        "--reconciled-xlsx-output",
+        default=None,
+        help="Path to export companion reconciliation Excel workbook (.xlsx) preserving leading zeros (optional).",
+    )
+    reconcile_group.add_argument(
+        "--reconcile-figure-prefix",
+        default=None,
+        help="Path prefix to export reconciliation comparison figures in PNG (300 dpi) and PDF (optional; defaults to figure-prefix with '_reconciliation' or '_shared_bch' suffix).",
+    )
+    reconcile_group.add_argument(
+        "--reconcile-shared",
+        nargs=0,
+        action=ObsoleteReconciliationFlagAction,
+        help=argparse.SUPPRESS,
+    )
+    reconcile_group.add_argument(
+        "--reconcile-mode",
+        nargs="?",
+        action=ObsoleteReconciliationFlagAction,
+        help=argparse.SUPPRESS,
+    )
+
     args = parser.parse_args(argv)
 
-    prbs_active = args.prbs
+    recon_active = args.reconcile
+    prbs_active = args.prbs or recon_active
     quant_active = args.quantize or prbs_active
     filter_active = args.filter or quant_active
 
@@ -646,17 +831,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("RSSI SECRET KEY GENERATION (SKG) - ANALYSIS PIPELINE")
     print(f"[STATUS] Data Kind:         {args.data_kind.upper()}")
     filter_desc = "ENABLED (Modified Sage–Husa AKF)" if filter_active else "DISABLED (Raw Correlation Only)"
-    if prbs_active and not args.filter:
+    if recon_active and not args.filter:
+        filter_desc += " [prerequisite for reconciliation]"
+    elif prbs_active and not args.filter:
         filter_desc += " [prerequisite for PRBS]"
     elif args.quantize and not args.filter:
         filter_desc += " [prerequisite for quantization]"
     print(f"[STATUS] Filtering Mode:    {filter_desc}")
     quant_desc = "ENABLED (Modified ADQ)" if quant_active else "DISABLED"
-    if prbs_active and not args.quantize:
+    if recon_active and not args.quantize:
+        quant_desc += " [prerequisite for reconciliation]"
+    elif prbs_active and not args.quantize:
         quant_desc += " [prerequisite for PRBS]"
     print(f"[STATUS] Quantization Mode: {quant_desc}")
     prbs_desc = "ENABLED (Galois XOR-LFSR, per-sample reset)" if prbs_active else "DISABLED"
+    if recon_active and not args.prbs:
+        prbs_desc += " [prerequisite for reconciliation]"
     print(f"[STATUS] PRBS Expansion:    {prbs_desc}")
+    if recon_active:
+        n_c, k_c, t_c = DEFAULT_BCH_CODE
+        recon_desc = f"ENABLED (Global BCH({n_c}, {k_c}, {t_c}), Designed d={2*t_c+1}, Interleaving OFF)"
+    else:
+        recon_desc = "DISABLED"
+    print(f"[STATUS] Reconciliation:    {recon_desc}")
     print("[NOTICE] Software validation only; empirical channel probing is postponed.")
     print("=" * 70)
 
@@ -689,6 +886,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if prbs_active:
         prbs_cfg = PRBSConfig()
 
+    reconcile_cfg: ReconciliationConfig | None = None
+    if recon_active:
+        reconcile_cfg = ReconciliationConfig(seed=args.reconcile_seed)
+
     try:
         ret_val = run_correlation_analysis(
             input_path=args.input,
@@ -718,8 +919,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             prbs_xlsx_output=args.prbs_xlsx_output,
             prbs_figure_prefix=args.prbs_figure_prefix,
             return_prbs_result=True,
+            enable_reconcile=args.reconcile,
+            reconcile_config=reconcile_cfg,
+            reconcile_metrics_output=args.reconcile_metrics_output,
+            reconcile_blocks_output=args.reconcile_blocks_output,
+            reconcile_config_output=args.reconcile_config_output,
+            reconciled_xlsx_output=args.reconciled_xlsx_output,
+            reconcile_figure_prefix=args.reconcile_figure_prefix,
+            return_reconcile_result=True,
         )
-        results, fig_paths, quant_res, prbs_res = ret_val  # type: ignore[misc]
+        results, fig_paths, quant_res, prbs_res, reconcile_res = ret_val  # type: ignore[misc]
     except Exception as err:
         print(f"\n[ERROR] Analysis failed: {err}", file=sys.stderr)
         return 1
@@ -818,6 +1027,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print("-" * 95)
 
+    if reconcile_res is not None:
+        print("\nCalculated BCH Reconciliation (PA.pdf Section 3.2.5):")
+        print("-" * 128)
+        print(
+            f"{'Path':<12} | {'Pair':<20} | {'BCH (n,k,t,d)':<22} | {'Interleave':<10} | {'Pre-KAR':<10} | {'Post-KAR':<10} | {'Exact Recovery':<16} | {'Blocks (S/F/M)':<16}"
+        )
+        print("-" * 128)
+        for m in reconcile_res.metrics:
+            d_part = f",d={m.designed_d}" if m.designed_d else ""
+            code_str = f"BCH({m.n},{m.k},{m.t}{d_part})"
+            pre_k = f"{m.pre_kar:.2f}%"
+            post_k = f"{m.post_kar:.2f}%"
+            exact_s = "TRUE" if m.exact_recovery else "FALSE"
+            blk_s = f"{m.successful_blocks}/{m.detected_failures}/{m.miscorrected_blocks}"
+            print(
+                f"{m.path:<12} | {m.pair:<20} | {code_str:<22} | {m.interleaving:<10} | {pre_k:<10} | {post_k:<10} | {exact_s:<16} | {blk_s:<16}"
+            )
+        print("-" * 128)
+
     if args.output:
         print(f"\n[OUTPUT] Correlation CSV exported to:              {args.output}")
 
@@ -862,6 +1090,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[OUTPUT] PRBS companion Excel workbook (.xlsx):    {args.prbs_xlsx_output}")
         print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in '000', '00', and split bitstreams beyond 32,767 limit)")
 
+    if args.reconcile_metrics_output:
+        print(f"[OUTPUT] Reconciliation summary metrics CSV:       {args.reconcile_metrics_output}")
+
+    if args.reconcile_blocks_output:
+        print(f"[OUTPUT] Per-block reconciliation details CSV:     {args.reconcile_blocks_output}")
+
+    if args.reconcile_config_output:
+        print(f"[OUTPUT] Reconciliation metadata JSON:             {args.reconcile_config_output}")
+
+    if args.reconciled_xlsx_output:
+        print(f"[OUTPUT] Reconciliation Excel workbook (.xlsx):    {args.reconciled_xlsx_output}")
+        print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in bitstreams)")
+
     if fig_paths is not None:
         png_p, pdf_p = fig_paths
         print(f"[OUTPUT] Figure plot (PNG 300 dpi) exported to:    {png_p}")
@@ -877,8 +1118,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[OUTPUT] PRBS KAR figure (PNG 300 dpi):            {p_png_p}")
         print(f"[OUTPUT] PRBS KAR figure (PDF vector):             {p_pdf_p}")
 
-    return 0
+    if reconcile_res is not None and reconcile_res.figure_paths is not None:
+        r_png_p, r_pdf_p = reconcile_res.figure_paths
+        print(f"[OUTPUT] Reconciliation figure (PNG 300 dpi):      {r_png_p}")
+        print(f"[OUTPUT] Reconciliation figure (PDF vector):       {r_pdf_p}")
 
+    return 0
 
 
 if __name__ == "__main__":

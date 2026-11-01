@@ -23,7 +23,7 @@ PRBS_RSSI/
 ├── outputs/                          # Calculation artifacts, plots, and run results (ignored by Git via .gitignore)
 │   └── .gitkeep
 ├── src/
-│   └── rssi_skg/                     # Main Python source package modules (loader, filter, correlation, plotting, quantization, cli)
+│   └── rssi_skg/                     # Main Python source package modules (loader, filter, correlation, plotting, quantization, prbs, reconciliation, cli)
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── cli.py
@@ -32,7 +32,8 @@ PRBS_RSSI/
 │       ├── loader.py
 │       ├── plotting.py
 │       ├── prbs.py
-│       └── quantization.py
+│       ├── quantization.py
+│       └── reconciliation.py
 ├── tests/                            # Unit tests and software validation
 │   ├── __init__.py
 │   ├── test_correlation.py
@@ -40,7 +41,8 @@ PRBS_RSSI/
 │   ├── test_loader.py
 │   ├── test_plotting.py
 │   ├── test_prbs.py
-│   └── test_quantization.py
+│   ├── test_quantization.py
+│   └── test_reconciliation.py
 ├── .gitignore                        # Ignore rules for cache files, venv, and outputs
 ├── PA.pdf                            # Primary methodological reference document
 ├── pyproject.toml                    # Minimal Python project metadata (PEP 517/621)
@@ -54,9 +56,10 @@ PRBS_RSSI/
   - `correlation.py`: Zero-lag Pearson correlation coefficient computation (`PA.pdf` Equation 3.62).
   - `quantization.py`: Modified Adaptive Dual-Threshold Quantization (MADQ) engine, dual Gray 2-bit and 4-bit bitstream generation, and KAR calculation (`PA.pdf` Section 3.2.3 and Eq 3.64).
   - `prbs.py`: Galois XOR-LFSR bit expansion engine, per-sample seed initialization, zero-seed lockup handling, and multi-channel KAR evaluation (`PA.pdf` Section 3.2.4 as background).
-  - `plotting.py`: Aggregate bubble scatter visualization, pre-/post-filtering comparison plots, and KAR comparison charts.
-  - `cli.py`: Unified CLI supporting pure correlation mode (default), optional filtering mode, optional quantization mode, and optional PRBS expansion mode.
-- `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, PRBS maximal periods, and regression testing (`test_correlation.py`, `test_filter.py`, `test_loader.py`, `test_plotting.py`, `test_prbs.py`, `test_quantization.py`).
+  - `reconciliation.py`: Codeword-based helper data BCH information reconciliation, zero-padding lifecycle, multi-pair evaluator, and companion XLSX exporter (`PA.pdf` Section 3.2.5).
+  - `plotting.py`: Aggregate bubble scatter visualization, pre-/post-filtering comparison plots, KAR comparison charts, and 4-panel reconciliation analysis figures.
+  - `cli.py`: Unified CLI supporting pure correlation mode (default), optional filtering mode, optional quantization mode, optional PRBS expansion mode, and optional BCH reconciliation mode.
+- `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, PRBS maximal periods, BCH error correction, receiver isolation, canonical hashing, and regression testing (`test_correlation.py`, `test_filter.py`, `test_loader.py`, `test_plotting.py`, `test_prbs.py`, `test_quantization.py`, `test_reconciliation.py`).
 - `data/raw/dummy/`: Dummy dataset for software validation. Contains `Dummy RSSI (data Indoor).xlsx` and local `README.md`.
 - `data/raw/measured/`: Reserved folder for real wireless channel measurement data (empirical physical channel probing).
 - `outputs/`: Stores calculation outputs, visual artifacts, and reports. Excluded from Git tracking except for `.gitkeep`.
@@ -426,6 +429,65 @@ In `PA.pdf` Section 3.2.4, an LFSR is assumed to operate from a non-zero initial
 
 ---
 
+## BCH Information Reconciliation Stage (PA.pdf Section 3.2.5)
+
+Governed by `PA.pdf` **Section 3.2.5, Equations (3.27)–(3.36), pages 29–33**:
+
+> [!NOTE]
+> **Scope Clarification**: This stage performs **BCH Information Reconciliation only** per `PA.pdf` Section 3.2.5. Privacy Amplification (`PA.pdf` Section 3.2.6) is a separate future stage requiring a separate request and is NOT part of this implementation.
+
+### 1. Codeword-Based Helper Data Mechanism (Equations 3.32–3.36)
+Unlike syndrome-only reconciliation, codeword-based reconciliation operates by embedding an independent random codeword into public helper data:
+1. **Source $A$ (Alice)** partitions unpadded source stream $A$ into blocks of length $n$ (zero-padding final block if length is not a multiple of $n$).
+2. For each block, Alice generates an independent random message $u \in \{0, 1\}^k$ and encodes it into a valid BCH codeword $C = \text{BCH.encode}(u)$ of length $n$.
+3. Alice calculates and publishes helper data $H = A \oplus C$ (`PA.pdf` Eq 3.32).
+4. **Receiver $B$ (Bob)** computes $C' = H \oplus B = (A \oplus C) \oplus B = C \oplus (A \oplus B)$ (`PA.pdf` Eq 3.33). Because $A \oplus B$ represents channel bit errors, $C'$ is codeword $C$ corrupted by channel errors.
+5. Bob decodes $C'$ using the BCH decoder (`galois.BCH.decode`) to obtain candidate codeword $\hat{C}$ and corrected error count $e$.
+6. Bob reconstructs Alice's bitstream via $\hat{A} = H \oplus \hat{C}$ (`PA.pdf` Eq 3.36).
+7. Receiver decoding strictly accesses only Bob's own bits $B$, public helper data $H$, and public code parameters $(n, k, t)$. No source bits or random messages $u$ are ever exposed to the receiver.
+8. Zero-padding bits are stripped post-reconstruction; original lengths are strictly restored, and padding is excluded from payload metrics and hashing.
+
+### 2. Global BCH Parameters & Supported Two-Path Results ($N=500$, `data_kind=dummy`)
+
+Information reconciliation is configured using **ONE global editable configuration source**:
+- **Code Parameters**: $n = 1023$, $k = 46$, $t = 200$
+- **Designed Distance**: $d = 2t + 1 = 401$
+- **Interleaving**: `OFF` (sequential blocks, zero-padding at stream end only)
+- **Construction & Validation**: Constructed via `galois.BCH(n, d=2*t+1)` and validated against requested $(n, k, t)$. Silent parameter substitution is strictly prohibited; invalid combinations raise an actionable `ValueError`.
+
+| Path | Payload Bits | Global Code | Code Rate ($k/n$) | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) | Helper Overhead |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`quant_2bit`** | 1,000 | **BCH(1023, 46, 200, d=401)** | 0.0450 | 80.40% | **100.00%** | **TRUE** | 1 / 0 / 0 | 1.02x (1023 b) |
+| **`prbs_2bit`** | 1,500 | **BCH(1023, 46, 200, d=401)** | 0.0450 | 76.27% | **100.00%** | **TRUE** | 2 / 0 / 0 | 1.36x (2046 b) |
+
+#### Eavesdropper Performance Under Identical Public Helper Data
+
+| Path | Eavesdropper Pair | Helper Source | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `quant_2bit` | Alice–Eve1-Alice | Alice | 58.20% | 58.20% | FALSE | 0 / 1 / 0 |
+| `quant_2bit` | Bob–Eve1-Bob | Bob | 55.40% | 55.40% | FALSE | 0 / 1 / 0 |
+| `prbs_2bit` | Alice–Eve1-Alice | Alice | 56.53% | 68.93% | FALSE | 1 / 1 / 0 |
+| `prbs_2bit` | Bob–Eve1-Bob | Bob | 56.27% | 56.27% | FALSE | 0 / 2 / 0 |
+
+> [!NOTE]
+> **Scope Reduction & Upstream Preservation**:
+> - Information reconciliation supports **ONLY** `quant_2bit` and `prbs_2bit`. 4-bit reconciliation (`quant_4bit` and `prbs_4bit`) and separate per-path parameters have been completely removed.
+> - Upstream 4-bit quantization and 4-bit PRBS expansion, exports, sheets, and tests remain **fully preserved**.
+
+### 3. Direct Bitstream Equality and Receiver Isolation
+- **Direct Bitstream Equality**: BCH reconciliation success is defined strictly by bitwise equality between the source unpadded bitstream $A$ and receiver unpadded recovered bitstream $\hat{A}$ (`exact_recovery = bool(source_bits == recovered_bits)`). No hashing or privacy amplification is applied.
+- **Strict Receiver Isolation**: The receiver decoding pipeline accesses only the receiver's own observed bits $B$, the public helper data $H$, and code parameters $(n, k, t)$. Alice's source bits are never accessible during decoding.
+- **Failed-Block Fallback Convention**: When a detected decoding failure occurs (syndrome equations cannot be solved within error-correction radius $t = 200$), unchanged raw receiver bits are retained as fallback (never discarded or zeroed). When any block fails or is miscorrected, unpadded bitstream recovery is incomplete (`exact_recovery = False`). Channel errors beyond $t$ result in either a detected decoding failure or a miscorrection (the decoder does not have access to the true channel error count).
+- **Privacy Amplification Deferred**: Privacy amplification (`PA.pdf` Section 3.2.6) is a future processing stage requiring a separate request and is NOT included in this reconciliation module.
+
+> [!WARNING]
+> **Information-Theoretic Security Boundaries**:
+> 1. **PRBS Entropy**: LFSR bit expansion is deterministic and contributes **0 bits of physical source entropy**.
+> 2. **Helper Data Leakage**: The public broadcast of $H = A \oplus C$ reveals linear parity constraints, leaking up to $n - k$ bits of information about $A$ per block.
+> 3. **Decoder Failure != Secrecy**: Standard Eve decoder failure (0% recovery) does not imply confidentiality; without interleaving, known padding reveals Block 1 of `prbs_2bit`, and combining this with PRBS parity constraints recovers Alice's full bitstream algebraically.
+
+---
+
 <a id="petunjuk-penyiapan-lingkungan--eksekusi"></a>
 ## Environment Setup & Execution Instructions
 
@@ -444,10 +506,10 @@ python -m venv .venv
 ```
 
 ### 2. Running Unit Tests
-The test suite comprises 67 automated tests (MSHKF step-by-step intermediate numerical equations, channel isolation, sample indexing, numerical safeguards, Pearson correlation, workbook loading, visualization generation, MADQ threshold calculations, exact boundary conditions, encodings, KAR validation, PRBS primitive polynomial verification, zero-state lockup, known-answer sequences, deterministic resets, companion XLSX string-cell formatting with leading zero preservation and >32k character limit chunking, quantization KAR plotting, and PRBS KAR 2x2 comparison figure generation):
+The test suite comprises 80 automated unit and integration tests across 7 test modules:
 
 ```powershell
-# Run all unit tests (67 tests)
+# Run all unit tests (80 tests)
 .\.venv\Scripts\python.exe -m pytest -v
 ```
 
@@ -508,11 +570,67 @@ Run the CLI with `--prbs` (which automatically invokes `--quantize` and `--filte
   --prbs-figure-prefix "outputs/dummy_rssi_prbs_kar"
 ```
 
+#### E. Full Execution through Global BCH Information Reconciliation
+Run the CLI with `--reconcile` (which automatically triggers prerequisite filtering, quantization, and PRBS stages) to perform codeword-based BCH information reconciliation:
+```powershell
+.\.venv\Scripts\python.exe -m rssi_skg `
+  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -o "outputs/dummy_rssi_filtered_correlation.csv" `
+  --filter `
+  --quantize `
+  --prbs `
+  --reconcile `
+  --reconcile-metrics-output "outputs/dummy_rssi_bch_metrics.csv" `
+  --reconcile-blocks-output "outputs/dummy_rssi_bch_blocks.csv" `
+  --reconcile-config-output "outputs/dummy_rssi_bch_config.json" `
+  --reconciled-xlsx-output "outputs/dummy_rssi_bch.xlsx" `
+  --reconcile-figure-prefix "outputs/dummy_rssi_bch_reconciliation"
+```
+
+> [!IMPORTANT]
+> **Unified Global Architecture & Obsolete Flags**:
+> - **Single Mode**: `--reconcile` is sufficient. Separate calibrated vs shared modes have been eliminated in favor of a single global configuration (`BCH(1023, 46, 200)` with derived $d = 2t + 1 = 401$ and Interleaving OFF).
+> - **Obsolete Flags Rejected**: Passing `--reconcile-shared`, `--reconcile-mode`, or `--reconcile-keys-output` will raise an actionable error directing users to `--reconcile` without candidate-key or obsolete options.
+> - **Editing Configuration**: To change code parameters, edit `DEFAULT_BCH_CODE: tuple[int, int, int] = (n, k, t)` in `src/rssi_skg/reconciliation.py`. The constructor will verify that `galois.BCH(n, d=2*t+1)` strictly satisfies $n$, $k$, and $t$.
+
+##### Two-Path Experimental Results (Dummy Dataset, N = 500):
+| Path | Evaluation Pair | Pre-BCH KAR | Post-BCH KAR | Δ (pp) | Blocks (Succ/Fail/Mis) | Block Success Rate | Exact Recovery |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `quant_2bit` | Alice–Bob (Legitimate) | 80.40% | 100.00% | +19.60 pp | 1 / 0 / 0 | 100.0% | **TRUE** |
+| `quant_2bit` | Alice–Eve1-Alice (Eve) | 58.20% | 58.20% | +0.00 pp | 0 / 1 / 0 | 0.0% | **FALSE** |
+| `quant_2bit` | Bob–Eve1-Bob (Eve) | 55.40% | 55.40% | +0.00 pp | 0 / 1 / 0 | 0.0% | **FALSE** |
+| `prbs_2bit` | Alice–Bob (Legitimate) | 76.27% | 100.00% | +23.73 pp | 2 / 0 / 0 | 100.0% | **TRUE** |
+| `prbs_2bit` | Alice–Eve1-Alice (Eve) | 56.53% | 68.93% | +12.40 pp | 1 / 1 / 0 | 50.0% | **FALSE** |
+| `prbs_2bit` | Bob–Eve1-Bob (Eve) | 56.27% | 56.27% | +0.00 pp | 0 / 2 / 0 | 0.0% | **FALSE** |
+
+##### Methodological Conventions & Scientific Constraints:
+1. **Zero-Padding & Payload KAR**:
+   - `quant_2bit`: Raw length = 1,000 bits $\to$ 1 block of $n=1023$ (23 pad bits excluded from payload KAR).
+   - `prbs_2bit`: Raw length = 1,500 bits $\to$ 2 blocks of $n=1023$ (total 2,046 bits; 546 pad bits excluded from payload KAR).
+2. **Failed-Block Convention & Decoding Outcomes**:
+   - When a detected decoding failure occurs, unchanged raw receiver bits are retained as fallback (never discarded or zeroed).
+   - When any block fails or is miscorrected, receiver unpadded bitstream recovery is incomplete (`exact_recovery = False`).
+   - Channel errors beyond $t$ lead to either a detected decoding failure or an undetected miscorrection, as the decoder operates strictly on syndromes and does not have access to the true channel error count.
+3. **Eve Ordinary Decoding vs. Public-Information Algebraic Attack**:
+   - Standard BCH decoding by Eve largely fails (0% block recovery on `quant_2bit`, 0% for `Bob–Eve1-Bob`, and failure on Block 0 for `Alice–Eve1-Alice`).
+   - However, **decoder failure does NOT establish secrecy**.
+   - Without interleaving, known padding reveals the final PRBS block; the reported full-stream attack additionally uses per-sample PRBS parity constraints.
+   - Together, the joint $\text{GF}(2)$ linear system achieves **full rank** (92/92 for `prbs_2bit`, unique affine candidate for `quant_2bit`), allowing an algebraic attacker to recover Alice's full bitstream with 100% accuracy without channel observation.
+4. **Mandatory Scientific Disclaimer**:
+   > **Dummy-data comparison; global configuration has reported public-information leakage. KAR does not establish secrecy.**
+   > This configuration is strictly for algorithmic benchmarking and comparative analysis; it is **NOT** claimed to be cryptographically secure.
+
+##### Visualization Artifacts:
+- `outputs/dummy_rssi_reconciliation.png` (300-dpi raster) & `outputs/dummy_rssi_reconciliation.pdf` (vector):
+  - **Panel (a)**: `quant_2bit` Pre-BCH vs Post-BCH KAR across all three evaluation pairs with signed percentage-point changes ($\Delta\text{ pp}$).
+  - **Panel (b)**: `prbs_2bit` Pre-BCH vs Post-BCH KAR across all three evaluation pairs with signed percentage-point changes ($\Delta\text{ pp}$).
+  - **Panel (c)**: Exact block recovery rates (decoder success %) for both paths across legitimate and eavesdropper channels.
+  - **Panel (d)**: Quantitative summary table (Failures, Miscorrections, Exact Recovery) and scientific constraint notes box. All parameters and block counts dynamically adapt to `ReconciliationConfig`.
+
 > [!TIP]
 > **Microsoft Excel Guidance for Leading Zeros (`00` vs `0`, `01` vs `1`)**:
-> - The raw CSV exports (`outputs/dummy_rssi_quantized_samples.csv` and `outputs/dummy_rssi_prbs_samples.csv`) preserve exact string literals (`"00"`, `"01"`, `"000"`). However, Microsoft Excel automatically strips leading zeros when directly double-clicking a CSV file, displaying `00` as `0` and `000` as `0`.
-> - **Excel users should open the companion XLSX workbooks** (`outputs/dummy_rssi_quantized.xlsx` and `outputs/dummy_rssi_prbs.xlsx`) instead of the CSVs. In the XLSX exports, all bitstream strings and sample codes are stored explicitly as string cells (`data_type='s'`) with Text format (`@`), ensuring leading zeros are preserved identically across all spreadsheet viewers.
-> - For bitstreams exceeding Excel's single-cell limit of 32,767 characters, the XLSX exporters automatically chunk long bit sequences across sequential rows (`part`, `total_parts`) so that data is never silently truncated.
+> - The raw CSV exports (`outputs/dummy_rssi_quantized_samples.csv`, `outputs/dummy_rssi_prbs_samples.csv`, and `outputs/dummy_rssi_reconcile_blocks.csv`) preserve exact string literals (`"00"`, `"01"`, `"000"`). However, Microsoft Excel automatically strips leading zeros when directly double-clicking a CSV file.
+> - **Excel users should open the companion XLSX workbooks** (`outputs/dummy_rssi_quantized.xlsx`, `outputs/dummy_rssi_prbs.xlsx`, and `outputs/dummy_rssi_reconciled.xlsx`) instead of the CSVs. All bitstreams and keys are stored explicitly as Text cells (`@`), preserving leading zeros across all spreadsheet viewers.
 
 ### 4. Output File Locations (`outputs/`)
 All generated artifacts are stored in the `outputs/` directory (ignored by Git via `.gitignore`, except `.gitkeep`):
@@ -534,10 +652,16 @@ All generated artifacts are stored in the `outputs/` directory (ignored by Git v
 - `outputs/dummy_rssi_prbs_metrics.csv`: Pre- vs. post-PRBS KAR comparison metrics and agreement rates across Alice–Bob, Alice–Eve1-Alice, and Bob–Eve1-Bob.
 - `outputs/dummy_rssi_prbs_config.json`: PRBS configuration metadata, polynomial details, zero-seed counts, and implementation choices.
 - `outputs/dummy_rssi_prbs.xlsx`: Companion multi-sheet Excel workbook (`PRBS Samples`, `PRBS Bitstreams`, `KAR Comparison`, `Configuration & Zero Seeds`) with explicit Text formatting and >32k cell chunking.
-- `outputs/dummy_rssi_prbs_kar.png` & `.pdf`: High-resolution (300 dpi) and vector PDF 2×2 PRBS KAR visualization figure comparing pre- vs. post-PRBS KAR for 2-bit Gray and 4-bit paths, sample-level agreement rate, and compact metrics summary table with concise scientific notes.
+- `outputs/dummy_rssi_prbs_kar.png` & `.pdf`: High-resolution (300 dpi) and vector PDF 2×2 PRBS KAR visualization figure.
+- `outputs/dummy_rssi_bch_metrics.csv`: Summary metrics table (Pre-KAR, Post-KAR, exact recovery, detected failures, miscorrections, helper overhead) across evaluated pairs for `quant_2bit` and `prbs_2bit`.
+- `outputs/dummy_rssi_bch_blocks.csv`: Per-block reconciliation details (block index, bit lengths, padding, Alice/Bob/Eve bit slices, error counts, correction status, receiver equality).
+- `outputs/dummy_rssi_bch_config.json`: Reconciliation metadata, algorithm specification, and BCH code parameters.
+- `outputs/dummy_rssi_bch.xlsx`: Companion multi-sheet Excel workbook (`Reconciliation Metrics`, `Block Details`, `Recovered Bitstreams`) preserving leading zeros.
+- `outputs/dummy_rssi_bch_reconciliation.png` & `.pdf`: High-resolution (300 dpi) and vector PDF 2×2 reconciliation visualization figure.
+- *(Historical artifacts preserved)*: `outputs/dummy_rssi_reconcile_*` and `outputs/dummy_rssi_shared_bch_*` remain in `outputs/` for historical auditability.
 
 ---
 
 ## Methodological Limitations & Warnings
 
-The results of this analysis are strictly for **software validation** using synthetic dummy data. The resulting correlation coefficients and Key Agreement Rates **must not be used to draw empirical security conclusions or characterize real physical channel propagation**, as physical channel probing is postponed, not replaced. Parameters such as $W=50$ and $\alpha=0.5$ are provisional software-validation settings, not optimized physical-channel parameters. Deterministic LFSR expansion does not add physical channel entropy.
+The results of this analysis are strictly for **software validation** using synthetic dummy data. The resulting correlation coefficients and Key Agreement Rates **must not be used to draw empirical security conclusions or characterize real physical channel propagation**, as physical channel probing is postponed, not replaced. Parameters such as $W=50$ and $\alpha=0.5$ are provisional software-validation settings, not optimized physical-channel parameters. Deterministic LFSR expansion does not add physical channel entropy. Public helper data reveals linear parity constraints and leaks up to (n - k) bits per block.
