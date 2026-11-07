@@ -33,8 +33,18 @@ from rssi_skg.plotting import (
     plot_filtering_comparison_figure,
     plot_kar_comparison_figure,
     plot_prbs_kar_comparison_figure,
+    plot_privacy_amplification_figure,
     plot_reconciliation_figure,
     plot_shared_bch_figure,
+)
+from rssi_skg.privacy_amplification import (
+    MultiPathPrivacyAmplificationResult,
+    PrivacyAmplificationConfig,
+    amplify_privacy_all_paths,
+    export_pa_config_json,
+    export_pa_keys_csv,
+    export_pa_metrics_csv,
+    export_pa_workbook_xlsx,
 )
 from rssi_skg.quantization import (
     ChannelQuantizationResult,
@@ -207,6 +217,15 @@ def run_correlation_analysis(
     reconciled_xlsx_output: str | Path | None = None,
     reconcile_figure_prefix: str | Path | None = None,
     return_reconcile_result: bool = False,
+    enable_pa: bool = False,
+    pa_config: PrivacyAmplificationConfig | None = None,
+    pa_metrics_output: str | Path | None = None,
+    pa_keys_output: str | Path | None = None,
+    reconcile_keys_output: str | Path | None = None,
+    pa_config_output: str | Path | None = None,
+    pa_xlsx_output: str | Path | None = None,
+    pa_figure_prefix: str | Path | None = None,
+    return_pa_result: bool = False,
 ) -> (
     tuple[list[dict[str, Any]], tuple[Path, Path] | None]
     | tuple[list[dict[str, Any]], tuple[Path, Path] | None, ChannelQuantizationResult | None]
@@ -222,6 +241,14 @@ def run_correlation_analysis(
         ChannelQuantizationResult | None,
         MultiChannelPRBSResult | None,
         MultiPathReconciliationResult | None,
+    ]
+    | tuple[
+        list[dict[str, Any]],
+        tuple[Path, Path] | None,
+        ChannelQuantizationResult | None,
+        MultiChannelPRBSResult | None,
+        MultiPathReconciliationResult | None,
+        MultiPathPrivacyAmplificationResult | None,
     ]
 ):
     """Execute correlation analysis on the given workbook, optionally filtering, quantizing, expanding via PRBS, reconciling, and saving artifacts.
@@ -274,12 +301,12 @@ def run_correlation_analysis(
 
     results: list[dict[str, Any]] = []
 
-    # Automatic prerequisite chaining: Reconcile requires PRBS & Quantization, PRBS requires Quantization, Quantization requires Filtering
-    effective_reconcile = enable_reconcile
+    # Automatic prerequisite chaining: PA requires Reconcile, Reconcile requires PRBS, PRBS requires Quantization, Quantization requires Filtering
+    effective_pa = enable_pa
+    effective_reconcile = enable_reconcile or effective_pa
     effective_prbs = enable_prbs or effective_reconcile
     effective_quantize = enable_quantize or effective_prbs
     effective_filter = enable_filter or effective_quantize
-
 
     if not effective_filter:
         # Default correlation-only behavior (strictly backward compatible)
@@ -316,6 +343,8 @@ def run_correlation_analysis(
                 prefix_path=figure_prefix,
             )
 
+        if return_pa_result:
+            return results, fig_paths, None, None, None, None
         if return_reconcile_result:
             return results, fig_paths, None, None, None
         if return_prbs_result:
@@ -574,6 +603,63 @@ def run_correlation_analysis(
             )
             reconcile_res.figure_paths = rec_fig_paths
 
+    # Privacy Amplification Stage (PA.pdf Section 3.2.6, Equations 3.37–3.53)
+    pa_res: MultiPathPrivacyAmplificationResult | None = None
+    if effective_pa and reconcile_res is not None:
+        pa_cfg = pa_config if pa_config is not None else PrivacyAmplificationConfig()
+        pa_res = amplify_privacy_all_paths(
+            reconcile_result=reconcile_res,
+            config=pa_cfg,
+        )
+
+        if pa_metrics_output is not None:
+            export_pa_metrics_csv(
+                pa_result=pa_res,
+                output_path=pa_metrics_output,
+            )
+
+        effective_keys_out = pa_keys_output if pa_keys_output is not None else reconcile_keys_output
+        if effective_keys_out is not None:
+            export_pa_keys_csv(
+                pa_result=pa_res,
+                output_path=effective_keys_out,
+            )
+
+        if pa_config_output is not None:
+            export_pa_config_json(
+                pa_result=pa_res,
+                output_path=pa_config_output,
+                extra_metadata={
+                    "data_kind": data_kind,
+                    "input_file": str(in_path),
+                },
+            )
+
+        if pa_xlsx_output is not None:
+            export_pa_workbook_xlsx(
+                pa_result=pa_res,
+                output_path=pa_xlsx_output,
+            )
+
+        effective_pa_fig_prefix = pa_figure_prefix
+        if effective_pa_fig_prefix is None and figure_prefix is not None:
+            p_str = str(figure_prefix)
+            sub_suffix = "_pa_comparison"
+            if p_str.endswith("_filtered"):
+                effective_pa_fig_prefix = p_str[: -len("_filtered")] + sub_suffix
+            else:
+                effective_pa_fig_prefix = f"{p_str}{sub_suffix}"
+
+        if effective_pa_fig_prefix is not None:
+            pa_fig_paths = plot_privacy_amplification_figure(
+                pa_result=pa_res,
+                prefix_path=effective_pa_fig_prefix,
+            )
+            pa_res.figure_paths = pa_fig_paths
+
+    if return_pa_result:
+        return results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res
+
     if return_reconcile_result:
         return results, fig_paths, quant_res, prbs_res, reconcile_res
 
@@ -596,8 +682,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         except Exception:
             pass
 
+    effective_argv = list(argv) if argv is not None else sys.argv[1:]
+    is_pa_or_recon_requested = any(
+        arg in effective_argv for arg in ("--privacy-amplify", "--pa", "--reconcile")
+    )
+
     parser = argparse.ArgumentParser(
-        description="Compute Pearson correlation for RSSI datasets with optional Modified Sage–Husa Adaptive Kalman Filter and Modified ADQ quantization."
+        description="Compute Pearson correlation for RSSI datasets with optional Modified Sage–Husa Adaptive Kalman Filter, Modified ADQ quantization, PRBS expansion, BCH reconciliation, and Privacy Amplification."
     )
     parser.add_argument(
         "-i",
@@ -791,12 +882,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="Path to export reconciliation configuration metadata JSON (optional).",
     )
-    reconcile_group.add_argument(
-        "--reconcile-keys-output",
-        nargs="?",
-        action=ObsoleteReconciliationFlagAction,
-        help=argparse.SUPPRESS,
-    )
+    if is_pa_or_recon_requested:
+        reconcile_group.add_argument(
+            "--reconcile-keys-output",
+            default=None,
+            help="Path to export candidate keys CSV/JSON (alias for --pa-keys-output).",
+        )
+    else:
+        reconcile_group.add_argument(
+            "--reconcile-keys-output",
+            nargs="?",
+            action=ObsoleteReconciliationFlagAction,
+            help=argparse.SUPPRESS,
+        )
     reconcile_group.add_argument(
         "--reconciled-xlsx-output",
         default=None,
@@ -820,9 +918,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
 
+    # Privacy Amplification Options (PA.pdf Section 3.2.6)
+    pa_group = parser.add_argument_group("Privacy Amplification (PA.pdf Section 3.2.6)")
+    pa_group.add_argument(
+        "--privacy-amplify",
+        "--pa",
+        action="store_true",
+        help="Enable bit-level SHA-256 Privacy Amplification stage (PA.pdf Section 3.2.6).",
+    )
+    pa_group.add_argument(
+        "--pa-metrics-output",
+        default=None,
+        help="Path to export privacy amplification summary metrics CSV (optional).",
+    )
+    pa_group.add_argument(
+        "--pa-keys-output",
+        default=None,
+        help="Path to export 256-bit channel secret keys CSV (optional).",
+    )
+    pa_group.add_argument(
+        "--pa-config-output",
+        default=None,
+        help="Path to export privacy amplification configuration metadata JSON (optional).",
+    )
+    pa_group.add_argument(
+        "--pa-xlsx-output",
+        default=None,
+        help="Path to export companion privacy amplification Excel workbook (.xlsx) preserving leading zeros (optional).",
+    )
+    pa_group.add_argument(
+        "--pa-figure-prefix",
+        default=None,
+        help="Path prefix to export privacy amplification comparison figures in PNG (300 dpi) and PDF (optional; defaults to figure-prefix with '_pa_comparison' suffix).",
+    )
+
     args = parser.parse_args(argv)
 
-    recon_active = args.reconcile
+    pa_active = args.privacy_amplify
+    recon_active = args.reconcile or pa_active
     prbs_active = args.prbs or recon_active
     quant_active = args.quantize or prbs_active
     filter_active = args.filter or quant_active
@@ -831,29 +964,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("RSSI SECRET KEY GENERATION (SKG) - ANALYSIS PIPELINE")
     print(f"[STATUS] Data Kind:         {args.data_kind.upper()}")
     filter_desc = "ENABLED (Modified Sage–Husa AKF)" if filter_active else "DISABLED (Raw Correlation Only)"
-    if recon_active and not args.filter:
+    if pa_active and not args.filter:
+        filter_desc += " [prerequisite for privacy amplification]"
+    elif recon_active and not args.filter:
         filter_desc += " [prerequisite for reconciliation]"
     elif prbs_active and not args.filter:
         filter_desc += " [prerequisite for PRBS]"
     elif args.quantize and not args.filter:
         filter_desc += " [prerequisite for quantization]"
     print(f"[STATUS] Filtering Mode:    {filter_desc}")
+
     quant_desc = "ENABLED (Modified ADQ)" if quant_active else "DISABLED"
-    if recon_active and not args.quantize:
+    if pa_active and not args.quantize:
+        quant_desc += " [prerequisite for privacy amplification]"
+    elif recon_active and not args.quantize:
         quant_desc += " [prerequisite for reconciliation]"
     elif prbs_active and not args.quantize:
         quant_desc += " [prerequisite for PRBS]"
     print(f"[STATUS] Quantization Mode: {quant_desc}")
+
     prbs_desc = "ENABLED (Galois XOR-LFSR, per-sample reset)" if prbs_active else "DISABLED"
-    if recon_active and not args.prbs:
+    if pa_active and not args.prbs:
+        prbs_desc += " [prerequisite for privacy amplification]"
+    elif recon_active and not args.prbs:
         prbs_desc += " [prerequisite for reconciliation]"
     print(f"[STATUS] PRBS Expansion:    {prbs_desc}")
+
     if recon_active:
         n_c, k_c, t_c = DEFAULT_BCH_CODE
         recon_desc = f"ENABLED (Global BCH({n_c}, {k_c}, {t_c}), Designed d={2*t_c+1}, Interleaving OFF)"
+        if pa_active and not args.reconcile:
+            recon_desc += " [prerequisite for privacy amplification]"
     else:
         recon_desc = "DISABLED"
     print(f"[STATUS] Reconciliation:    {recon_desc}")
+
+    pa_desc = "ENABLED (Bit-Level SHA-256, 256-bit Final Key, PA.pdf Section 3.2.6)" if pa_active else "DISABLED"
+    print(f"[STATUS] Privacy Amplification: {pa_desc}")
     print("[NOTICE] Software validation only; empirical channel probing is postponed.")
     print("=" * 70)
 
@@ -890,6 +1037,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if recon_active:
         reconcile_cfg = ReconciliationConfig(seed=args.reconcile_seed)
 
+    effective_reconcile_keys = getattr(args, "reconcile_keys_output", None)
+    effective_pa_keys = args.pa_keys_output if args.pa_keys_output is not None else effective_reconcile_keys
+
     try:
         ret_val = run_correlation_analysis(
             input_path=args.input,
@@ -919,7 +1069,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             prbs_xlsx_output=args.prbs_xlsx_output,
             prbs_figure_prefix=args.prbs_figure_prefix,
             return_prbs_result=True,
-            enable_reconcile=args.reconcile,
+            enable_reconcile=recon_active,
             reconcile_config=reconcile_cfg,
             reconcile_metrics_output=args.reconcile_metrics_output,
             reconcile_blocks_output=args.reconcile_blocks_output,
@@ -927,8 +1077,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             reconciled_xlsx_output=args.reconciled_xlsx_output,
             reconcile_figure_prefix=args.reconcile_figure_prefix,
             return_reconcile_result=True,
+            enable_pa=pa_active,
+            pa_metrics_output=args.pa_metrics_output,
+            pa_keys_output=effective_pa_keys,
+            reconcile_keys_output=effective_reconcile_keys,
+            pa_config_output=args.pa_config_output,
+            pa_xlsx_output=args.pa_xlsx_output,
+            pa_figure_prefix=args.pa_figure_prefix,
+            return_pa_result=True,
         )
-        results, fig_paths, quant_res, prbs_res, reconcile_res = ret_val  # type: ignore[misc]
+        results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res = ret_val  # type: ignore[misc]
     except Exception as err:
         print(f"\n[ERROR] Analysis failed: {err}", file=sys.stderr)
         return 1
@@ -1046,6 +1204,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print("-" * 128)
 
+    if pa_res is not None:
+        print("\nCalculated Privacy Amplification (SHA-256) Results (PA.pdf Section 3.2.6 & Eq 3.64):")
+        print("-" * 115)
+        print(
+            f"{'Path':<12} | {'Pair':<20} | {'Pre-PA KAR':<14} | {'Post-PA KAR':<15} | {'Delta (pp)':<12} | {'Exact Key Match':<16} | {'Key Bits':<10}"
+        )
+        print("-" * 115)
+        for m in pa_res.metrics:
+            pre_k = f"{m.pre_pa_kar:.2f}%"
+            post_k = f"{m.post_pa_kar:.2f}%"
+            d_k = f"{m.kar_delta:+.2f} pp"
+            match_str = "TRUE (MATCH)" if m.exact_key_match else "FALSE (MISMATCH)"
+            print(
+                f"{m.path_name:<12} | {m.pair_name:<20} | {pre_k:<14} | {post_k:<15} | {d_k:<12} | {match_str:<16} | {'256':<10}"
+            )
+        print("-" * 115)
+        print("\nDerived 256-bit Channel Secret Keys (Hex Digests):")
+        print("-" * 105)
+        print(
+            f"{'Path':<12} | {'Channel':<15} | {'Role':<32} | {'SHA-256 Hex Digest (64-char)':<64}"
+        )
+        print("-" * 105)
+        for p_name, chs in pa_res.channel_keys.items():
+            for ch_name, k_info in chs.items():
+                print(
+                    f"{p_name:<12} | {ch_name:<15} | {k_info.channel_role:<32} | {k_info.key_hex}"
+                )
+        print("-" * 105)
+
     if args.output:
         print(f"\n[OUTPUT] Correlation CSV exported to:              {args.output}")
 
@@ -1103,6 +1290,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[OUTPUT] Reconciliation Excel workbook (.xlsx):    {args.reconciled_xlsx_output}")
         print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in bitstreams)")
 
+    if args.pa_metrics_output:
+        print(f"[OUTPUT] Privacy amplification metrics CSV:        {args.pa_metrics_output}")
+
+    if effective_pa_keys:
+        print(f"[OUTPUT] Channel secret keys CSV:                  {effective_pa_keys}")
+
+    if args.pa_config_output:
+        print(f"[OUTPUT] Privacy amplification config JSON:        {args.pa_config_output}")
+
+    if args.pa_xlsx_output:
+        print(f"[OUTPUT] Privacy amplification Excel workbook:     {args.pa_xlsx_output}")
+        print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in bit/hex keys)")
+
     if fig_paths is not None:
         png_p, pdf_p = fig_paths
         print(f"[OUTPUT] Figure plot (PNG 300 dpi) exported to:    {png_p}")
@@ -1122,6 +1322,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         r_png_p, r_pdf_p = reconcile_res.figure_paths
         print(f"[OUTPUT] Reconciliation figure (PNG 300 dpi):      {r_png_p}")
         print(f"[OUTPUT] Reconciliation figure (PDF vector):       {r_pdf_p}")
+
+    if pa_res is not None and pa_res.figure_paths is not None:
+        pa_png_p, pa_pdf_p = pa_res.figure_paths
+        print(f"[OUTPUT] PA comparison figure (PNG 300 dpi):       {pa_png_p}")
+        print(f"[OUTPUT] PA comparison figure (PDF vector):        {pa_pdf_p}")
 
     return 0
 

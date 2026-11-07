@@ -3,7 +3,7 @@
 ## 1. Project Purpose & Methodological Reference
 This research project develops a physical-layer Secret Key Generation (SKG) pipeline based on Received Signal Strength Indicator (RSSI) measurements.
 
-The project currently implements five sequential pipeline stages:
+The project currently implements six sequential pipeline stages:
 1. **RSSI Filtering Stage**: Modified Sage–Husa Adaptive Kalman Filter (MSHKF) based on **`PA.pdf`, Section 3.2.2, Equations (3.10)–(3.20), pages 26–27**.
 2. **Zero-Lag Pearson Correlation Analysis**: As defined in **`PA.pdf`, Equation (3.62), page 34**:
 
@@ -70,7 +70,21 @@ When decoding is successful and without miscorrection, $\hat{C} = C$ and $\hat{A
 ```math
 \text{exact\_recovery} = (A == \hat{A}_{\text{unpadded}})
 ```
-*(Note: Privacy Amplification per Section 3.2.6 is a future stage requiring a separate request and is NOT part of this implementation.)*
+
+6. **Privacy Amplification (Bit-Level SHA-256)**: As defined in **`PA.pdf`, Section 3.2.6, Equations (3.37)–(3.53), pages 30–33** and **FIPS PUB 180-4**:
+```math
+M' = M \parallel 1 \parallel 0^p \parallel [L]_{64}, \qquad p = (448 - 1 - L) \bmod 512
+```
+```math
+K = \text{SHA256}(M') \in \{0, 1\}^{256}
+```
+Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Section 3.2.8.c, Equation (3.64)**:
+```math
+\text{KAR} = \frac{256 - N_{\text{mismatch}}}{256} \times 100\%
+```
+```math
+\text{exact\_key\_match} = (K_{\text{source}} == K_{\text{receiver}})
+```
 
 **Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic indoor dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance. Deterministic LFSR expansion does not add physical channel entropy. Public helper data leaks information up to $(n - k)$ bits per block.
 
@@ -131,7 +145,7 @@ When decoding is successful and without miscorrection, $\hat{C} = C$ and $\hat{A
     - Evaluation categories: `success` ($num\_corr \ge 0, \hat{A} == A$), `detected_failure` ($num\_corr == -1$), and `miscorrected` ($num\_corr \ge 0, \hat{A} \ne A$). Source equality verified only in the offline evaluator.
   - **Direct Bitstream Equality & Privacy Amplification Status**:
     - Direct unpadded bitstream equality: $\text{exact\_recovery} = (A == \hat{A}_{\text{unpadded}})$.
-    - Privacy Amplification (`PA.pdf` Section 3.2.6) is removed from this task's scope and deferred to a future request.
+    - Privacy Amplification (`PA.pdf` Section 3.2.6) is fully implemented via bit-level SHA-256 compression yielding 256-bit secret keys across both supported reconciled paths.
   - **Reconciliation Scope & 4-bit Removal**:
     - Reconciliation and subsequent candidate-key generation support **ONLY** 2-bit paths:
       1. `quant_2bit`: 2-bit Gray quantization output ($L = 1000$ bits).
@@ -183,31 +197,61 @@ When decoding is successful and without miscorrection, $\hat{C} = C$ and $\hat{A
     - `dummy_rssi_bch_config.json`
     - `dummy_rssi_bch.xlsx` (companion multi-sheet Excel workbook with Text `@` formatting and >32k cell chunking)
     - `dummy_rssi_bch_reconciliation.png` & `.pdf` (2×2 300-dpi / vector PDF reconciliation figure)
+- **Privacy Amplification Stage (Bit-Level SHA-256, `src/rssi_skg/privacy_amplification.py`)**:
+  - Implements bit-level SHA-256 Privacy Amplification strictly following **`PA.pdf` Section 3.2.6 (Equations 3.37–3.53, FIPS PUB 180-4)**.
+  - **Bit-Level Padding (`pad_bitstream`)**:
+    - Operates directly on unpadded bitstreams $M$ of arbitrary bit length $L$:
+      $$M' = M \parallel 1 \parallel 0^p \parallel [L]_{64}$$
+      where $L + 1 + p \equiv 448 \pmod{512}$, $0 \le p < 512$, and $[L]_{64}$ is the 64-bit big-endian binary representation of the unpadded bit length $L$.
+    - `quant_2bit` ($L = 1000$ bits) $\to 1000 + 1 + 471 + 64 = 1536 = 3 \times 512$ bits (3 blocks, $p=471$).
+    - `prbs_2bit` ($L = 1500$ bits) $\to 1500 + 1 + 483 + 64 = 2048 = 4 \times 512$ bits (4 blocks, $p=483$).
+  - **64-Round Compression & Message Scheduling (`sha256_bitstream`)**:
+    - Computes message schedule $W_0, \dots, W_{63}$ per Equations (3.46)–(3.47) and round compression updates $a, b, c, d, e, f, g, h$ per Equations (3.48)–(3.53) initialized with fractional square root constants of the first 8 primes $H^{(0)}$ and 64 round constants from fractional cube roots $K_t$.
+    - Yields a 256-bit secret key $K = (K_{\text{bin}}, K_{\text{hex}})$ (256-character binary string and 64-character lowercase hex digest).
+    - Validated against NIST standard test vectors, independently-sourced bit-oriented Known Answer Tests (CAVP `SHA256ShortMsg.rsp`), and byte-aligned parity checks with Python `hashlib.sha256`.
+  - **Channel Isolation & Pair Evaluation**:
+    - Processes all 4 channels independently: `Alice`, `Bob`, `Eve1-Alice`, and `Eve1-Bob`.
+    - Evaluates the 3 pairs (`Alice–Bob`, `Alice–Eve1-Alice`, `Bob–Eve1-Bob`) across both supported reconciled 2-bit paths (`quant_2bit` and `prbs_2bit`).
+    - Reports:
+      * `pre_pa_kar`: Bit-level Key Agreement Rate from unpadded reconciled bitstreams before SHA-256.
+      * `post_pa_kar`: Bit-level Key Agreement Rate between 256-bit final keys per `PA.pdf` Equation (3.64):
+        $$\text{KAR}_{\text{post}} = \frac{256 - d_H(K_{\text{src}}, K_{\text{rcv}})}{256} \times 100\%$$
+      * `exact_key_match`: Boolean flag ($K_{\text{source}} == K_{\text{receiver}}$).
+    *(Note: Evaluated strictly per PA.pdf; standalone Hamming distance report column is omitted from exported CSV/XLSX summaries and preserved internally on dataclasses for KAR computation).*
+  - **Scientific Secrecy Boundary**:
+    - Standard scientific notice: Generating a 256-bit key via SHA-256 hashes down the bitstream cryptographically, but does **NOT** imply 256 bits of true physical min-entropy when upstream PRBS bit expansion is deterministic and public BCH helper data leaks linear parity relations.
+    - An attacker who recovers the source bits algebraically from public helper data computes the identical SHA-256 digest; ~50% Post-PA KAR under ordinary decoding failure does not establish cryptographic secrecy.
+  - **Companion Artifacts & Visualization**:
+    - CSV outputs: `dummy_rssi_pa_metrics.csv` (Pre vs Post KAR across paths and pairs), `dummy_rssi_pa_keys.csv` (role, path, 256-bit binary key string, 64-char hex digest).
+    - JSON config: `dummy_rssi_pa_config.json`.
+    - Companion XLSX: `dummy_rssi_pa.xlsx` using `openpyxl` with explicit `@` (Text) format for all key cells to preserve leading zeros.
+    - 2×2 Visualization: `dummy_rssi_pa_comparison.png` (300-dpi raster) and `dummy_rssi_pa_comparison.pdf` (vector) generated by `plot_privacy_amplification_figure`.
 
 ## 4. Key Source & Test File Responsibilities
+- `src/rssi_skg/privacy_amplification.py`: Bit-level SHA-256 Privacy Amplification engine per FIPS 180-4 (`PA.pdf` Section 3.2.6), bit-level padding (`pad_bitstream`), 64-round compression (`sha256_bitstream`), `PrivacyAmplificationConfig`, `ChannelPrivacyAmplificationResult`, `PairPrivacyAmplificationResult`, `MultiPathPrivacyAmplificationResult`, `amplify_privacy_all_paths`, artifact exporters (`export_pa_metrics_csv`, `export_pa_keys_csv`, `export_pa_config_json`, `export_pa_workbook_xlsx`), and `verify_against_hashlib`.
 - `src/rssi_skg/reconciliation.py`: Codeword helper data engine, BCH code caching (`get_bch_code`), `ReconciliationConfig`, `serialize_bitstream`, `generate_candidate_key`, `generate_helper_data`, `reconstruct_receiver_bitstream`, `evaluate_reconciliation_pair`, `reconcile_all_paths`, artifact CSV/JSON exporters, and `export_reconciliation_workbook_xlsx`.
 - `src/rssi_skg/prbs.py`: Galois XOR-LFSR engine (`GaloisLFSR`), primitive polynomial definitions, `PRBSConfig`, `expand_seed`, `expand_channel_prbs`, `expand_channels_prbs`, artifact CSV/JSON exporters, and `export_prbs_workbook_xlsx`.
 - `src/rssi_skg/quantization.py`: Modified ADQ engine, `QuantizationConfig`, `SegmentThresholds`, `ChannelQuantizationResult`, `quantize_series`, `quantize_channels`, `encode_levels_to_bits`, `calculate_kar`, `calculate_level_agreement`, `calculate_level_frequencies`, CSV/JSON export functions, and `export_quantized_workbook_xlsx`.
 - `src/rssi_skg/filter.py`: Scalar MSHKF engine, `FilterConfig`, `ModifiedSageHusaFilter`, `filter_rssi_channels`.
 - `src/rssi_skg/correlation.py`: Pure mathematical Pearson implementation and input sanity checking.
 - `src/rssi_skg/loader.py`: Excel workbook ingestion, column validation, and row pairing.
-- `src/rssi_skg/plotting.py`: Bubble aggregation, raw figure rendering, filtered comparison figure, quantization KAR figure (`plot_kar_comparison_figure`), 2×2 PRBS KAR figure (`plot_prbs_kar_comparison_figure`), and 2-panel reconciliation figure (`plot_reconciliation_figure`).
-- `src/rssi_skg/cli.py`: Command-line parsing, optional filtering, quantization, PRBS, and reconciliation dispatch with prerequisite chaining, companion XLSX export dispatch, figure prefix routing, and stdout user guidance.
-- `tests/test_reconciliation.py`: 10 tests (BCH code validation & caching, packed bit serialization & SHA-256, error-free recovery, controlled error injection up to $t$, beyond-$t$ handling, padding removal & payload metric isolation, receiver isolation, 2-path supported pipeline evaluation on dummy data with obsolete 4-bit rejection, artifact exporters with XLSX chunking, CLI integration).
+- `src/rssi_skg/plotting.py`: Bubble aggregation, raw figure rendering, filtered comparison figure, quantization KAR figure (`plot_kar_comparison_figure`), 2×2 PRBS KAR figure (`plot_prbs_kar_comparison_figure`), 2-panel reconciliation figure (`plot_reconciliation_figure`), and 2×2 Privacy Amplification comparison figure (`plot_privacy_amplification_figure`).
+- `src/rssi_skg/cli.py`: Command-line parsing, optional filtering, quantization, PRBS, reconciliation, and privacy amplification dispatch with prerequisite chaining, companion XLSX export dispatch, figure prefix routing, and stdout user guidance.
+- `tests/test_privacy_amplification.py`: 12 tests (FIPS 180-4 bit padding correctness, SHA-256 compression against NIST vectors including bit-oriented Known Answer Tests with proven provenance, padding boundary transitions at 447/448 and 511/512 bits with byte-aligned `hashlib.sha256` cross-verification, non-byte-aligned arbitrary bit lengths $L=1000$ and $L=1500$, avalanche diffusion sanity checks, independent channel isolation, end-to-end 2-path evaluation on dummy dataset, CSV/JSON/XLSX exporters, `@` Text formatting verification, CLI execution, candidate key flag aliases).
+- `tests/test_reconciliation.py`: 15 tests (BCH code cache & properties validation, privacy amplification removal verification, error-free recovery, controlled error-correction up to t, beyond-t error handling, zero-padding addition & stripping, receiver/Eve channel isolation, 2-path reconciliation with obsolete option rejection, identical path parameter verification, second small valid BCH configuration test, dynamic CSV/JSON/XLSX companion exporters, CLI full pipeline, obsolete CLI options rejection, global BCH code properties & metadata, global BCH 2-path recovery & 2x2 figure export).
 - `tests/test_prbs.py`: 15 tests (primitive polynomials, zero-state lockup, known-answer sequences, Equation 3.25 recurrence, boundary resets, input validation, channel isolation, exports, cell chunking, CLI).
 - `tests/test_quantization.py`: 16 tests (threshold calculation, boundary conditions, both encodings, sample sequence preservation, constant segments, partial segments, channel isolation, KAR formula, level agreement, invalid configs, invalid inputs, dummy dataset, CLI export, XLSX companion, cell limit chunking, plotting).
 - `tests/test_filter.py`: 11 tests (intermediate step validation against independent 2-step example, channel isolation, sample indexing, constant-input behavior, numerical safeguards, invalid configs, non-finite inputs, dummy dataset, CLI integration).
 - `tests/test_correlation.py`: 8 tests (perfect positive/negative, zero correlation, zero variance, invalid dimensions, NaN/Inf, SciPy reference parity).
 - `tests/test_loader.py`: 6 tests (missing columns, non-numeric values, empty cells, row ordering preservation, arbitrary $N$).
 - `tests/test_plotting.py`: 11 tests (duplicate point aggregation math, dimension checks, figure generation, headless export, CSV-only execution, comparison figure generation, PRBS KAR records input, PRBS KAR CSV input with self-contained tmp_path fixture, PRBS input validation, CLI PRBS figure export, CLI PRBS auto-derivation).
-- `tests/test_reconciliation.py`: 15 tests (BCH code cache & properties validation, privacy amplification removal verification, error-free recovery, controlled error-correction up to t, beyond-t error handling, zero-padding addition & stripping, receiver/Eve channel isolation, 2-path reconciliation with obsolete option rejection, identical path parameter verification, second small valid BCH configuration test, dynamic CSV/JSON/XLSX companion exporters, CLI full pipeline, obsolete CLI options rejection, global BCH code properties & metadata, global BCH 2-path recovery & 2x2 figure export).
 
 ## 5. Verification Records
 - **Clean Environment**: Project installed in isolated local `.venv` via `pip install -e ".[dev]"`.
-- **Test Suite & Independence**: 85 automated tests pass (`pytest -v` exited 0 with 85/85 passing in ~60s).
-  - *Test Independence Audit*: Identified that `test_plot_prbs_kar_comparison_figure_from_csv` previously relied on pre-existing `outputs/dummy_rssi_prbs_metrics.csv`. Fixed by generating isolated synthetic CSV data within pytest's `tmp_path`. Verified by executing the full 85-test suite with `outputs/` completely unavailable (`outputs_backup`); all 85 tests passed cleanly with zero cross-test or disk dependencies.
+- **Test Suite & Independence**: 97 automated tests pass (`pytest -v` exited 0 with 97/97 passing).
+  - *Test Independence Audit*: Identified that `test_plot_prbs_kar_comparison_figure_from_csv` previously relied on pre-existing `outputs/dummy_rssi_prbs_metrics.csv`. Fixed by generating isolated synthetic CSV data within pytest's `tmp_path`. Verified by executing the full test suite with `outputs/` completely unavailable (`outputs_backup`); all tests passed cleanly with zero cross-test or disk dependencies.
   - *Decoding Rigor*: Distinction between detected failures and miscorrections is mathematically enforced. The decoder operates solely on syndromes and does not have access to the true channel error count; channel errors exceeding $t$ produce either detected failure or miscorrection.
-- **CLI Execution**: Executed raw-only, filtering-only, quantization, PRBS, and global BCH reconciliation pipelines against the dummy workbook; verified 500-sample count, 10 segments, 1,000 bits (2-bit Gray), 2,000 bits (4-bit), 1,500 PRBS bits (2-bit), 7,500 PRBS bits (4-bit), global BCH(1023, 46, 200) reconciliation without interleaving across both supported 2-bit paths (`quant_2bit` and `prbs_2bit`), direct bitstream equality verification, CSV/JSON metadata, companion XLSX workbooks with text `@` cells, and 300-dpi/PDF 2×2 visualization figures.
+- **CLI Execution**: Executed raw-only, filtering-only, quantization, PRBS, global BCH reconciliation, and bit-level SHA-256 Privacy Amplification pipelines against the dummy workbook; verified 500-sample count, 10 segments, 1,000 bits (2-bit Gray), 2,000 bits (4-bit), 1,500 PRBS bits (2-bit), 7,500 PRBS bits (4-bit), global BCH(1023, 46, 200) reconciliation without interleaving across both supported 2-bit paths (`quant_2bit` and `prbs_2bit`), 256-bit SHA-256 secret key generation, CSV/JSON metadata, companion XLSX workbooks with text `@` cells, and 300-dpi/PDF 2×2 visualization figures.
 
 ### Two-Path Global BCH Reconciliation Results (BCH(1023, 46, 200), Interleaving OFF)
 - **Global Parameters**: $n = 1023, k = 46, d = 401, t = 200$ (derived $d = 2t + 1$), Interleaving `OFF`. Single configuration source for both paths and all receivers.
@@ -220,11 +264,30 @@ When decoding is successful and without miscorrection, $\hat{C} = C$ and $\hat{A
   - Alice–Eve1-Alice: Pre-KAR 56.53% $\to$ Post-KAR 68.93% ($\Delta = +12.40\text{ pp}$), Exact: FALSE, Blocks (S/F/M): 1/1/0.
   - Bob–Eve1-Bob: Pre-KAR 56.27% $\to$ Post-KAR 56.27% ($\Delta = +0.00\text{ pp}$), Exact: FALSE, Blocks (S/F/M): 0/2/0.
 
+### Two-Path Privacy Amplification Results (SHA-256 Bit-Level Compression, FIPS 180-4)
+- **Mathematical Specification**: Bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53). Padding $M' = M \parallel 1 \parallel 0^p \parallel [L]_{64}$, yielding 256-bit secret key $K$.
+- **Path: `quant_2bit` ($L = 1000$ bits $\to 256$ bits)**:
+  - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Key Match: **TRUE (MATCH)**.
+    - Key Hex (both Alice and Bob Reconciled Receiver): `98cadafbd85954df27fd02d37199f75e57e9efb0118b247f02db2b81030fd764`
+  - Alice–Eve1-Alice: Pre-PA KAR 58.20% $\to$ Post-PA KAR **50.39%** ($\Delta = -7.81\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)**.
+    - Key Hex (Eve1-Alice): `bb8de661d797ee9f0cb06c3dbf58a6a50607799b67ec3fd596cfa9ad591e247d`
+  - Bob–Eve1-Bob: Pre-PA KAR 55.40% $\to$ Post-PA KAR **55.47%** ($\Delta = +0.07\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)**.
+    - Source Key Hex (Bob Source in Bob–Eve1-Bob): `656ed0bf403c26320205b255f70f5b9267c10c71ea77adf959db8cb96ae295ba`
+    - Receiver Key Hex (Eve1-Bob Recovered): `e5a5c17476411af6221438058bcf28f931b5914dfaf99bd016801035696e4719`
+- **Path: `prbs_2bit` ($L = 1500$ bits $\to 256$ bits)**:
+  - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Key Match: **TRUE (MATCH)**.
+    - Key Hex (both Alice and Bob Reconciled Receiver): `39c81f5d669fddce09059213589b68fa81f79f3ac9302a361301bbc9e50c94e6`
+  - Alice–Eve1-Alice: Pre-PA KAR 68.93% $\to$ Post-PA KAR **50.78%** ($\Delta = -18.15\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)**.
+    - Key Hex (Eve1-Alice): `ef36998806f42bdfec287859320892e58dc1735e8a78a8fd89a0ec094db4a123`
+  - Bob–Eve1-Bob: Pre-PA KAR 56.27% $\to$ Post-PA KAR **50.78%** ($\Delta = -5.49\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)**.
+    - Source Key Hex (Bob Source in Bob–Eve1-Bob): `266277e61794c507619267c60fef3c4aff0ba43f4f9d78ecc20ac1d963f721c1`
+    - Receiver Key Hex (Eve1-Bob Recovered): `075ee9dee6716684cd81a77840513cfebc926858717d0d8bac3c568b506d6320`
+
 ## 6. Windows PowerShell Reproduction Commands
 > The primary execution guide with output locations is maintained in [README.md](../README.md#petunjuk-penyiapan-lingkungan--eksekusi).
 
 ```powershell
-# 1. Run automated test suite (85 tests)
+# 1. Run automated test suite (97 tests)
 .\.venv\Scripts\python.exe -m pytest -v
 
 # 2. Run default correlation analysis (raw only)
@@ -285,6 +348,21 @@ When decoding is successful and without miscorrection, $\hat{C} = C$ and $\hat{A
   --reconcile-keys-output "outputs/dummy_rssi_reconcile_keys.json" `
   --reconciled-xlsx-output "outputs/dummy_rssi_reconciled.xlsx" `
   --reconcile-figure-prefix "outputs/dummy_rssi_reconciliation"
+
+# 7. Run full pipeline through Privacy Amplification (SHA-256 256-bit key generation)
+.\.venv\Scripts\python.exe -m rssi_skg `
+  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -o "outputs/dummy_rssi_filtered_correlation.csv" `
+  --filter `
+  --quantize `
+  --prbs `
+  --reconcile `
+  --privacy-amplify `
+  --pa-metrics-output "outputs/dummy_rssi_pa_metrics.csv" `
+  --pa-keys-output "outputs/dummy_rssi_pa_keys.csv" `
+  --pa-config-output "outputs/dummy_rssi_pa_config.json" `
+  --pa-xlsx-output "outputs/dummy_rssi_pa.xlsx" `
+  --pa-figure-prefix "outputs/dummy_rssi_pa_comparison"
 ```
 
 ## 7. Current Git State & Verification
@@ -305,6 +383,7 @@ When decoding is successful and without miscorrection, $\hat{C} = C$ and $\hat{A
   1. *Completed*: Implemented Modified Sage–Husa Adaptive Kalman Filter (MSHKF) stage.
   2. *Completed*: Implemented Modified Adaptive Dual-Threshold Quantization (MADQ) stage (`PA.pdf` Section 3.2.3, Equations 3.21–3.23) and KAR evaluation (Equation 3.64).
   3. *Completed*: Implemented Bit Expansion with Galois XOR-LFSR PRBS generator (`PA.pdf` Section 3.2.4 as background) and before/after KAR evaluation.
-  4. *Completed*: Implemented BCH Codeword-based Information Reconciliation (`PA.pdf` Section 3.2.5, Equations 3.32–3.36). Privacy Amplification (`PA.pdf` Section 3.2.6) is postponed to a future request.
-  5. *Completed*: Unified global BCH configuration architecture (`DEFAULT_BCH_CODE = (1023, 46, 200)` with derived $d=401$, Interleaving OFF), eliminated legacy mode branching, rejected obsolete flags with migration messages, and validated 85 automated tests.
-  6. *Proposal*: Implement physical channel probing with real wireless hardware and evaluate empirical entropy.
+  4. *Completed*: Implemented BCH Codeword-based Information Reconciliation (`PA.pdf` Section 3.2.5, Equations 3.32–3.36).
+  5. *Completed*: Unified global BCH configuration architecture (`DEFAULT_BCH_CODE = (1023, 46, 200)` with derived $d=401$, Interleaving OFF), eliminated legacy mode branching, and rejected obsolete flags.
+  6. *Completed*: Implemented bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53), yielding 256-bit secret keys across both reconciled 2-bit paths, verified 100% Alice-Bob match and ~50% Eve decorrelation (avalanche effect), companion XLSX export, 2×2 visualization, and 96 automated tests.
+  7. *Proposal*: Implement physical channel probing with real wireless hardware and evaluate empirical entropy.
