@@ -17,15 +17,18 @@ from pathlib import Path
 import numpy as np
 import openpyxl
 import pytest
+import galois
 
 from rssi_skg.cli import main, run_correlation_analysis
 from rssi_skg.filter import FilterConfig, filter_rssi_channels
 from rssi_skg.loader import load_rssi_workbook
 from rssi_skg.plotting import plot_reconciliation_figure, plot_shared_bch_figure
 from rssi_skg.prbs import MultiChannelPRBSResult, PRBSConfig, expand_channels_prbs
-from rssi_skg.quantization import ChannelQuantizationResult, QuantizationConfig, quantize_channels
+from rssi_skg.quantization import CODE_4BIT_MAP, ChannelQuantizationResult, QuantizationConfig, quantize_channels
 from rssi_skg.reconciliation import (
     DEFAULT_BCH_CODE,
+    DEFAULT_BCH_CODE_2BIT,
+    DEFAULT_BCH_CODE_4BIT,
     GLOBAL_BCH_CODE,
     INTERLEAVING_STATUS,
     BlockReconciliationDetail,
@@ -49,12 +52,19 @@ from rssi_skg.reconciliation import (
 
 def test_bch_code_cache_and_properties() -> None:
     """Verify supported BCH code parameters, caching, and invalid configurations."""
-    # Test global default
-    bch_default = get_bch_code(*DEFAULT_BCH_CODE)
-    assert bch_default.n == 1023
-    assert bch_default.k == 46
-    assert bch_default.t == 200
-    assert bch_default.d == 401
+    # Test 2-bit default
+    bch_2bit = get_bch_code(*DEFAULT_BCH_CODE_2BIT)
+    assert bch_2bit.n == 127
+    assert bch_2bit.k == 1
+    assert bch_2bit.t == 62
+    assert bch_2bit.d == 125
+
+    # Test 4-bit default
+    bch_4bit = get_bch_code(*DEFAULT_BCH_CODE_4BIT)
+    assert bch_4bit.n == 255
+    assert bch_4bit.k == 9
+    assert bch_4bit.t == 63
+    assert bch_4bit.d == 127
 
     # Test small valid candidate
     bch15 = get_bch_code(15, 7, 2)
@@ -70,7 +80,8 @@ def test_bch_code_cache_and_properties() -> None:
     assert bch31.d == 31
 
     # Check cache identity
-    assert get_bch_code(1023, 46, 200) is bch_default
+    assert get_bch_code(127, 1, 62) is bch_2bit
+    assert get_bch_code(255, 9, 63) is bch_4bit
     assert get_bch_code(15, 7, 2) is bch15
 
     # Inconsistent configurations raise actionable ValueError
@@ -319,7 +330,7 @@ def pipeline_results() -> tuple[dict[str, list[float]], ChannelQuantizationResul
 
 
 def test_reconcile_supported_paths(pipeline_results: tuple) -> None:
-    """Verify BCH reconciliation across supported 2-bit paths and rejection of obsolete options."""
+    """Verify BCH reconciliation across all 4 supported paths and rejection of obsolete options."""
     _, quant_res, prbs_res = pipeline_results
 
     rec_cfg = ReconciliationConfig(seed=42)
@@ -329,35 +340,46 @@ def test_reconcile_supported_paths(pipeline_results: tuple) -> None:
         config=rec_cfg,
     )
 
-    # 2 supported paths * 3 evaluated pairs (Alice-Bob, Alice-Eve1A, Bob-Eve1B) = 6 metrics
-    assert len(rec_result.metrics) == 6
+    # 4 supported paths * 3 evaluated pairs = 12 metrics
+    assert len(rec_result.metrics) == 12
 
     metrics_by_key = {(m.path, m.pair): m for m in rec_result.metrics}
 
-    # Path 1: quant_2bit (Global BCH 1023, 46, 200)
+    # Path 1: quant_2bit (Shared BCH 127, 1, 62)
     ab_q2 = metrics_by_key[("quant_2bit", "Alice–Bob")]
     assert ab_q2.pre_kar == pytest.approx(80.40, abs=0.01)
     assert ab_q2.post_kar == 100.00
     assert ab_q2.exact_recovery is True
-    assert ab_q2.successful_blocks == 1
+    assert ab_q2.successful_blocks == 8
     assert ab_q2.detected_failures == 0
     assert ab_q2.miscorrected_blocks == 0
 
-    # Eve on quant_2bit must fail
-    ae_q2 = metrics_by_key[("quant_2bit", "Alice–Eve1-Alice")]
-    assert ae_q2.exact_recovery is False
+    # Path 2: quant_4bit (BCH 255, 9, 63)
+    ab_q4 = metrics_by_key[("quant_4bit", "Alice–Bob")]
+    assert ab_q4.pre_kar == pytest.approx(90.20, abs=0.01)
+    assert ab_q4.post_kar == 100.00
+    assert ab_q4.exact_recovery is True
+    assert ab_q4.successful_blocks == 8
+    assert ab_q4.detected_failures == 0
+    assert ab_q4.miscorrected_blocks == 0
 
-    # Path 2: prbs_2bit (Global BCH 1023, 46, 200)
+    # Path 3: prbs_2bit (BCH 127, 1, 62)
     ab_p2 = metrics_by_key[("prbs_2bit", "Alice–Bob")]
-    assert ab_p2.pre_kar == pytest.approx(76.27, abs=0.01)
+    assert ab_p2.pre_kar == pytest.approx(75.85, abs=0.01)
     assert ab_p2.post_kar == 100.00
     assert ab_p2.exact_recovery is True
-    assert ab_p2.successful_blocks == 2
+    assert ab_p2.successful_blocks == 32
     assert ab_p2.detected_failures == 0
     assert ab_p2.miscorrected_blocks == 0
 
-    ae_p2 = metrics_by_key[("prbs_2bit", "Alice–Eve1-Alice")]
-    assert ae_p2.exact_recovery is False
+    # Path 4: prbs_4bit (BCH 255, 9, 63)
+    ab_p4 = metrics_by_key[("prbs_4bit", "Alice–Bob")]
+    assert ab_p4.pre_kar == pytest.approx(86.20, abs=0.01)
+    assert ab_p4.post_kar == 100.00
+    assert ab_p4.exact_recovery is True
+    assert ab_p4.successful_blocks == 16
+    assert ab_p4.detected_failures == 0
+    assert ab_p4.miscorrected_blocks == 0
 
     # Explicit rejection of obsolete reconciliation options
     with pytest.raises(ValueError, match="is obsolete and has been removed"):
@@ -369,34 +391,39 @@ def test_reconcile_supported_paths(pipeline_results: tuple) -> None:
     with pytest.raises(ValueError, match="is obsolete and has been removed"):
         ReconciliationConfig(mode="shared_1023")  # type: ignore
 
-    with pytest.raises(ValueError, match="is obsolete and has been removed"):
-        ReconciliationConfig(code_quant_4bit=(63, 10, 13))  # type: ignore
-
-    with pytest.raises(ValueError, match="is obsolete and has been removed"):
-        ReconciliationConfig(code_prbs_4bit=(127, 1, 63))  # type: ignore
-
-    with pytest.raises(ValueError, match="Obsolete reconciliation path"):
-        rec_cfg.get_code_for_path("quant_4bit")
-
-    with pytest.raises(ValueError, match="Obsolete reconciliation path"):
-        rec_cfg.get_code_for_path("prbs_4bit")
+    with pytest.raises(ValueError, match="Unknown path name"):
+        rec_cfg.get_code_for_path("invalid_path")
 
 
 def test_paths_use_identical_parameters() -> None:
-    """Verify that quant_2bit and prbs_2bit obtain the exact same BCH code parameters."""
+    """Verify that 2-bit paths use BCH(127,1,62) and 4-bit paths route to shared BCH(255,9,63)."""
     cfg = ReconciliationConfig()
-    code_q = cfg.get_code_for_path("quant_2bit")
-    code_p = cfg.get_code_for_path("prbs_2bit")
-    assert code_q == code_p == DEFAULT_BCH_CODE == (1023, 46, 200)
+    code_q2 = cfg.get_code_for_path("quant_2bit")
+    code_q4 = cfg.get_code_for_path("quant_4bit")
+    code_p2 = cfg.get_code_for_path("prbs_2bit")
+    code_p4 = cfg.get_code_for_path("prbs_4bit")
+    assert code_q2 == code_p2 == DEFAULT_BCH_CODE_2BIT == (127, 1, 62)
+    assert code_q4 == code_p4 == DEFAULT_BCH_CODE_4BIT == (255, 9, 63)
+
+    # Independent configuration per path family
+    custom_cfg = ReconciliationConfig(code_2bit=(31, 1, 15), code_4bit=(255, 9, 63))
+    assert custom_cfg.code_2bit == (31, 1, 15)
+    assert custom_cfg.code_4bit == (255, 9, 63)
+    assert custom_cfg.get_code_for_path("quant_2bit") == (31, 1, 15)
+    assert custom_cfg.get_code_for_path("prbs_2bit") == (31, 1, 15)
+    assert custom_cfg.get_code_for_path("quant_4bit") == (255, 9, 63)
+    assert custom_cfg.get_code_for_path("prbs_4bit") == (255, 9, 63)
 
 
 def test_second_small_valid_bch_configuration() -> None:
-    """Verify that editing ReconciliationConfig with a second valid BCH configuration works cleanly."""
+    """Verify that editing ReconciliationConfig with a global valid BCH configuration works cleanly."""
     valid_small = (15, 7, 2)
     cfg = ReconciliationConfig(code=valid_small)
     assert cfg.code == valid_small
     assert cfg.get_code_for_path("quant_2bit") == valid_small
+    assert cfg.get_code_for_path("quant_4bit") == valid_small
     assert cfg.get_code_for_path("prbs_2bit") == valid_small
+    assert cfg.get_code_for_path("prbs_4bit") == valid_small
 
     bch = get_bch_code(*cfg.code)
     assert bch.n == 15
@@ -420,7 +447,7 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
         config=ReconciliationConfig(seed=42),
     )
 
-    # 1. Summary metrics CSV (2 paths * 3 pairs = 6 rows)
+    # 1. Summary metrics CSV (4 paths * 3 pairs = 12 rows)
     csv_metrics_path = tmp_path / "metrics.csv"
     export_reconciliation_metrics_csv(rec_result, csv_metrics_path)
     assert csv_metrics_path.exists()
@@ -431,12 +458,18 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
         assert "key_match" not in fieldnames
         assert "source_key_sha256" not in fieldnames
         reader = list(reader_dict)
-        assert len(reader) == 6
+        assert len(reader) == 12
         for row in reader:
-            assert row["n"] == "1023"
-            assert row["k"] == "46"
-            assert row["t"] == "200"
-            assert row["designed_d"] == "401"
+            if row["path"] in ("quant_2bit", "prbs_2bit"):
+                assert row["n"] == "127"
+                assert row["k"] == "1"
+                assert row["t"] == "62"
+                assert row["designed_d"] == "125"
+            else:
+                assert row["n"] == "255"
+                assert row["k"] == "9"
+                assert row["t"] == "63"
+                assert row["designed_d"] == "127"
             assert row["interleaving"] == "OFF"
 
     # 2. Block details CSV
@@ -455,11 +488,13 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
         data = json.load(f)
         assert data["algorithm"] == "Codeword-Based BCH Information Reconciliation"
         assert "quant_2bit" in data["parameters"]["paths"]
+        assert "quant_4bit" in data["parameters"]["paths"]
         assert "prbs_2bit" in data["parameters"]["paths"]
-        assert data["parameters"]["paths"]["quant_2bit"]["n"] == 1023
-        assert data["parameters"]["paths"]["quant_2bit"]["designed_d"] == 401
-        assert "quant_4bit" not in data["parameters"]["paths"]
-        assert "prbs_4bit" not in data["parameters"]["paths"]
+        assert "prbs_4bit" in data["parameters"]["paths"]
+        assert data["parameters"]["paths"]["quant_2bit"]["n"] == 127
+        assert data["parameters"]["paths"]["quant_2bit"]["designed_d"] == 125
+        assert data["parameters"]["paths"]["quant_4bit"]["n"] == 255
+        assert data["parameters"]["paths"]["quant_4bit"]["designed_d"] == 127
 
     # 4. Excel Workbook (.xlsx)
     xlsx_path = tmp_path / "reconciliation.xlsx"
@@ -550,38 +585,44 @@ def test_obsolete_cli_options_rejected(capsys: pytest.CaptureFixture) -> None:
 
 
 # ==============================================================================
-# 11. Global BCH(1023, 46, 200) Verification Tests
+# 11. Global BCH(127, 1, 62) Verification Tests
 # ==============================================================================
 
 
 def test_global_bch_code_properties_and_config() -> None:
-    """Verify global BCH(1023, 46, 200) code properties and ReconciliationConfig guarantees."""
-    bch = get_bch_code(*DEFAULT_BCH_CODE)
-    assert bch.n == 1023
-    assert bch.k == 46
-    assert bch.d == 401
-    assert bch.t == 200
+    """Verify default BCH code properties and ReconciliationConfig guarantees."""
+    bch_2bit = get_bch_code(*DEFAULT_BCH_CODE_2BIT)
+    assert bch_2bit.n == 127
+    assert bch_2bit.k == 1
+    assert bch_2bit.d == 125
+    assert bch_2bit.t == 62
+
+    bch_4bit = get_bch_code(*DEFAULT_BCH_CODE_4BIT)
+    assert bch_4bit.n == 255
+    assert bch_4bit.k == 9
+    assert bch_4bit.d == 127
+    assert bch_4bit.t == 63
 
     cfg = ReconciliationConfig(seed=42)
-    assert cfg.code == (1023, 46, 200)
-    assert cfg.get_code_for_path("quant_2bit") == (1023, 46, 200)
-    assert cfg.get_code_for_path("prbs_2bit") == (1023, 46, 200)
+    assert cfg.get_code_for_path("quant_2bit") == (127, 1, 62)
+    assert cfg.get_code_for_path("quant_4bit") == (255, 9, 63)
+    assert cfg.get_code_for_path("prbs_2bit") == (127, 1, 62)
+    assert cfg.get_code_for_path("prbs_4bit") == (255, 9, 63)
     assert cfg.interleaving == "OFF"
 
     meta = cfg.to_metadata_dict()
-    assert meta["parameters"]["n"] == 1023
-    assert meta["parameters"]["k"] == 46
-    assert meta["parameters"]["t"] == 200
-    assert meta["parameters"]["designed_d"] == 401
-    assert meta["parameters"]["interleaving"] == "OFF"
-    assert meta["parameters"]["paths"]["quant_2bit"]["designed_d"] == 401
-    assert meta["parameters"]["paths"]["prbs_2bit"]["designed_d"] == 401
+    assert meta["parameters"]["paths"]["quant_2bit"]["designed_d"] == 125
+    assert meta["parameters"]["paths"]["quant_4bit"]["designed_d"] == 127
+    assert meta["parameters"]["paths"]["prbs_2bit"]["designed_d"] == 125
+    assert meta["parameters"]["paths"]["prbs_4bit"]["designed_d"] == 127
     assert meta["parameters"]["paths"]["quant_2bit"]["interleaving"] == "OFF"
+    assert meta["parameters"]["paths"]["quant_4bit"]["interleaving"] == "OFF"
     assert meta["parameters"]["paths"]["prbs_2bit"]["interleaving"] == "OFF"
+    assert meta["parameters"]["paths"]["prbs_4bit"]["interleaving"] == "OFF"
 
 
 def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) -> None:
-    """Verify exact Alice-Bob recovery, failure detection, exports, and 2x2 figure under global configuration."""
+    """Verify exact Alice-Bob recovery, failure detection, exports, and figure under configured BCH."""
     input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
     raw_data = load_rssi_workbook(input_file)
     filtered = filter_rssi_channels(raw_data, FilterConfig())
@@ -591,45 +632,75 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
     cfg = ReconciliationConfig(seed=42)
     reconcile_res = reconcile_all_paths(quant_res, prbs_res, config=cfg)
 
-    # 1. Verify quant_2bit ground truth
+    # 1. Verify quant_2bit ground truth (BCH(127,1,62))
     q_ab = reconcile_res.path_results["quant_2bit"]["Alice–Bob"]
-    assert q_ab.n == 1023
-    assert q_ab.k == 46
-    assert q_ab.t == 200
-    assert q_ab.designed_d == 401
+    assert q_ab.n == 127
+    assert q_ab.k == 1
+    assert q_ab.t == 62
+    assert q_ab.designed_d == 125
     assert q_ab.interleaving == "OFF"
     assert q_ab.exact_recovery is True
     assert q_ab.pre_reconcile_kar == pytest.approx(80.40, abs=0.01)
     assert q_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
-    assert q_ab.success_blocks == 1
+    assert q_ab.success_blocks == 8
     assert q_ab.detected_failure_blocks == 0
     assert q_ab.miscorrected_blocks == 0
 
-    q_ea = reconcile_res.path_results["quant_2bit"]["Alice–Eve1-Alice"]
-    assert q_ea.exact_recovery is False
-    assert q_ea.success_blocks == 0
-    assert q_ea.detected_failure_blocks == 1
+    # 2. Verify quant_4bit ground truth (BCH(255,9,63))
+    q4_ab = reconcile_res.path_results["quant_4bit"]["Alice–Bob"]
+    assert q4_ab.n == 255
+    assert q4_ab.k == 9
+    assert q4_ab.t == 63
+    assert q4_ab.designed_d == 127
+    assert q4_ab.exact_recovery is True
+    assert q4_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
+    assert q4_ab.success_blocks == 8
+    assert q4_ab.detected_failure_blocks == 0
+    assert q4_ab.miscorrected_blocks == 0
 
-    # 2. Verify prbs_2bit ground truth
+    # Eve fails exact recovery on quant_4bit
+    q4_ea = reconcile_res.path_results["quant_4bit"]["Alice–Eve1-Alice"]
+    assert q4_ea.exact_recovery is False
+    assert q4_ea.detected_failure_blocks == 3
+    q4_eb = reconcile_res.path_results["quant_4bit"]["Alice–Eve1-Bob"]
+    assert q4_eb.exact_recovery is False
+    assert q4_eb.detected_failure_blocks == 1
+
+    # 3. Verify prbs_2bit ground truth (BCH(127,1,62))
     p_ab = reconcile_res.path_results["prbs_2bit"]["Alice–Bob"]
-    assert p_ab.n == 1023
-    assert p_ab.k == 46
-    assert p_ab.t == 200
-    assert p_ab.designed_d == 401
+    assert p_ab.n == 127
+    assert p_ab.k == 1
+    assert p_ab.t == 62
+    assert p_ab.designed_d == 125
     assert p_ab.interleaving == "OFF"
     assert p_ab.exact_recovery is True
-    assert p_ab.pre_reconcile_kar == pytest.approx(76.2667, abs=0.01)
+    assert p_ab.pre_reconcile_kar == pytest.approx(75.85, abs=0.01)
     assert p_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
-    assert p_ab.success_blocks == 2
+    assert p_ab.success_blocks == 32
     assert p_ab.detected_failure_blocks == 0
     assert p_ab.miscorrected_blocks == 0
 
-    p_ea = reconcile_res.path_results["prbs_2bit"]["Alice–Eve1-Alice"]
-    assert p_ea.exact_recovery is False
-    assert p_ea.success_blocks == 1
-    assert p_ea.detected_failure_blocks == 1
+    # 4. Verify prbs_4bit ground truth (BCH(255,9,63))
+    p4_ab = reconcile_res.path_results["prbs_4bit"]["Alice–Bob"]
+    assert p4_ab.n == 255
+    assert p4_ab.k == 9
+    assert p4_ab.t == 63
+    assert p4_ab.designed_d == 127
+    assert p4_ab.exact_recovery is True
+    assert p4_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
+    assert p4_ab.success_blocks == 16
+    assert p4_ab.detected_failure_blocks == 0
+    assert p4_ab.miscorrected_blocks == 0
 
-    # 3. Test Exports & Figures
+    # Eve fails exact recovery on prbs_4bit
+    p4_ea = reconcile_res.path_results["prbs_4bit"]["Alice–Eve1-Alice"]
+    assert p4_ea.exact_recovery is False
+    assert p4_ea.detected_failure_blocks == 9
+    p4_eb = reconcile_res.path_results["prbs_4bit"]["Alice–Eve1-Bob"]
+    assert p4_eb.exact_recovery is False
+    assert p4_eb.detected_failure_blocks == 9
+
+    # 5. Test Exports & Figures
     csv_metrics = tmp_path / "recon_metrics.csv"
     csv_blocks = tmp_path / "recon_blocks.csv"
     json_config = tmp_path / "recon_config.json"
@@ -649,14 +720,199 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
     assert png_p.exists() and png_p.stat().st_size > 10000
     assert pdf_p.exists() and pdf_p.stat().st_size > 10000
 
-    # Check that CSV contains designed_d and interleaving columns
+    # Check that CSV contains designed_d and interleaving columns (12 rows for 4 paths * 3 pairs)
     with open(csv_metrics, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-        assert len(rows) == 6
+        assert len(rows) == 12
         for r in rows:
-            assert r["n"] == "1023"
-            assert r["k"] == "46"
-            assert r["t"] == "200"
-            assert r["designed_d"] == "401"
+            if r["path"] in ("quant_2bit", "prbs_2bit"):
+                assert r["n"] == "127"
+                assert r["k"] == "1"
+                assert r["t"] == "62"
+                assert r["designed_d"] == "125"
+            else:
+                assert r["n"] == "255"
+                assert r["k"] == "9"
+                assert r["t"] == "63"
+                assert r["designed_d"] == "127"
             assert r["interleaving"] == "OFF"
+
+
+def test_eavesdropper_threat_model_helper_data_reuse_and_isolation(pipeline_results: tuple) -> None:
+    """Regression test proving:
+    1. Helper data reuse: Alice's helper data is generated once per path and reused for Bob, Eve1-Alice, Eve1-Bob.
+    2. Common reference bits: Eve1-Alice and Eve1-Bob are both reconstructed against Alice's source bits.
+    3. Passive receiver isolation: Eve only accesses her own observation bits and Alice's public helper data.
+    4. Bob-generated helper data and 'Bob–Eve1-Bob' session do not exist.
+    """
+    _, quant_res, prbs_res = pipeline_results
+    rec_cfg = ReconciliationConfig(seed=42)
+    rec_res = reconcile_all_paths(quant_res, prbs_res, config=rec_cfg)
+
+    for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
+        p_res = rec_res.path_results[path_name]
+
+        # Exact 3 pairs evaluated: Alice–Bob, Alice–Eve1-Alice, Alice–Eve1-Bob
+        assert set(p_res.keys()) == {"Alice–Bob", "Alice–Eve1-Alice", "Alice–Eve1-Bob"}
+        assert "Bob–Eve1-Bob" not in p_res
+
+        res_ab = p_res["Alice–Bob"]
+        res_ea = p_res["Alice–Eve1-Alice"]
+        res_eb = p_res["Alice–Eve1-Bob"]
+
+        # Helper data reuse: All 3 pairs must use Alice as source and have identical helper block lengths and padding
+        assert res_ab.source_name == "Alice"
+        assert res_ea.source_name == "Alice"
+        assert res_eb.source_name == "Alice"
+        assert res_ab.source_unpadded == res_ea.source_unpadded == res_eb.source_unpadded
+        assert res_ab.padding_count == res_ea.padding_count == res_eb.padding_count
+        assert res_ab.num_blocks == res_ea.num_blocks == res_eb.num_blocks
+
+        # Verify exact code parameters, block counts, and padding per path
+        if path_name == "quant_2bit":
+            assert res_ab.n == 127
+            assert res_ab.k == 1
+            assert res_ab.t == 62
+            assert res_ab.designed_d == 125
+            assert res_ab.num_blocks == 8
+            assert res_ab.padding_count == 16
+        elif path_name == "quant_4bit":
+            assert res_ab.n == 255
+            assert res_ab.k == 9
+            assert res_ab.t == 63
+            assert res_ab.designed_d == 127
+            assert res_ab.num_blocks == 8
+            assert res_ab.padding_count == 40
+        elif path_name == "prbs_2bit":
+            assert res_ab.n == 127
+            assert res_ab.k == 1
+            assert res_ab.t == 62
+            assert res_ab.designed_d == 125
+            assert res_ab.num_blocks == 32
+            assert res_ab.padding_count == 64
+        else:
+            assert res_ab.n == 255
+            assert res_ab.k == 9
+            assert res_ab.t == 63
+            assert res_ab.designed_d == 127
+            assert res_ab.num_blocks == 16
+            assert res_ab.padding_count == 80
+
+        # Passive receiver isolation: Receiver bits are strictly the independent channel bits
+        if path_name == "quant_2bit":
+            assert res_ab.receiver_raw_unpadded == quant_res.bitstreams_2bit["Bob"]
+            assert res_ea.receiver_raw_unpadded == quant_res.bitstreams_2bit["Eve1-Alice"]
+            assert res_eb.receiver_raw_unpadded == quant_res.bitstreams_2bit["Eve1-Bob"]
+        elif path_name == "quant_4bit":
+            assert res_ab.receiver_raw_unpadded == quant_res.bitstreams_4bit["Bob"]
+            assert res_ea.receiver_raw_unpadded == quant_res.bitstreams_4bit["Eve1-Alice"]
+            assert res_eb.receiver_raw_unpadded == quant_res.bitstreams_4bit["Eve1-Bob"]
+        elif path_name == "prbs_2bit":
+            assert res_ab.receiver_raw_unpadded == prbs_res.channels["Bob"].bitstream_2bit
+            assert res_ea.receiver_raw_unpadded == prbs_res.channels["Eve1-Alice"].bitstream_2bit
+            assert res_eb.receiver_raw_unpadded == prbs_res.channels["Eve1-Bob"].bitstream_2bit
+        else:
+            assert res_ab.receiver_raw_unpadded == prbs_res.channels["Bob"].bitstream_4bit
+            assert res_ea.receiver_raw_unpadded == prbs_res.channels["Eve1-Alice"].bitstream_4bit
+            assert res_eb.receiver_raw_unpadded == prbs_res.channels["Eve1-Bob"].bitstream_4bit
+
+        # Legitimate channel reaches 100% KAR; both Eve streams fail exact recovery
+        assert res_ab.exact_recovery is True
+        assert res_ea.exact_recovery is False
+        assert res_eb.exact_recovery is False
+
+
+def test_bounded_public_helper_candidate_check(pipeline_results: tuple) -> None:
+    """Verify bounded public-helper candidate check on BCH(255, 9, 63).
+
+    Confirms that:
+    1. Pre-enumerating all 512 codewords of BCH(255, 9, 63) is bounded and fast.
+    2. Candidate blocks A_cand = H XOR C can be filtered using strictly public constraints
+       (known trailing zero-padding and CODE_4BIT_MAP alphabet prefix '10').
+    3. Filtering reduces the 512 candidates to a single unique candidate matching Alice's block,
+       proving that decoder failure and small k (k=9) do not establish cryptographic secrecy.
+    """
+    _, quant_res, _ = pipeline_results
+    alice_q4 = quant_res.bitstreams_4bit["Alice"]
+    bch = get_bch_code(255, 9, 63)
+
+    # 1. Enumerate all 512 codewords once
+    messages = np.array([[int(b) for b in f"{m:09b}"] for m in range(512)], dtype=np.uint8)
+    codewords = np.array(bch.encode(messages), dtype=np.uint8)
+    assert codewords.shape == (512, 255)
+
+    # 2. Generate Alice's helper data
+    rng = np.random.default_rng(42)
+    helper_blocks, orig_len, pad_count = generate_helper_data(alice_q4, 255, 9, 63, rng=rng)
+    assert orig_len == 2000
+    assert len(helper_blocks) == 8
+    assert pad_count == 40
+
+    # 3. Verify linear constraint rank on generator matrix G
+    # Having known bits only constrains the message space if G[:, known_indices] has full row rank (rank 9).
+    # For Block 7, the 40 trailing zero-padding columns have rank 9 over GF(2):
+    pad_cols = np.arange(215, 255)
+    G_pad = bch.G[:, pad_cols]
+    assert np.linalg.matrix_rank(galois.GF(2)(G_pad)) == 9
+
+    # For Block 0, the fixed '10' prefixes on sample positions (128 bits) have rank 9 over GF(2):
+    fixed_pos_0 = []
+    for s in range(63):
+        fixed_pos_0.extend([s * 4, s * 4 + 1])
+    fixed_pos_0.extend([252, 253])
+    G_fixed_0 = bch.G[:, fixed_pos_0]
+    assert np.linalg.matrix_rank(galois.GF(2)(G_fixed_0)) == 9
+
+    # 4. Check final block (Block 7) with 40 known zero padding bits
+    H_final = helper_blocks[7]
+    true_A_final = np.fromiter(alice_q4[7 * 255 : 2000] + "0" * 40, dtype=np.uint8)
+    candidates_final = H_final ^ codewords
+
+    # Filter by 40 trailing zero padding bits (public knowledge only)
+    pad_match = np.all(candidates_final[:, 215:255] == 0, axis=1)
+    survivors_final = np.where(pad_match)[0]
+
+    # Full row rank ensures 40 linear constraints on 9-bit message space leave exactly 1 candidate
+    assert len(survivors_final) == 1
+    # Ground truth is used strictly AFTER selection to verify accuracy
+    assert np.array_equal(candidates_final[survivors_final[0]], true_A_final)
+
+    # 5. Check Block 0 with 63 full 4-bit samples using full public CODE_4BIT_MAP
+    H_0 = helper_blocks[0]
+    true_A_0 = np.fromiter(alice_q4[:255], dtype=np.uint8)
+    candidates_0 = np.array(H_0, dtype=np.uint8) ^ codewords
+
+    # Public 4-bit quantizer alphabet per PA.pdf Eq (3.23) and CODE_4BIT_MAP
+    valid_symbols = {tuple(int(b) for b in s) for s in CODE_4BIT_MAP.values()}
+    assert len(valid_symbols) == 3
+    valid_survivors_0 = []
+    for idx in range(512):
+        cand = candidates_0[idx]
+        cand_valid = True
+        for s in range(63):
+            sample_tuple = tuple(cand[s * 4 : (s + 1) * 4])
+            if sample_tuple not in valid_symbols:
+                cand_valid = False
+                break
+        if cand_valid:
+            valid_survivors_0.append(idx)
+
+    assert len(valid_survivors_0) == 1
+    assert np.array_equal(candidates_0[valid_survivors_0[0]], true_A_0)
+
+    # 6. Verify prbs_4bit Block 15 (80 trailing padding bits)
+    _, _, prbs_res = pipeline_results
+    alice_p4 = prbs_res.channels["Alice"].bitstream_4bit
+    h_p4, orig_len_p4, pad_p4 = generate_helper_data(alice_p4, 255, 9, 63, rng=rng)
+    assert orig_len_p4 == 4000
+    assert len(h_p4) == 16
+    assert pad_p4 == 80
+
+    H_p15 = h_p4[15]
+    true_Ap15 = np.fromiter(alice_p4[15 * 255 : 4000] + "0" * 80, dtype=np.uint8)
+    cands_p15 = H_p15 ^ codewords
+    pad_match_p15 = np.all(cands_p15[:, 175:255] == 0, axis=1)
+    survivors_p15 = np.where(pad_match_p15)[0]
+    assert len(survivors_p15) == 1
+    assert np.array_equal(cands_p15[survivors_p15[0]], true_Ap15)

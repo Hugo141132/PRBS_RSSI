@@ -66,8 +66,13 @@ from rssi_skg.reconciliation import (
     EVALUATION_PAIRS,
     MultiPathReconciliationResult,
     PairReconciliationResult,
-    PATHS,
 )
+
+# Downstream Evaluation Status:
+# Paused for the 8-bit PRBS / 4-path revision pending 4-path key derivation architecture.
+# Historical PA evaluation is preserved strictly on the prior 2-bit paths.
+PA_PATHS: tuple[str, ...] = ("quant_2bit", "prbs_2bit")
+PA_DOWNSTREAM_STATUS: str = "PAUSED (historical 2-bit evaluation preserved; 4-path derivation postponed)"
 
 SCIENTIFIC_DISCLAIMER: str = (
     "Synthetic software validation only; 256-bit SHA-256 output does not imply "
@@ -285,13 +290,14 @@ class PrivacyAmplificationConfig:
 
     hash_algorithm: str = "SHA-256"
     key_length_bits: int = 256
-    supported_paths: tuple[str, ...] = PATHS
+    supported_paths: tuple[str, ...] = PA_PATHS
     scientific_disclaimer: str = SCIENTIFIC_DISCLAIMER
 
     def to_metadata_dict(self) -> dict[str, Any]:
         """Convert configuration to metadata dictionary."""
         return {
             "algorithm": "Privacy Amplification via Bit-Level SHA-256",
+            "downstream_status": PA_DOWNSTREAM_STATUS,
             "hash_algorithm": self.hash_algorithm,
             "key_length_bits": self.key_length_bits,
             "supported_paths": list(self.supported_paths),
@@ -354,7 +360,7 @@ class MultiPathPrivacyAmplificationResult:
     def metrics(self) -> list[PairPrivacyAmplificationResult]:
         """Return flattened list of pair results in canonical order."""
         res: list[PairPrivacyAmplificationResult] = []
-        for path_name in PATHS:
+        for path_name in PA_PATHS:
             if path_name in self.pair_results:
                 for pair_info in EVALUATION_PAIRS:
                     pair_name = pair_info[2]
@@ -375,15 +381,15 @@ def amplify_privacy_all_paths(
     """Execute Stage 6 Privacy Amplification across both reconciled 2-bit paths.
 
     Computes 256-bit secret keys for all 4 channels independently:
-        - Alice (source)
+        - Alice (source / reconciliation reference)
         - Bob (recovered from Alice's helper data)
         - Eve1-Alice (recovered from Alice's helper data)
-        - Eve1-Bob (recovered from Bob's helper data)
+        - Eve1-Bob (recovered from Alice's helper data)
 
     Evaluates metrics across the 3 evaluation pairs:
         1. Alice–Bob (legitimate)
-        2. Alice–Eve1-Alice (eavesdropper)
-        3. Bob–Eve1-Bob (eavesdropper)
+        2. Alice–Eve1-Alice (passive eavesdropper attack stream 1: overhearing Alice)
+        3. Alice–Eve1-Bob (passive eavesdropper attack stream 2: overhearing Bob)
 
     Args:
         reconcile_result: Completed MultiPathReconciliationResult from Stage 5.
@@ -397,33 +403,30 @@ def amplify_privacy_all_paths(
     channel_keys: dict[str, dict[str, ChannelPrivacyAmplificationResult]] = {}
     pair_results: dict[str, dict[str, PairPrivacyAmplificationResult]] = {}
 
-    for path_name in PATHS:
+    for path_name in PA_PATHS:
         if path_name not in reconcile_result.path_results:
             continue
 
         p_pairs = reconcile_result.path_results[path_name]
         res_ab = p_pairs["Alice–Bob"]
         res_ea = p_pairs["Alice–Eve1-Alice"]
-        res_eb = p_pairs["Bob–Eve1-Bob"]
+        res_eb = p_pairs["Alice–Eve1-Bob"]
 
-        # Derive independent 256-bit keys for all 4 channels
-        # Alice: Alice unpadded source bitstream
+        # Derive independent 256-bit keys for the 4 physical channels
+        # Alice: Alice unpadded source bitstream (reconciliation reference)
         alice_bin, alice_hex = sha256_bitstream(res_ab.source_unpadded)
         # Bob: Bob recovered bitstream from Alice–Bob reconciliation
         bob_bin, bob_hex = sha256_bitstream(res_ab.recovered_unpadded)
-        # Eve1-Alice: Eve1-Alice recovered bitstream from Alice–Eve1-Alice reconciliation
+        # Eve1-Alice: Eve1-Alice recovered bitstream from Alice helper data
         ea_bin, ea_hex = sha256_bitstream(res_ea.recovered_unpadded)
-        # Eve1-Bob: Eve1-Bob recovered bitstream from Bob–Eve1-Bob reconciliation
+        # Eve1-Bob: Eve1-Bob recovered bitstream from Alice helper data
         eb_bin, eb_hex = sha256_bitstream(res_eb.recovered_unpadded)
-
-        # Bob raw source key (for Bob–Eve1-Bob pair evaluation)
-        bob_src_bin, bob_src_hex = sha256_bitstream(res_eb.source_unpadded)
 
         channel_keys[path_name] = {
             "Alice": ChannelPrivacyAmplificationResult(
                 path_name=path_name,
                 channel_name="Alice",
-                channel_role="Legitimate Source",
+                channel_role="Legitimate Source (Reference Key)",
                 input_bit_length=len(res_ab.source_unpadded),
                 key_bin=alice_bin,
                 key_hex=alice_hex,
@@ -436,18 +439,10 @@ def amplify_privacy_all_paths(
                 key_bin=bob_bin,
                 key_hex=bob_hex,
             ),
-            "Bob (Source)": ChannelPrivacyAmplificationResult(
-                path_name=path_name,
-                channel_name="Bob (Source)",
-                channel_role="Transmitter / Source in Bob–Eve1-Bob",
-                input_bit_length=len(res_eb.source_unpadded),
-                key_bin=bob_src_bin,
-                key_hex=bob_src_hex,
-            ),
             "Eve1-Alice": ChannelPrivacyAmplificationResult(
                 path_name=path_name,
                 channel_name="Eve1-Alice",
-                channel_role="Eavesdropper (Overhearing Alice)",
+                channel_role="Passive Eavesdropper (Overhearing Alice)",
                 input_bit_length=len(res_ea.recovered_unpadded),
                 key_bin=ea_bin,
                 key_hex=ea_hex,
@@ -455,14 +450,14 @@ def amplify_privacy_all_paths(
             "Eve1-Bob": ChannelPrivacyAmplificationResult(
                 path_name=path_name,
                 channel_name="Eve1-Bob",
-                channel_role="Eavesdropper (Overhearing Bob)",
+                channel_role="Passive Eavesdropper (Overhearing Bob)",
                 input_bit_length=len(res_eb.recovered_unpadded),
                 key_bin=eb_bin,
                 key_hex=eb_hex,
             ),
         }
 
-        # Evaluate pairs per PA.pdf Eq (3.64)
+        # Evaluate pairs per PA.pdf Eq (3.64) against Alice's reference key
         def evaluate_pa_pair(
             pair_name: str,
             source_name: str,
@@ -519,13 +514,13 @@ def amplify_privacy_all_paths(
             r_hex=ea_hex,
         )
         pair_eb = evaluate_pa_pair(
-            pair_name="Bob–Eve1-Bob",
-            source_name="Bob",
+            pair_name="Alice–Eve1-Bob",
+            source_name="Alice",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
             recon_res=res_eb,
-            s_bin=bob_src_bin,
-            s_hex=bob_src_hex,
+            s_bin=alice_bin,
+            s_hex=alice_hex,
             r_bin=eb_bin,
             r_hex=eb_hex,
         )
@@ -533,7 +528,7 @@ def amplify_privacy_all_paths(
         pair_results[path_name] = {
             "Alice–Bob": pair_ab,
             "Alice–Eve1-Alice": pair_ea,
-            "Bob–Eve1-Bob": pair_eb,
+            "Alice–Eve1-Bob": pair_eb,
         }
 
     return MultiPathPrivacyAmplificationResult(
@@ -812,7 +807,7 @@ def export_pa_workbook_xlsx(
         ("Output Key Length", "256 bits (32 bytes / 64 hexadecimal characters)"),
         ("Supported Paths", "quant_2bit (1,000 bits) and prbs_2bit (1,500 bits)"),
         ("Evaluated Channels", "Alice, Bob, Eve1-Alice, Eve1-Bob"),
-        ("Evaluated Pairs", "Alice–Bob (legitimate), Alice–Eve1-Alice (eavesdropper), Bob–Eve1-Bob (eavesdropper)"),
+        ("Evaluated Pairs", "Alice–Bob (legitimate), Alice–Eve1-Alice (eavesdropper attack 1), Alice–Eve1-Bob (eavesdropper attack 2)"),
         ("Scientific Disclaimer", pa_result.config.scientific_disclaimer),
     ]
 

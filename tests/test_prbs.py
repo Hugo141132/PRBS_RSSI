@@ -364,13 +364,14 @@ def test_prbs_channel_isolation_and_sample_ordering() -> None:
     assert ch_res.sample_count == 3
     assert ch_res.zero_seed_count_2bit == 1
     assert ch_res.zero_seed_count_4bit == 0
-    assert ch_res.bitstream_2bit == "000011101"
-    assert len(ch_res.bitstream_4bit) == 45
+    # 3 samples * 8 bits = 24 bits
+    assert ch_res.bitstream_2bit == "000000000110110110110110"
+    assert len(ch_res.bitstream_4bit) == 24  # 3 samples * 8 bits = 24 bits
 
     # Check sample indices
     assert [s.sample_index for s in ch_res.samples] == [0, 1, 2]
     assert ch_res.samples[0].seed_2bit == "00"
-    assert ch_res.samples[0].prbs_2bit == "000"
+    assert ch_res.samples[0].prbs_2bit == "00000000"
     assert ch_res.samples[0].is_zero_state_2bit is True
 
 
@@ -400,9 +401,9 @@ def test_prbs_multi_channel_expansion_and_kar() -> None:
     ab_metric = prbs_res.pair_metrics[0]
     assert ab_metric["pair"] == "Alice–Bob"
     assert ab_metric["bit_count_2bit_before"] == 8
-    assert ab_metric["bit_count_2bit_after"] == 12  # 4 * 3
+    assert ab_metric["bit_count_2bit_after"] == 32  # 4 * 8
     assert ab_metric["bit_count_4bit_before"] == 16
-    assert ab_metric["bit_count_4bit_after"] == 60  # 4 * 15
+    assert ab_metric["bit_count_4bit_after"] == 32  # 4 * 8
 
 
 # ==============================================================================
@@ -435,7 +436,8 @@ def test_prbs_artifact_exports(tmp_path: Path) -> None:
         assert len(rows) == 2  # 2 samples
         # Verify columns exist and format
         assert rows[0]["Alice_seed_2bit"] in ("00", "01", "11")
-        assert len(rows[0]["Alice_prbs_2bit"]) == 3
+        assert len(rows[0]["Alice_prbs_2bit"]) == 8
+        assert len(rows[0]["Alice_prbs_4bit"]) == 8
 
     # 2. Bitstreams CSV
     csv_bitstreams = tmp_path / "prbs_bitstreams.csv"
@@ -445,7 +447,7 @@ def test_prbs_artifact_exports(tmp_path: Path) -> None:
         rows = list(csv.DictReader(f))
         assert len(rows) == 8  # 4 channels * 2 encoding paths
         assert rows[0]["channel"] == "Alice"
-        assert len(rows[0]["bitstream"]) == 6  # 2 samples * 3 bits
+        assert len(rows[0]["bitstream"]) == 16  # 2 samples * 8 bits
 
     # 3. Metrics CSV
     csv_metrics = tmp_path / "prbs_metrics.csv"
@@ -464,6 +466,8 @@ def test_prbs_artifact_exports(tmp_path: Path) -> None:
         meta = json.load(f)
         assert meta["note"] == "test"
         assert meta["implementation_choices"]["register_sizes"]["2bit_path"]["degree_m"] == 2
+        assert meta["implementation_choices"]["register_sizes"]["2bit_path"]["bits_per_sample"] == 8
+        assert meta["implementation_choices"]["register_sizes"]["4bit_path"]["bits_per_sample"] == 8
         assert "zero_seed_handling" in meta["implementation_choices"]
 
     # 5. Workbook XLSX
@@ -534,18 +538,15 @@ def test_cli_prbs_pipeline_integration(tmp_path: Path) -> None:
     assert prbs_xlsx.exists()
 
     # Verify bitstream lengths for 500 samples
-    # 2-bit: 500 * 3 = 1,500 bits
-    # 4-bit: 500 * 15 = 7,500 bits
+    # 2-bit: 500 * 8 = 4,000 bits
+    # 4-bit: 500 * 8 = 4,000 bits
     with open(bitstreams_csv, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         b_rows = list(reader)
         assert len(b_rows) == 8
         for row in b_rows:
             assert int(row["sample_count"]) == 500
-            if "2-bit" in row["encoding_path"]:
-                assert len(row["bitstream"]) == 1500
-            elif "4-bit" in row["encoding_path"]:
-                assert len(row["bitstream"]) == 7500
+            assert len(row["bitstream"]) == 4000
 
     # Verify metrics matching known values
     with open(metrics_csv, "r", encoding="utf-8") as f:
@@ -555,6 +556,6 @@ def test_cli_prbs_pipeline_integration(tmp_path: Path) -> None:
         ab = m_rows[0]
         assert ab["pair"] == "Alice–Bob"
         assert float(ab["kar_2bit_before"]) == pytest.approx(80.4000, abs=1e-3)
-        assert float(ab["kar_2bit_after"]) == pytest.approx(76.2667, abs=1e-3)
+        assert float(ab["kar_2bit_after"]) == pytest.approx(75.8500, abs=1e-3)
         assert float(ab["kar_4bit_before"]) == pytest.approx(90.2000, abs=1e-3)
-        assert float(ab["kar_4bit_after"]) == pytest.approx(81.0133, abs=1e-3)
+        assert float(ab["kar_4bit_after"]) == pytest.approx(86.2000, abs=1e-3)

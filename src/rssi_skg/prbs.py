@@ -27,11 +27,12 @@ Mathematical Formulation:
         L = 2^m - 1
 
 Implementation Choices & Design Decisions:
-    1. Register Sizes:
-       - 2-bit path: degree m = 2, generates exactly 2^2 - 1 = 3 bits per sample.
-       - 4-bit path: degree m = 4, generates exactly 2^4 - 1 = 15 bits per sample.
-       Both register sizes and their 1-to-1 correspondence with quantization codewords
-       are implementation choices chosen to align with the 2-bit Gray and 4-bit representations.
+    1. Register Sizes & Fixed-Length 8-Clock Expansion:
+       - 2-bit path: degree m = 2, maximal period 2^2 - 1 = 3. Generates exactly 8 PRBS output bits per sample by executing 8 Galois LFSR clocks.
+       - 4-bit path: degree m = 4, maximal period 2^4 - 1 = 15. Generates exactly 8 PRBS output bits per sample by executing 8 Galois LFSR clocks.
+       - Distinguishing register degree, maximal period, and requested output length:
+         Executing 8 LFSR clocks yields 8 output bits per sample for both paths, but does NOT imply 8 independent entropy bits.
+         Entropy remains strictly bounded by the underlying quantization level.
     2. Primitive Polynomials & Galois Feedback Masks:
        - Degree 2: f(x) = x^2 + x + 1 (unique primitive polynomial of degree 2 over GF(2)).
          In Left-shift Galois LFSR, feedback is taken from MSB (r_1) and XORed into lower taps.
@@ -64,9 +65,9 @@ Implementation Choices & Design Decisions:
        - In this research experiment, the 2-bit Gray encoding maps quantization level 0 to "00".
        - Per explicit experimental design, seed "00" is NEVER remapped to "10" or any other value.
        - Standard Galois XOR-LFSR recurrence is executed unmodified: state 0 shifts to 0, producing
-         exactly "000" for m=2 (and "0"*15 if an all-zero seed were supplied for m=4).
+         exactly "00000000" for m=2 (and "00000000" if an all-zero seed were supplied for m=4).
        - Zero-state lockup is formally recorded: is_zero_state = True, actual_period = 1,
-         distinguished from requested_length = 2^m - 1.
+         distinguished from requested_length = 8 bits.
     7. Scientific Limitation & Entropy Caveat:
        - PRBS bit expansion is a deterministic linear state machine.
        - Expanding bits does NOT increase physical source entropy or cryptographic security.
@@ -107,6 +108,9 @@ DEFAULT_POLY_2BIT_MASK: int = 0b11
 DEFAULT_POLY_4BIT_NAME: str = "x^4 + x + 1"
 DEFAULT_POLY_4BIT_DEGREE: int = 4
 DEFAULT_POLY_4BIT_MASK: int = 0b0011
+
+# Fixed-length output requirement: 8 PRBS clocks per sample for both 2-bit and 4-bit paths
+DEFAULT_PRBS_OUTPUT_LENGTH: int = 8
 
 
 class GaloisLFSR:
@@ -315,7 +319,7 @@ def expand_seed(
         degree: Register degree m.
         feedback_mask: Galois feedback mask.
         shift_direction: 'left' (default) or 'right'.
-        length: Requested number of output bits. If None, defaults to 2^degree - 1.
+        length: Requested number of output bits. If None, defaults to DEFAULT_PRBS_OUTPUT_LENGTH (8).
 
     Returns:
         tuple[str, bool, int, int]:
@@ -328,7 +332,7 @@ def expand_seed(
         ValueError: If seed length does not match degree or contains non-binary characters.
     """
     if length is None:
-        requested_len = (1 << degree) - 1
+        requested_len = DEFAULT_PRBS_OUTPUT_LENGTH
     else:
         if length < 0:
             raise ValueError(f"Requested length must be non-negative, got {length}.")
@@ -361,6 +365,8 @@ class PRBSConfig:
         degree_4bit: Degree m for 4-bit path (default: 4).
         mask_4bit: Galois feedback mask for 4-bit path (default: 0b0011 = 3).
         shift_direction: Shift direction ("left" or "right"). Default: "left".
+        output_length_2bit: Output bits per sample for 2-bit path (default: 8).
+        output_length_4bit: Output bits per sample for 4-bit path (default: 8).
     """
 
     poly_2bit_name: str = DEFAULT_POLY_2BIT_NAME
@@ -370,6 +376,8 @@ class PRBSConfig:
     degree_4bit: int = DEFAULT_POLY_4BIT_DEGREE
     mask_4bit: int = DEFAULT_POLY_4BIT_MASK
     shift_direction: str = "left"
+    output_length_2bit: int = DEFAULT_PRBS_OUTPUT_LENGTH
+    output_length_4bit: int = DEFAULT_PRBS_OUTPUT_LENGTH
 
     def __post_init__(self) -> None:
         if self.degree_2bit != 2:
@@ -380,16 +388,10 @@ class PRBSConfig:
             raise ValueError(
                 f"shift_direction must be 'left' or 'right', got {self.shift_direction!r}."
             )
-
-    @property
-    def output_length_2bit(self) -> int:
-        """Requested output bits per sample for 2-bit path (2^2 - 1 = 3)."""
-        return (1 << self.degree_2bit) - 1
-
-    @property
-    def output_length_4bit(self) -> int:
-        """Requested output bits per sample for 4-bit path (2^4 - 1 = 15)."""
-        return (1 << self.degree_4bit) - 1
+        if self.output_length_2bit <= 0:
+            raise ValueError(f"output_length_2bit must be positive, got {self.output_length_2bit}.")
+        if self.output_length_4bit <= 0:
+            raise ValueError(f"output_length_4bit must be positive, got {self.output_length_4bit}.")
 
     def to_metadata_dict(self) -> dict[str, Any]:
         """Convert configuration to structured metadata dictionary."""
@@ -406,16 +408,20 @@ class PRBSConfig:
                         "polynomial": self.poly_2bit_name,
                         "galois_mask": f"0b{self.mask_2bit:0{self.degree_2bit}b}",
                         "galois_mask_dec": self.mask_2bit,
+                        "maximal_period": (1 << self.degree_2bit) - 1,
+                        "requested_output_length": self.output_length_2bit,
                         "bits_per_sample": self.output_length_2bit,
-                        "status": "primitive polynomial over GF(2) with maximal period 2^2 - 1 = 3",
+                        "status": "primitive polynomial over GF(2) with maximal period 2^2 - 1 = 3; 8 clocks executed per sample",
                     },
                     "4bit_path": {
                         "degree_m": self.degree_4bit,
                         "polynomial": self.poly_4bit_name,
                         "galois_mask": f"0b{self.mask_4bit:0{self.degree_4bit}b}",
                         "galois_mask_dec": self.mask_4bit,
+                        "maximal_period": (1 << self.degree_4bit) - 1,
+                        "requested_output_length": self.output_length_4bit,
                         "bits_per_sample": self.output_length_4bit,
-                        "status": "primitive polynomial over GF(2) with maximal period 2^4 - 1 = 15",
+                        "status": "primitive polynomial over GF(2) with maximal period 2^4 - 1 = 15; 8 clocks executed per sample",
                     },
                 },
                 "shift_direction": self.shift_direction,
@@ -424,13 +430,13 @@ class PRBSConfig:
                 "per_sample_resets": True,
                 "zero_seed_handling": (
                     "Deliberate exception to PA.pdf's non-zero seed condition: seed '00' is NEVER remapped; "
-                    "standard Galois XOR-LFSR recurrence runs unmodified, producing '000' with actual period 1."
+                    "standard Galois XOR-LFSR recurrence runs unmodified, producing '00000000' with actual period 1."
                 ),
             },
             "scientific_limitations_and_security_notice": {
                 "entropy_warning": (
                     "PRBS bit expansion is a deterministic linear state machine. "
-                    "Longer output length does NOT add physical channel entropy or cryptographic security. "
+                    "Executing 8 clocks per sample (8 output bits) does NOT add physical channel entropy or cryptographic security (8 output bits != 8 independent entropy bits). "
                     "Repeated quantization codewords produce identical PRBS sequences, and KAR may decrease."
                 ),
             },

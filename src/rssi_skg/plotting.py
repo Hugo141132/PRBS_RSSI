@@ -943,7 +943,7 @@ def plot_prbs_kar_comparison_figure(
         color=c_post,
         edgecolor="black",
         linewidth=0.8,
-        label="Post-PRBS (Galois XOR-LFSR, 3b/sample)",
+        label="Post-PRBS (Galois XOR-LFSR, 8b/sample)",
     )
 
     ax_2b.set_ylim(0, 100)
@@ -1022,7 +1022,7 @@ def plot_prbs_kar_comparison_figure(
         color=c_post,
         edgecolor="black",
         linewidth=0.8,
-        label="Post-PRBS (Galois XOR-LFSR, 15b/sample)",
+        label="Post-PRBS (Galois XOR-LFSR, 8b/sample)",
     )
 
     ax_4b.set_ylim(0, 100)
@@ -1236,7 +1236,7 @@ def plot_prbs_kar_comparison_figure(
         "  Generated bits derive deterministically from the 3 quantization codewords.\n"
         "  Expansion increases bitstream volume, not underlying physical randomness.\n"
         "• Zero-seed '00' behavior:\n"
-        "  Seed '00' remains unmodified and generates '000' with actual period 1.\n"
+        "  Seed '00' remains unmodified and generates '00000000' with actual period 1.\n"
         "  Zero state is preserved (never remapped, discarded, or reseeded).\n"
         "• Security interpretation:\n"
         "  Post-expansion KAR depends on quantization-level matches and pairwise Hamming\n"
@@ -1294,43 +1294,36 @@ def plot_reconciliation_figure(
     png_path = prefix.with_name(f"{base_stem}.png")
     pdf_path = prefix.with_name(f"{base_stem}.pdf")
 
-    # Read actual dynamic parameters from global configuration and results
+    # Read actual dynamic parameters from configuration and results
     cfg = reconcile_result.config
-    n_val = cfg.n
-    k_val = cfg.k
-    t_val = cfg.t
-    d_val = cfg.designed_distance
+    c2 = getattr(cfg, "code_2bit", (cfg.n, cfg.k, cfg.t))
+    c4 = getattr(cfg, "code_4bit", (cfg.n, cfg.k, cfg.t))
+    d2 = 2 * c2[2] + 1
+    d4 = 2 * c4[2] + 1
     interleave_val = cfg.interleaving
 
-    q_res = reconcile_result.path_results["quant_2bit"]
-    p_res = reconcile_result.path_results["prbs_2bit"]
-    q_ab = q_res["Alice–Bob"]
-    p_ab = p_res["Alice–Bob"]
+    if c2 == c4:
+        code_summary_short = f"BCH({c2[0]}, {c2[1]}, {c2[2]})"
+        code_summary_long = f"BCH({c2[0]}, {c2[1]}, {c2[2]}, d={d2})"
+        t_summary = f"t={c2[2]}"
+    else:
+        code_summary_short = f"2-bit: BCH({c2[0]},{c2[1]},{c2[2]}) | 4-bit: BCH({c4[0]},{c4[1]},{c4[2]})"
+        code_summary_long = f"2-bit: BCH({c2[0]},{c2[1]},{c2[2]}, d={d2}) | 4-bit: BCH({c4[0]},{c4[1]},{c4[2]}, d={d4})"
+        t_summary = f"2-bit t={c2[2]}, 4-bit t={c4[2]}"
 
-    q_blocks = q_ab.num_blocks
-    q_pad = q_ab.padding_count
-    blk_str_q = f"{q_blocks} Block" if q_blocks == 1 else f"{q_blocks} Blocks"
+    n_val = c2[0]
+    k_val = c2[1]
+    t_val = c2[2]
+    d_val = d2
 
-    p_blocks = p_ab.num_blocks
-    p_pad = p_ab.padding_count
-    blk_str_p = f"{p_blocks} Block" if p_blocks == 1 else f"{p_blocks} Blocks"
+    available_paths = [p for p in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"] if p in reconcile_result.path_results]
+    is_4path = len(available_paths) >= 4
 
-    fig = plt.figure(figsize=(15.5, 12.0))
-    gs = fig.add_gridspec(2, 2, hspace=0.36, wspace=0.26, left=0.06, right=0.96, top=0.88, bottom=0.06)
-
-    fig.suptitle(
-        f"BCH({n_val}, {k_val}, {t_val}) Information Reconciliation & KAR Comparison\n"
-        f"[Interleaving {interleave_val} | Designed d={d_val} | Configured t={t_val} | Codeword Helper Data H = A ⊕ C | Synthetic Software Validation]",
-        fontsize=13,
-        fontweight="bold",
-        y=0.965,
-    )
-
-    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Bob–Eve1-Bob"]
+    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Alice–Eve1-Bob"]
     pair_labels = [
         "Alice–Bob\n(Legitimate)",
-        "Alice–Eve1-Alice\n(Eavesdropper)",
-        "Bob–Eve1-Bob\n(Eavesdropper)",
+        "Alice–Eve1-Alice\n(Eve stream 1)",
+        "Alice–Eve1-Bob\n(Eve stream 2)",
     ]
 
     # Consistent color palette
@@ -1340,33 +1333,6 @@ def plot_reconciliation_figure(
     c_eve2 = "#e66101"      # Amber orange for Eve1-Bob
     c_bar_post = [c_legit, c_eve1, c_eve2]
 
-    # =========================================================================
-    # Panel (a): quant_2bit: Pre-BCH vs Post-BCH KAR across all 3 pairs
-    # =========================================================================
-    ax_a = fig.add_subplot(gs[0, 0])
-    x = np.arange(len(pair_names))
-    b_width = 0.35
-
-    q_pre = [q_res[p].pre_reconcile_kar for p in pair_names]
-    q_post = [q_res[p].post_reconcile_kar for p in pair_names]
-    q_deltas = [post - pre for pre, post in zip(q_pre, q_post)]
-
-    r_q_pre = ax_a.bar(x - b_width / 2.0, q_pre, width=b_width, color=c_pre, edgecolor="black", linewidth=0.8, label="Pre-BCH KAR")
-    r_q_post = ax_a.bar(x + b_width / 2.0, q_post, width=b_width, color=c_bar_post, edgecolor="black", linewidth=0.8, label="Post-BCH KAR")
-
-    ax_a.set_ylim(0, 118)
-    ax_a.set_ylabel("Key Agreement Rate (%)", fontsize=10.5, fontweight="bold")
-    ax_a.set_title(
-        f"(a) quant_2bit: Pre-BCH vs Post-BCH KAR\n(n={n_val}, k={k_val}, d={d_val}, t={t_val} | Interleaving {interleave_val} | {blk_str_q}, {q_pad} Pad Bits Excluded)",
-        fontsize=10.5,
-        fontweight="bold",
-        pad=8,
-    )
-    ax_a.set_xticks(x)
-    ax_a.set_xticklabels(pair_labels, fontsize=9.2)
-    ax_a.grid(True, linestyle="--", alpha=0.4, axis="y")
-
-    # Custom legend for panel a
     leg_handles_a = [
         plt.Rectangle((0, 0), 1, 1, facecolor=c_pre, edgecolor="black", linewidth=0.8),
         plt.Rectangle((0, 0), 1, 1, facecolor=c_legit, edgecolor="black", linewidth=0.8),
@@ -1374,203 +1340,337 @@ def plot_reconciliation_figure(
         plt.Rectangle((0, 0), 1, 1, facecolor=c_eve2, edgecolor="black", linewidth=0.8),
     ]
     leg_labels_a = ["Pre-BCH KAR", "Post-BCH (Alice–Bob)", "Post-BCH (Eve1-Alice)", "Post-BCH (Eve1-Bob)"]
-    ax_a.legend(leg_handles_a, leg_labels_a, loc="upper right", framealpha=0.92, fontsize=8.2)
 
-    for i, rect in enumerate(r_q_pre):
-        h = rect.get_height()
-        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=c_pre)
-    for i, rect in enumerate(r_q_post):
-        h = rect.get_height()
-        col = c_bar_post[i]
-        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=col)
-        d_val_i = q_deltas[i]
-        d_txt = f"Δ={d_val_i:+.1f}pp"
-        badge_y = h + 9.5 if h < 95 else 111.0
-        ax_a.annotate(d_txt, xy=(rect.get_x() + rect.get_width() / 2.0, badge_y), ha="center", va="center", fontsize=8.0, fontweight="bold", color=col, bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor=col, alpha=0.92, linewidth=0.7))
+    x = np.arange(len(pair_names))
+    b_width = 0.35
 
-    # =========================================================================
-    # Panel (b): prbs_2bit: Pre-BCH vs Post-BCH KAR across all 3 pairs
-    # =========================================================================
-    ax_b = fig.add_subplot(gs[0, 1])
+    def _render_path_panel(ax, path_key, letter):
+        p_res = reconcile_result.path_results[path_key]
+        ab_res = p_res["Alice–Bob"]
+        b_cnt = ab_res.num_blocks
+        p_cnt = ab_res.padding_count
+        blk_txt = f"{b_cnt} Block" if b_cnt == 1 else f"{b_cnt} Blocks"
 
-    p_pre = [p_res[p].pre_reconcile_kar for p in pair_names]
-    p_post = [p_res[p].post_reconcile_kar for p in pair_names]
-    p_deltas = [post - pre for pre, post in zip(p_pre, p_post)]
+        pre = [p_res[p].pre_reconcile_kar for p in pair_names]
+        post = [p_res[p].post_reconcile_kar for p in pair_names]
+        deltas = [pst - pr for pr, pst in zip(pre, post)]
 
-    r_p_pre = ax_b.bar(x - b_width / 2.0, p_pre, width=b_width, color=c_pre, edgecolor="black", linewidth=0.8, label="Pre-BCH KAR")
-    r_p_post = ax_b.bar(x + b_width / 2.0, p_post, width=b_width, color=c_bar_post, edgecolor="black", linewidth=0.8, label="Post-BCH KAR")
+        r_pre = ax.bar(x - b_width / 2.0, pre, width=b_width, color=c_pre, edgecolor="black", linewidth=0.8, label="Pre-BCH KAR")
+        r_post = ax.bar(x + b_width / 2.0, post, width=b_width, color=c_bar_post, edgecolor="black", linewidth=0.8, label="Post-BCH KAR")
 
-    ax_b.set_ylim(0, 118)
-    ax_b.set_ylabel("Key Agreement Rate (%)", fontsize=10.5, fontweight="bold")
-    ax_b.set_title(
-        f"(b) prbs_2bit: Pre-BCH vs Post-BCH KAR\n(n={n_val}, k={k_val}, d={d_val}, t={t_val} | Interleaving {interleave_val} | {blk_str_p}, {p_pad} Pad Bits Excluded)",
-        fontsize=10.5,
-        fontweight="bold",
-        pad=8,
-    )
-    ax_b.set_xticks(x)
-    ax_b.set_xticklabels(pair_labels, fontsize=9.2)
-    ax_b.grid(True, linestyle="--", alpha=0.4, axis="y")
-
-    ax_b.legend(leg_handles_a, leg_labels_a, loc="upper right", framealpha=0.92, fontsize=8.2)
-
-    for i, rect in enumerate(r_p_pre):
-        h = rect.get_height()
-        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=c_pre)
-    for i, rect in enumerate(r_p_post):
-        h = rect.get_height()
-        col = c_bar_post[i]
-        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=col)
-        d_val_i = p_deltas[i]
-        d_txt = f"Δ={d_val_i:+.1f}pp"
-        badge_y = h + 9.5 if h < 95 else 111.0
-        ax_b.annotate(d_txt, xy=(rect.get_x() + rect.get_width() / 2.0, badge_y), ha="center", va="center", fontsize=8.0, fontweight="bold", color=col, bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor=col, alpha=0.92, linewidth=0.7))
-
-    # =========================================================================
-    # Panel (c): Exact Block Recovery Rates for Both Paths
-    # =========================================================================
-    ax_c = fig.add_subplot(gs[1, 0])
-    x_paths = np.arange(2)
-    path_names = ["quant_2bit", "prbs_2bit"]
-    path_labels_c = [f"quant_2bit\n({blk_str_q})", f"prbs_2bit\n({blk_str_p})"]
-    w3 = 0.24
-
-    ab_succ_pct = [reconcile_result.path_results[p]["Alice–Bob"].block_success_rate for p in path_names]
-    ea_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Alice"].block_success_rate for p in path_names]
-    eb_succ_pct = [reconcile_result.path_results[p]["Bob–Eve1-Bob"].block_success_rate for p in path_names]
-
-    r_c_ab = ax_c.bar(x_paths - w3, ab_succ_pct, width=w3, color=c_legit, edgecolor="black", linewidth=0.8, label="Alice–Bob (Legitimate)")
-    r_c_ea = ax_c.bar(x_paths, ea_succ_pct, width=w3, color=c_eve1, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Alice (Eve)")
-    r_c_eb = ax_c.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Bob–Eve1-Bob (Eve)")
-
-    ax_c.set_ylim(0, 115)
-    ax_c.set_ylabel("Block Recovery Rate (%)", fontsize=10.5, fontweight="bold")
-    ax_c.set_title(
-        f"(c) Exact Block Recovery Rates for Both Paths\n(Decoder Success Rate per Block | Error Capability t={t_val})",
-        fontsize=10.5,
-        fontweight="bold",
-        pad=8,
-    )
-    ax_c.set_xticks(x_paths)
-    ax_c.set_xticklabels(path_labels_c, fontsize=9.5)
-    ax_c.grid(True, linestyle="--", alpha=0.4, axis="y")
-    ax_c.legend(loc="upper right", framealpha=0.92, fontsize=8.5)
-
-    for i in range(2):
-        p = path_names[i]
-        res_ab = reconcile_result.path_results[p]["Alice–Bob"]
-        ax_c.annotate(
-            f"{ab_succ_pct[i]:.1f}%\n({res_ab.success_blocks}/{res_ab.num_blocks})",
-            xy=(x_paths[i] - w3, ab_succ_pct[i] + 2),
-            ha="center",
-            va="bottom",
-            fontsize=8.0,
+        ax.set_ylim(0, 118)
+        ax.set_ylabel("Key Agreement Rate (%)", fontsize=9.2, fontweight="bold")
+        ax.set_title(
+            f"({letter}) {path_key}: Pre vs Post KAR\n({blk_txt}, {p_cnt} Pad Bits Excluded)",
+            fontsize=9.5,
             fontweight="bold",
-            color=c_legit,
+            pad=6,
         )
-        res_ea = reconcile_result.path_results[p]["Alice–Eve1-Alice"]
-        ax_c.annotate(
-            f"{ea_succ_pct[i]:.1f}%\n({res_ea.success_blocks}/{res_ea.num_blocks})",
-            xy=(x_paths[i], ea_succ_pct[i] + 2),
-            ha="center",
-            va="bottom",
-            fontsize=8.0,
+        ax.set_xticks(x)
+        ax.set_xticklabels(pair_labels, fontsize=8.2)
+        ax.grid(True, linestyle="--", alpha=0.4, axis="y")
+        ax.legend(leg_handles_a, leg_labels_a, loc="upper right", framealpha=0.92, fontsize=7.2)
+
+        for i, rect in enumerate(r_pre):
+            h = rect.get_height()
+            ax.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.5, fontweight="bold", color=c_pre)
+        for i, rect in enumerate(r_post):
+            h = rect.get_height()
+            col = c_bar_post[i]
+            ax.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.5, fontweight="bold", color=col)
+            d_val_i = deltas[i]
+            d_txt = f"Δ={d_val_i:+.1f}pp"
+            badge_y = h + 9.5 if h < 95 else 111.0
+            ax.annotate(d_txt, xy=(rect.get_x() + rect.get_width() / 2.0, badge_y), ha="center", va="center", fontsize=7.2, fontweight="bold", color=col, bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor=col, alpha=0.92, linewidth=0.7))
+
+    if is_4path:
+        fig = plt.figure(figsize=(19.0, 12.0))
+        gs = fig.add_gridspec(2, 3, hspace=0.36, wspace=0.26, left=0.05, right=0.97, top=0.90, bottom=0.06)
+
+        fig.suptitle(
+            f"BCH Information Reconciliation & KAR Comparison Across All 4 Paths\n"
+            f"[{code_summary_long} | Interleaving {interleave_val} | Codeword Helper Data H = A ⊕ C | Synthetic Software Validation]",
+            fontsize=13,
             fontweight="bold",
-            color=c_eve1,
-        )
-        res_eb = reconcile_result.path_results[p]["Bob–Eve1-Bob"]
-        ax_c.annotate(
-            f"{eb_succ_pct[i]:.1f}%\n({res_eb.success_blocks}/{res_eb.num_blocks})",
-            xy=(x_paths[i] + w3, eb_succ_pct[i] + 2),
-            ha="center",
-            va="bottom",
-            fontsize=8.0,
-            fontweight="bold",
-            color=c_eve2,
+            y=0.965,
         )
 
-    # =========================================================================
-    # Panel (d): Compact Summary Table + Notes
-    # =========================================================================
-    sub_gs_d = gs[1, 1].subgridspec(2, 1, height_ratios=[0.45, 0.55], hspace=0.18)
+        ax_a = fig.add_subplot(gs[0, 0])
+        _render_path_panel(ax_a, "quant_2bit", "a")
 
-    ax_d_tbl = fig.add_subplot(sub_gs_d[0])
-    ax_d_tbl.axis("off")
+        ax_b = fig.add_subplot(gs[0, 1])
+        _render_path_panel(ax_b, "quant_4bit", "b")
 
-    table_data = [
-        ["Path", "Pair", "Pre-KAR", "Post-KAR", "Δ(pp)", "Fail", "Mis", "Exact Recovery"],
-    ]
-    for p in path_names:
-        for pair in pair_names:
-            r = reconcile_result.path_results[p][pair]
-            p_short = "quant_2b" if p == "quant_2bit" else "prbs_2b"
-            pair_short = pair.replace("–", "-").replace("Alice", "A").replace("Bob", "B").replace("Eve1", "E1")
-            d_pp = r.post_reconcile_kar - r.pre_reconcile_kar
-            table_data.append([
-                p_short,
-                pair_short,
-                f"{r.pre_reconcile_kar:.1f}%",
-                f"{r.post_reconcile_kar:.1f}%",
-                f"{d_pp:+.1f}",
-                f"{r.detected_failure_blocks}",
-                f"{r.miscorrected_blocks}",
-                "EXACT" if r.exact_recovery else "FAIL",
-            ])
+        ax_c = fig.add_subplot(gs[0, 2])
+        _render_path_panel(ax_c, "prbs_2bit", "c")
 
-    col_widths = [0.12, 0.16, 0.12, 0.12, 0.10, 0.09, 0.09, 0.20]
-    tbl_d = ax_d_tbl.table(
-        cellText=table_data,
-        cellLoc="center",
-        loc="center",
-        colWidths=col_widths,
-    )
-    tbl_d.auto_set_font_size(False)
-    tbl_d.set_fontsize(8.0)
-    tbl_d.scale(1.0, 1.20)
+        ax_d = fig.add_subplot(gs[1, 0])
+        _render_path_panel(ax_d, "prbs_4bit", "d")
 
-    for (row_i, col_i), cell in tbl_d.get_celld().items():
-        if row_i == 0:
-            cell.set_facecolor("#1F497D")
-            cell.set_text_props(color="white", fontweight="bold")
-        else:
-            if row_i % 2 == 1:
-                cell.set_facecolor("#f7f9fb")
-            if col_i == 7:
-                txt = cell.get_text().get_text()
-                if txt == "EXACT":
-                    cell.set_text_props(color=c_legit, fontweight="bold")
-                else:
-                    cell.set_text_props(color=c_eve1, fontweight="bold")
+        ax_e = fig.add_subplot(gs[1, 1])
+        x_paths = np.arange(4)
+        path_labels_e = [f"{p}\n({reconcile_result.path_results[p]['Alice–Bob'].num_blocks} blks)" for p in available_paths]
+        w3 = 0.24
 
-    ax_d_tbl.set_title("(d) Quantitative Summary: Failures, Miscorrections & Exact Recovery", fontsize=10.2, fontweight="bold", pad=4)
+        ab_succ_pct = [reconcile_result.path_results[p]["Alice–Bob"].block_success_rate for p in available_paths]
+        ea_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Alice"].block_success_rate for p in available_paths]
+        eb_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Bob"].block_success_rate for p in available_paths]
 
-    # Sub-panel 2: Security & Methodological Notes Box
-    ax_d_notes = fig.add_subplot(sub_gs_d[1])
-    ax_d_notes.axis("off")
+        ax_e.bar(x_paths - w3, ab_succ_pct, width=w3, color=c_legit, edgecolor="black", linewidth=0.8, label="Alice–Bob (Legitimate)")
+        ax_e.bar(x_paths, ea_succ_pct, width=w3, color=c_eve1, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Alice (Eve 1)")
+        ax_e.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Bob (Eve 2)")
 
-    notes_text = (
-        "Methodological Notes & Scientific Constraints:\n"
-        f"• Global BCH Parameters: n={n_val}, k={k_val}, designed distance d={d_val}, configured t={t_val}, Interleaving: {interleave_val}.\n"
-        "• Failed-Block Convention: Unchanged raw receiver bits are retained as fallback (never discarded or zeroed);\n"
-        "  when decoder failure occurs, unpadded bitstream recovery is incomplete (exact_recovery = False).\n"
-        "• Ordinary Eve Decoding vs Algebraic Attack: Standard Eve decoding fails (0% block recovery), but this\n"
-        "  DOES NOT establish secrecy. Without interleaving, known padding reveals the final PRBS block;\n"
-        "  the reported full-stream attack additionally uses per-sample PRBS parity constraints (joint GF(2) full rank 92/92),\n"
-        "  allowing an algebraic attacker to recover Alice's full bitstream with 100% accuracy without channel observation.\n"
-        "• Disclaimer: Dummy-data comparison; global configuration has reported public-information leakage.\n"
-        "  KAR does not establish secrecy."
-    )
+        ax_e.set_ylim(0, 115)
+        ax_e.set_ylabel("Block Recovery Rate (%)", fontsize=9.2, fontweight="bold")
+        ax_e.set_title(
+            f"(e) Exact Block Recovery Rates for All 4 Paths\n(Decoder Success Rate per Block | Error Capabilities: {t_summary})",
+            fontsize=9.5,
+            fontweight="bold",
+            pad=6,
+        )
+        ax_e.set_xticks(x_paths)
+        ax_e.set_xticklabels(path_labels_e, fontsize=8.0)
+        ax_e.grid(True, linestyle="--", alpha=0.4, axis="y")
+        ax_e.legend(loc="upper right", framealpha=0.92, fontsize=7.2)
 
-    ax_d_notes.text(
-        0.00,
-        0.98,
-        notes_text,
-        fontsize=7.8,
-        va="top",
-        ha="left",
-        family="sans-serif",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="#fff9e6", edgecolor="#d4b106", linewidth=1.1),
-    )
+        for i in range(4):
+            ax_e.annotate(f"{ab_succ_pct[i]:.0f}%", xy=(x_paths[i] - w3, ab_succ_pct[i] + 2), ha="center", va="bottom", fontsize=7.2, fontweight="bold", color=c_legit)
+            ax_e.annotate(f"{ea_succ_pct[i]:.0f}%", xy=(x_paths[i], ea_succ_pct[i] + 2), ha="center", va="bottom", fontsize=7.2, fontweight="bold", color=c_eve1)
+            ax_e.annotate(f"{eb_succ_pct[i]:.0f}%", xy=(x_paths[i] + w3, eb_succ_pct[i] + 2), ha="center", va="bottom", fontsize=7.2, fontweight="bold", color=c_eve2)
+
+        sub_gs_f = gs[1, 2].subgridspec(2, 1, height_ratios=[0.55, 0.45], hspace=0.18)
+        ax_f_tbl = fig.add_subplot(sub_gs_f[0])
+        ax_f_tbl.axis("off")
+
+        table_data = [
+            ["Path", "Pair", "Pre", "Post", "Δ(pp)", "Fail", "Mis", "Exact"],
+        ]
+        for p in available_paths:
+            for pair in pair_names:
+                r = reconcile_result.path_results[p][pair]
+                p_short = p.replace("quant_", "q_").replace("prbs_", "p_")
+                pair_short = pair.replace("–", "-").replace("Alice", "A").replace("Bob", "B").replace("Eve1", "E1")
+                d_pp = r.post_reconcile_kar - r.pre_reconcile_kar
+                table_data.append([
+                    p_short,
+                    pair_short,
+                    f"{r.pre_reconcile_kar:.1f}%",
+                    f"{r.post_reconcile_kar:.1f}%",
+                    f"{d_pp:+.1f}",
+                    f"{r.detected_failure_blocks}",
+                    f"{r.miscorrected_blocks}",
+                    "EXACT" if r.exact_recovery else "FAIL",
+                ])
+
+        col_widths = [0.12, 0.16, 0.12, 0.12, 0.10, 0.09, 0.09, 0.20]
+        tbl_f = ax_f_tbl.table(
+            cellText=table_data,
+            cellLoc="center",
+            loc="center",
+            colWidths=col_widths,
+        )
+        tbl_f.auto_set_font_size(False)
+        tbl_f.set_fontsize(7.0)
+        tbl_f.scale(1.0, 1.05)
+
+        for (row_i, col_i), cell in tbl_f.get_celld().items():
+            if row_i == 0:
+                cell.set_facecolor("#1F497D")
+                cell.set_text_props(color="white", fontweight="bold")
+            else:
+                if row_i % 2 == 1:
+                    cell.set_facecolor("#f7f9fb")
+                if col_i == 7:
+                    txt = cell.get_text().get_text()
+                    cell.set_text_props(color=c_legit if txt == "EXACT" else c_eve1, fontweight="bold")
+
+        ax_f_tbl.set_title("(f) Quantitative Summary: All 4 Paths", fontsize=9.5, fontweight="bold", pad=4)
+
+        ax_f_notes = fig.add_subplot(sub_gs_f[1])
+        ax_f_notes.axis("off")
+        notes_text = (
+            "Methodological Notes & Scientific Constraints:\n"
+            f"• BCH Parameters: {code_summary_long}.\n"
+            "• Failed-Block Fallback: Unchanged raw receiver bits retained upon decoder failure.\n"
+            "• Bob Recovery: 100% exact Alice–Bob recovery across all 4 paths.\n"
+            f"• Eve Ordinary Decoding: Achieves Exact=False across all 4 paths (decoder failure/miscorrection).\n"
+            f"• Linear Parity Constraints: Code imposes n-k={c4[0]-c4[1]} independent parity constraints per block (k={c4[1]}).\n"
+            "• Secrecy Notice: Decoder failure and small k do not establish cryptographic secrecy. PA remains paused."
+        )
+        ax_f_notes.text(
+            0.00,
+            0.98,
+            notes_text,
+            fontsize=7.2,
+            va="top",
+            ha="left",
+            family="sans-serif",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#fff9e6", edgecolor="#d4b106", linewidth=1.0),
+        )
+
+    else:
+        fig = plt.figure(figsize=(15.5, 12.0))
+        gs = fig.add_gridspec(2, 2, hspace=0.36, wspace=0.26, left=0.06, right=0.96, top=0.88, bottom=0.06)
+
+        fig.suptitle(
+            f"BCH({n_val}, {k_val}, {t_val}) Information Reconciliation & KAR Comparison\n"
+            f"[Interleaving {interleave_val} | Designed d={d_val} | Configured t={t_val} | Codeword Helper Data H = A ⊕ C | Synthetic Software Validation]",
+            fontsize=13,
+            fontweight="bold",
+            y=0.965,
+        )
+
+        ax_a = fig.add_subplot(gs[0, 0])
+        _render_path_panel(ax_a, "quant_2bit", "a")
+
+        ax_b = fig.add_subplot(gs[0, 1])
+        _render_path_panel(ax_b, "prbs_2bit", "b")
+
+        # =========================================================================
+        # Panel (c): Exact Block Recovery Rates for Both Paths
+        # =========================================================================
+        ax_c = fig.add_subplot(gs[1, 0])
+        x_paths = np.arange(2)
+        path_names = ["quant_2bit", "prbs_2bit"]
+        path_labels_c = [f"quant_2bit\n({blk_str_q})", f"prbs_2bit\n({blk_str_p})"]
+        w3 = 0.24
+
+        ab_succ_pct = [reconcile_result.path_results[p]["Alice–Bob"].block_success_rate for p in path_names]
+        ea_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Alice"].block_success_rate for p in path_names]
+        eb_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Bob"].block_success_rate for p in path_names]
+
+        r_c_ab = ax_c.bar(x_paths - w3, ab_succ_pct, width=w3, color=c_legit, edgecolor="black", linewidth=0.8, label="Alice–Bob (Legitimate)")
+        r_c_ea = ax_c.bar(x_paths, ea_succ_pct, width=w3, color=c_eve1, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Alice (Eve stream 1)")
+        r_c_eb = ax_c.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Bob (Eve stream 2)")
+
+        ax_c.set_ylim(0, 115)
+        ax_c.set_ylabel("Block Recovery Rate (%)", fontsize=10.5, fontweight="bold")
+        ax_c.set_title(
+            f"(c) Exact Block Recovery Rates for Both Paths\n(Decoder Success Rate per Block | Error Capability t={t_val})",
+            fontsize=10.5,
+            fontweight="bold",
+            pad=8,
+        )
+        ax_c.set_xticks(x_paths)
+        ax_c.set_xticklabels(path_labels_c, fontsize=9.5)
+        ax_c.grid(True, linestyle="--", alpha=0.4, axis="y")
+        ax_c.legend(loc="upper right", framealpha=0.92, fontsize=8.5)
+
+        for i in range(2):
+            p = path_names[i]
+            res_ab = reconcile_result.path_results[p]["Alice–Bob"]
+            ax_c.annotate(
+                f"{ab_succ_pct[i]:.1f}%\n({res_ab.success_blocks}/{res_ab.num_blocks})",
+                xy=(x_paths[i] - w3, ab_succ_pct[i] + 2),
+                ha="center",
+                va="bottom",
+                fontsize=8.0,
+                fontweight="bold",
+                color=c_legit,
+            )
+            res_ea = reconcile_result.path_results[p]["Alice–Eve1-Alice"]
+            ax_c.annotate(
+                f"{ea_succ_pct[i]:.1f}%\n({res_ea.success_blocks}/{res_ea.num_blocks})",
+                xy=(x_paths[i], ea_succ_pct[i] + 2),
+                ha="center",
+                va="bottom",
+                fontsize=8.0,
+                fontweight="bold",
+                color=c_eve1,
+            )
+            res_eb = reconcile_result.path_results[p]["Alice–Eve1-Bob"]
+            ax_c.annotate(
+                f"{eb_succ_pct[i]:.1f}%\n({res_eb.success_blocks}/{res_eb.num_blocks})",
+                xy=(x_paths[i] + w3, eb_succ_pct[i] + 2),
+                ha="center",
+                va="bottom",
+                fontsize=8.0,
+                fontweight="bold",
+                color=c_eve2,
+            )
+
+        # =========================================================================
+        # Panel (d): Compact Summary Table + Notes
+        # =========================================================================
+        sub_gs_d = gs[1, 1].subgridspec(2, 1, height_ratios=[0.45, 0.55], hspace=0.18)
+
+        ax_d_tbl = fig.add_subplot(sub_gs_d[0])
+        ax_d_tbl.axis("off")
+
+        table_data = [
+            ["Path", "Pair", "Pre-KAR", "Post-KAR", "Δ(pp)", "Fail", "Mis", "Exact Recovery"],
+        ]
+        for p in path_names:
+            for pair in pair_names:
+                r = reconcile_result.path_results[p][pair]
+                p_short = "quant_2b" if p == "quant_2bit" else "prbs_2b"
+                pair_short = pair.replace("–", "-").replace("Alice", "A").replace("Bob", "B").replace("Eve1", "E1")
+                d_pp = r.post_reconcile_kar - r.pre_reconcile_kar
+                table_data.append([
+                    p_short,
+                    pair_short,
+                    f"{r.pre_reconcile_kar:.1f}%",
+                    f"{r.post_reconcile_kar:.1f}%",
+                    f"{d_pp:+.1f}",
+                    f"{r.detected_failure_blocks}",
+                    f"{r.miscorrected_blocks}",
+                    "EXACT" if r.exact_recovery else "FAIL",
+                ])
+
+        col_widths = [0.12, 0.16, 0.12, 0.12, 0.10, 0.09, 0.09, 0.20]
+        tbl_d = ax_d_tbl.table(
+            cellText=table_data,
+            cellLoc="center",
+            loc="center",
+            colWidths=col_widths,
+        )
+        tbl_d.auto_set_font_size(False)
+        tbl_d.set_fontsize(8.0)
+        tbl_d.scale(1.0, 1.20)
+
+        for (row_i, col_i), cell in tbl_d.get_celld().items():
+            if row_i == 0:
+                cell.set_facecolor("#1F497D")
+                cell.set_text_props(color="white", fontweight="bold")
+            else:
+                if row_i % 2 == 1:
+                    cell.set_facecolor("#f7f9fb")
+                if col_i == 7:
+                    txt = cell.get_text().get_text()
+                    if txt == "EXACT":
+                        cell.set_text_props(color=c_legit, fontweight="bold")
+                    else:
+                        cell.set_text_props(color=c_eve1, fontweight="bold")
+
+        ax_d_tbl.set_title("(d) Quantitative Summary: Failures, Miscorrections & Exact Recovery", fontsize=10.2, fontweight="bold", pad=4)
+
+        # Sub-panel 2: Security & Methodological Notes Box
+        ax_d_notes = fig.add_subplot(sub_gs_d[1])
+        ax_d_notes.axis("off")
+
+        notes_text = (
+            "Methodological Notes & Scientific Constraints:\n"
+            f"• Global BCH Parameters: n={n_val}, k={k_val}, designed distance d={d_val}, configured t={t_val}, Interleaving: {interleave_val}.\n"
+            "• Failed-Block Convention: Unchanged raw receiver bits are retained as fallback (never discarded or zeroed);\n"
+            "  when decoder failure occurs, unpadded bitstream recovery is incomplete (exact_recovery = False).\n"
+            "• Ordinary Eve Decoding vs Algebraic Attack: Standard Eve decoding fails (0% block recovery), but this\n"
+            "  DOES NOT establish secrecy. Without interleaving, known padding reveals the final PRBS block;\n"
+            "  the reported full-stream attack additionally uses per-sample PRBS parity constraints (joint GF(2) full rank 92/92),\n"
+            "  allowing an algebraic attacker to recover Alice's full bitstream with 100% accuracy without channel observation.\n"
+            "• Disclaimer: Dummy-data comparison; global configuration has reported public-information leakage.\n"
+            "  KAR does not establish secrecy."
+        )
+
+        ax_d_notes.text(
+            0.00,
+            0.98,
+            notes_text,
+            fontsize=7.8,
+            va="top",
+            ha="left",
+            family="sans-serif",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="#fff9e6", edgecolor="#d4b106", linewidth=1.1),
+        )
 
     fig.savefig(png_path, dpi=300, bbox_inches="tight")
     fig.savefig(pdf_path, bbox_inches="tight")
@@ -1614,11 +1714,11 @@ def plot_privacy_amplification_figure(
     png_path = prefix.with_name(f"{base_stem}.png")
     pdf_path = prefix.with_name(f"{base_stem}.pdf")
 
-    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Bob–Eve1-Bob"]
+    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Alice–Eve1-Bob"]
     pair_labels = [
         "Alice–Bob\n(Legitimate)",
-        "Alice–Eve1-Alice\n(Eavesdropper)",
-        "Bob–Eve1-Bob\n(Eavesdropper)",
+        "Alice–Eve1-Alice\n(Eve stream 1)",
+        "Alice–Eve1-Bob\n(Eve stream 2)",
     ]
 
     # Color palette matching pipeline aesthetic
@@ -1729,7 +1829,7 @@ def plot_privacy_amplification_figure(
     # Panel (c): Key Agreement Rate & Exact Match Comparison Across Both Paths
     # =========================================================================
     ax_c = fig.add_subplot(gs[1, 0])
-    group_labels = ["Alice–Bob\n(Legitimate)", "Alice–Eve1-Alice\n(Eavesdropper)", "Bob–Eve1-Bob\n(Eavesdropper)"]
+    group_labels = ["Alice–Bob\n(Legitimate)", "Alice–Eve1-Alice\n(Eve stream 1)", "Alice–Eve1-Bob\n(Eve stream 2)"]
     x_c = np.arange(len(group_labels))
     w_c = 0.35
 

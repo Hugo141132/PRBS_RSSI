@@ -50,10 +50,11 @@ from rssi_skg.prbs import MultiChannelPRBSResult
 from rssi_skg.quantization import ChannelQuantizationResult, EXCEL_MAX_CELL_CHARS
 
 # ==============================================================================
-# Global BCH Configuration Source
+# Global & Default BCH Configuration Sources
 # ==============================================================================
-# Single editable configuration source used across both paths (quant_2bit, prbs_2bit)
-# and all legitimate and eavesdropper receivers.
+# Default BCH configurations per path family:
+#   - 2-bit paths (quant_2bit, prbs_2bit): BCH(127, 1, 62), designed_d=125
+#   - 4-bit paths (quant_4bit, prbs_4bit): BCH(255, 9, 63), designed_d=127
 #
 # Rules for editing parameters:
 #   1. n must be a valid primitive BCH block length: n = 2^m - 1 (e.g. 15, 31, 63, 127, 255, 511, 1023).
@@ -61,17 +62,19 @@ from rssi_skg.quantization import ChannelQuantizationResult, EXCEL_MAX_CELL_CHAR
 #   3. designed_d is derived automatically as designed_d = 2 * t + 1.
 #   4. k is the message dimension returned by galois.BCH(n, d=designed_d).
 #   5. The tuple (n, k, t) must be strictly consistent with Galois; inconsistent values raise ValueError.
-DEFAULT_BCH_CODE: tuple[int, int, int] = (1023, 46, 200)
+DEFAULT_BCH_CODE_2BIT: tuple[int, int, int] = (127, 1, 62)
+DEFAULT_BCH_CODE_4BIT: tuple[int, int, int] = (255, 9, 63)
+DEFAULT_BCH_CODE: tuple[int, int, int] = DEFAULT_BCH_CODE_2BIT
 GLOBAL_BCH_CODE: tuple[int, int, int] = DEFAULT_BCH_CODE
 INTERLEAVING_STATUS: str = "OFF"
 
-PATHS: tuple[str, ...] = ("quant_2bit", "prbs_2bit")
-OBSOLETE_PATHS: tuple[str, ...] = ("quant_4bit", "prbs_4bit")
+PATHS: tuple[str, ...] = ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
+OBSOLETE_PATHS: tuple[str, ...] = ()
 
 EVALUATION_PAIRS: tuple[tuple[str, str, str, str], ...] = (
     ("Alice", "Bob", "Alice–Bob", "Alice"),
     ("Alice", "Eve1-Alice", "Alice–Eve1-Alice", "Alice"),
-    ("Bob", "Eve1-Bob", "Bob–Eve1-Bob", "Bob"),
+    ("Alice", "Eve1-Bob", "Alice–Eve1-Bob", "Alice"),
 )
 
 RESEARCH_ARTIFACT_LABEL: str = "[DUMMY RESEARCH ARTIFACT - SYNTHETIC DATA ONLY]"
@@ -131,17 +134,25 @@ def get_bch_code(n: int, k: int, t: int | None = None) -> galois.BCH:
 class ReconciliationConfig:
     """Configuration for BCH reconciliation and candidate-key extraction.
 
-    Supports ONLY 2-bit paths (quant_2bit and prbs_2bit).
-    Both paths and all receivers obtain their BCH code from a single global configuration source.
+    Supports 2-bit paths (quant_2bit, prbs_2bit) and 4-bit paths (quant_4bit, prbs_4bit).
+    By default:
+        - 2-bit paths use DEFAULT_BCH_CODE_2BIT: (127, 1, 62), designed_d=125
+        - 4-bit paths use DEFAULT_BCH_CODE_4BIT: (255, 9, 63), designed_d=127
+    An explicit global `code=(n, k, t)` configures all four paths uniformly.
+    Alternatively, `code_2bit` and `code_4bit` can be configured independently.
 
     Attributes:
-        code: (n, k, t) tuple for the BCH code (default: (1023, 46, 200)).
+        code: (n, k, t) tuple for the BCH code (default: (127, 1, 62) or shared override).
+        code_2bit: (n, k, t) tuple for 2-bit paths (default: (127, 1, 62)).
+        code_4bit: (n, k, t) tuple for 4-bit paths (default: (255, 9, 63)).
         random_seed: Optional integer seed for reproducible random codeword generation.
         seed: Optional alias for random_seed.
         interleaving: Interleaving status (strictly 'OFF').
     """
 
-    code: tuple[int, int, int] = DEFAULT_BCH_CODE
+    code: tuple[int, int, int] = DEFAULT_BCH_CODE_2BIT
+    code_2bit: tuple[int, int, int] = DEFAULT_BCH_CODE_2BIT
+    code_4bit: tuple[int, int, int] = DEFAULT_BCH_CODE_4BIT
     random_seed: int | None = None
     seed: int | None = None
     interleaving: str = "OFF"
@@ -149,6 +160,8 @@ class ReconciliationConfig:
     def __init__(
         self,
         code: tuple[int, int, int] | None = None,
+        code_2bit: tuple[int, int, int] | None = None,
+        code_4bit: tuple[int, int, int] | None = None,
         random_seed: int | None = None,
         seed: int | None = None,
         interleaving: str = "OFF",
@@ -165,22 +178,30 @@ class ReconciliationConfig:
             if obsolete_param in kwargs:
                 raise ValueError(
                     f"Parameter '{obsolete_param}' is obsolete and has been removed. "
-                    "A single global BCH configuration (default n=1023, k=46, t=200) is now used for both paths. "
-                    "Configure 'code=(n, k, t)' instead."
+                    "Use 'code_2bit', 'code_4bit', or 'code' instead."
                 )
         if kwargs:
             unexpected = next(iter(kwargs))
             raise TypeError(f"ReconciliationConfig.__init__() got an unexpected keyword argument '{unexpected}'.")
 
-        effective_code = code if code is not None else DEFAULT_BCH_CODE
-        if not (isinstance(effective_code, (tuple, list)) and len(effective_code) == 3):
-            raise TypeError(f"code must be a 3-tuple (n, k, t), got {effective_code!r}.")
-        n, k, t = effective_code
-        if not (isinstance(n, int) and isinstance(k, int) and isinstance(t, int)):
-            raise TypeError(f"All elements of code must be integers, got {effective_code!r}.")
+        # Resolve effective per-path-family codes
+        if code is not None:
+            eff_2bit = code_2bit if code_2bit is not None else code
+            eff_4bit = code_4bit if code_4bit is not None else code
+            eff_code = code
+        else:
+            eff_2bit = code_2bit if code_2bit is not None else DEFAULT_BCH_CODE_2BIT
+            eff_4bit = code_4bit if code_4bit is not None else DEFAULT_BCH_CODE_4BIT
+            eff_code = eff_2bit
 
-        # Verify and cache BCH code immediately to reject invalid combinations
-        get_bch_code(n, k, t)
+        for name, c in [("code_2bit", eff_2bit), ("code_4bit", eff_4bit)]:
+            if not (isinstance(c, (tuple, list)) and len(c) == 3):
+                raise TypeError(f"{name} must be a 3-tuple (n, k, t), got {c!r}.")
+            n, k, t = c
+            if not (isinstance(n, int) and isinstance(k, int) and isinstance(t, int)):
+                raise TypeError(f"All elements of {name} must be integers, got {c!r}.")
+            # Verify and cache BCH code immediately to reject invalid combinations
+            get_bch_code(n, k, t)
 
         effective_seed = seed if seed is not None else random_seed
         if effective_seed is not None:
@@ -192,52 +213,72 @@ class ReconciliationConfig:
         if interleaving != "OFF":
             raise ValueError(f"Interleaving must be 'OFF', got {interleaving!r}.")
 
-        object.__setattr__(self, "code", (n, k, t))
+        object.__setattr__(self, "code", eff_code)
+        object.__setattr__(self, "code_2bit", eff_2bit)
+        object.__setattr__(self, "code_4bit", eff_4bit)
         object.__setattr__(self, "random_seed", effective_seed)
         object.__setattr__(self, "seed", effective_seed)
         object.__setattr__(self, "interleaving", interleaving)
 
     @property
     def n(self) -> int:
-        return self.code[0]
+        return self.code_2bit[0]
 
     @property
     def k(self) -> int:
-        return self.code[1]
+        return self.code_2bit[1]
 
     @property
     def t(self) -> int:
-        return self.code[2]
+        return self.code_2bit[2]
 
     @property
     def designed_distance(self) -> int:
-        return 2 * self.code[2] + 1
+        return 2 * self.code_2bit[2] + 1
 
     @property
     def designed_d(self) -> int:
-        return 2 * self.code[2] + 1
+        return 2 * self.code_2bit[2] + 1
 
     @property
     def code_quant_2bit(self) -> tuple[int, int, int]:
-        return self.code
+        return self.code_2bit
+
+    @property
+    def code_quant_4bit(self) -> tuple[int, int, int]:
+        return self.code_4bit
 
     @property
     def code_prbs_2bit(self) -> tuple[int, int, int]:
-        return self.code
+        return self.code_2bit
+
+    @property
+    def code_prbs_4bit(self) -> tuple[int, int, int]:
+        return self.code_4bit
 
     def get_code_for_path(self, path_name: str) -> tuple[int, int, int]:
         """Return the (n, k, t) code tuple for the specified path."""
-        if path_name in OBSOLETE_PATHS:
-            raise ValueError(
-                f"Obsolete reconciliation path '{path_name}': 4-bit reconciliation has been removed. "
-                f"Only {PATHS} are supported."
-            )
-        if path_name in PATHS:
-            return self.code
+        if path_name in ("quant_2bit", "prbs_2bit"):
+            return self.code_2bit
+        if path_name in ("quant_4bit", "prbs_4bit"):
+            return self.code_4bit
         raise ValueError(f"Unknown path name: {path_name!r}. Must be one of {PATHS}.")
 
     def to_metadata_dict(self) -> dict[str, Any]:
         """Convert configuration to structured metadata dictionary."""
+        paths_meta = {}
+        for p in PATHS:
+            pn, pk, pt = self.get_code_for_path(p)
+            pd = 2 * pt + 1
+            prate = float(pk / pn)
+            paths_meta[p] = {
+                "n": pn,
+                "k": pk,
+                "t": pt,
+                "designed_d": pd,
+                "interleaving": self.interleaving,
+                "rate": prate,
+            }
         d_val = self.designed_distance
         rate = float(self.k / self.n)
         return {
@@ -247,30 +288,15 @@ class ReconciliationConfig:
                 "key_agreement_rate": "PA.pdf Section 3.2.8.c, Equation (3.64), page 35",
             },
             "parameters": {
+                "code_2bit": list(self.code_2bit),
+                "code_4bit": list(self.code_4bit),
                 "n": self.n,
                 "k": self.k,
                 "t": self.t,
                 "designed_d": d_val,
                 "interleaving": self.interleaving,
                 "rate": rate,
-                "paths": {
-                    "quant_2bit": {
-                        "n": self.n,
-                        "k": self.k,
-                        "t": self.t,
-                        "designed_d": d_val,
-                        "interleaving": self.interleaving,
-                        "rate": rate,
-                    },
-                    "prbs_2bit": {
-                        "n": self.n,
-                        "k": self.k,
-                        "t": self.t,
-                        "designed_d": d_val,
-                        "interleaving": self.interleaving,
-                        "rate": rate,
-                    },
-                },
+                "paths": paths_meta,
                 "random_seed": self.random_seed,
             },
             "methodology_and_security_notes": {
@@ -280,7 +306,7 @@ class ReconciliationConfig:
                 ),
                 "evaluation_boundary": (
                     "Software validation on synthetic dummy indoor data; physical channel probing postponed. "
-                    "Dummy-data comparison; global configuration has reported public-information leakage. "
+                    "Dummy-data comparison; configuration has reported public-information leakage. "
                     "KAR does not establish secrecy."
                 ),
                 "leakage_mechanism": (
@@ -678,16 +704,18 @@ def reconcile_all_paths(
     prbs_result: MultiChannelPRBSResult,
     config: ReconciliationConfig | None = None,
 ) -> MultiPathReconciliationResult:
-    """Execute information reconciliation across both supported 2-bit paths and all evaluation pairs.
+    """Execute information reconciliation across all four supported paths and all evaluation pairs.
 
     Paths:
-        1. quant_2bit: 2-bit Gray quantized bitstreams (1,000 bits)
-        2. prbs_2bit: PRBS expanded bitstreams from 2-bit seed (1,500 bits)
+        1. quant_2bit: 2-bit Gray quantized bitstreams (2N bits)
+        2. quant_4bit: 4-bit quantized bitstreams (4N bits)
+        3. prbs_2bit: PRBS expanded bitstreams from 2-bit seed (8N bits)
+        4. prbs_4bit: PRBS expanded bitstreams from 4-bit seed (8N bits)
 
     Pairs per path:
         - Alice–Bob (legitimate, using Alice helper data)
-        - Alice–Eve1-Alice (eavesdropper, using Alice helper data)
-        - Bob–Eve1-Bob (eavesdropper, using Bob helper data)
+        - Alice–Eve1-Alice (passive eavesdropper stream 1: overhearing Alice, using Alice helper data)
+        - Alice–Eve1-Bob (passive eavesdropper stream 2: overhearing Bob, using Alice helper data)
 
     Args:
         quant_result: Completed ChannelQuantizationResult.
@@ -700,7 +728,7 @@ def reconcile_all_paths(
     cfg = config if config is not None else ReconciliationConfig()
     rng = np.random.default_rng(cfg.random_seed)
 
-    # Gather bitstreams for each supported 2-bit path
+    # Gather bitstreams for each of the 4 supported paths
     path_bitstreams: dict[str, dict[str, str]] = {
         "quant_2bit": {
             "Alice": quant_result.bitstreams_2bit["Alice"],
@@ -708,8 +736,17 @@ def reconcile_all_paths(
             "Eve1-Alice": quant_result.bitstreams_2bit["Eve1-Alice"],
             "Eve1-Bob": quant_result.bitstreams_2bit["Eve1-Bob"],
         },
+        "quant_4bit": {
+            "Alice": quant_result.bitstreams_4bit["Alice"],
+            "Bob": quant_result.bitstreams_4bit["Bob"],
+            "Eve1-Alice": quant_result.bitstreams_4bit["Eve1-Alice"],
+            "Eve1-Bob": quant_result.bitstreams_4bit["Eve1-Bob"],
+        },
         "prbs_2bit": {
             ch: prbs_result.channels[ch].bitstream_2bit for ch in prbs_result.channels
+        },
+        "prbs_4bit": {
+            ch: prbs_result.channels[ch].bitstream_4bit for ch in prbs_result.channels
         },
     }
 
@@ -721,7 +758,8 @@ def reconcile_all_paths(
 
         d_val = 2 * t + 1
 
-        # Generate Alice helper data (used for Bob and Eve1-Alice)
+        # Generate Alice helper data ONCE per path
+        # Reused across legitimate Bob and both passive Eve observation streams
         alice_helpers, alice_orig_len, alice_pad = generate_helper_data(
             source_bits=bitstreams["Alice"],
             n=n,
@@ -730,16 +768,7 @@ def reconcile_all_paths(
             rng=rng,
         )
 
-        # Generate Bob helper data (used for Eve1-Bob)
-        bob_helpers, bob_orig_len, bob_pad = generate_helper_data(
-            source_bits=bitstreams["Bob"],
-            n=n,
-            k=k,
-            t=t,
-            rng=rng,
-        )
-
-        # 1. Alice -> Bob
+        # 1. Alice -> Bob (Legitimate communication pair)
         res_ab = evaluate_reconciliation_pair(
             source_bits=bitstreams["Alice"],
             receiver_bits=bitstreams["Bob"],
@@ -757,7 +786,7 @@ def reconcile_all_paths(
             interleaving=cfg.interleaving,
         )
 
-        # 2. Alice -> Eve1-Alice
+        # 2. Alice -> Eve1-Alice (Passive Eavesdropper stream 1: overhearing Alice)
         res_ea = evaluate_reconciliation_pair(
             source_bits=bitstreams["Alice"],
             receiver_bits=bitstreams["Eve1-Alice"],
@@ -775,20 +804,21 @@ def reconcile_all_paths(
             interleaving=cfg.interleaving,
         )
 
-        # 3. Bob -> Eve1-Bob
+        # 3. Alice -> Eve1-Bob (Passive Eavesdropper stream 2: overhearing Bob)
+        # Decodes against Alice's public helper data using Eve1-Bob's passive reception
         res_eb = evaluate_reconciliation_pair(
-            source_bits=bitstreams["Bob"],
+            source_bits=bitstreams["Alice"],
             receiver_bits=bitstreams["Eve1-Bob"],
-            helper_blocks=bob_helpers,
+            helper_blocks=alice_helpers,
             n=n,
             k=k,
             t=t,
             path_name=path_name,
-            pair_name="Bob–Eve1-Bob",
-            source_name="Bob",
+            pair_name="Alice–Eve1-Bob",
+            source_name="Alice",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
-            padding_count=bob_pad,
+            padding_count=alice_pad,
             designed_d=d_val,
             interleaving=cfg.interleaving,
         )
@@ -796,7 +826,7 @@ def reconcile_all_paths(
         path_results[path_name] = {
             "Alice–Bob": res_ab,
             "Alice–Eve1-Alice": res_ea,
-            "Bob–Eve1-Bob": res_eb,
+            "Alice–Eve1-Bob": res_eb,
         }
 
     return MultiPathReconciliationResult(

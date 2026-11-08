@@ -371,21 +371,21 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
 
     q_ea = q_pairs["Alice–Eve1-Alice"]
     assert q_ea.exact_key_match is False
-    assert q_ea.pre_pa_kar == pytest.approx(58.20, abs=0.01)
+    assert q_ea.pre_pa_kar == pytest.approx(61.90, abs=0.01)
     # Eavesdropper residual mismatches induce ~50% post-PA KAR
     assert 40.0 <= q_ea.post_pa_kar <= 60.0
     assert q_ea.mismatched_key_bits > 90
 
-    q_eb = q_pairs["Bob–Eve1-Bob"]
+    q_eb = q_pairs["Alice–Eve1-Bob"]
     assert q_eb.exact_key_match is False
-    assert q_eb.pre_pa_kar == pytest.approx(55.40, abs=0.01)
-    assert 40.0 <= q_eb.post_pa_kar <= 60.0
+    assert q_eb.pre_pa_kar == pytest.approx(74.60, abs=0.01)
+    assert 35.0 <= q_eb.post_pa_kar <= 60.0
     assert q_eb.mismatched_key_bits > 90
 
-    # 2. Path: prbs_2bit (1,500 bits)
+    # 2. Path: prbs_2bit (4,000 bits)
     p_pairs = pa_res.pair_results["prbs_2bit"]
     p_ab = p_pairs["Alice–Bob"]
-    assert p_ab.input_bit_length == 1500
+    assert p_ab.input_bit_length == 4000
     assert p_ab.pre_pa_kar == pytest.approx(100.00, abs=0.01)
     assert p_ab.post_pa_kar == pytest.approx(100.00, abs=0.01)
     assert p_ab.exact_key_match is True
@@ -394,20 +394,20 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
 
     p_ea = p_pairs["Alice–Eve1-Alice"]
     assert p_ea.exact_key_match is False
-    assert p_ea.pre_pa_kar == pytest.approx(68.93, abs=0.01)
+    assert p_ea.pre_pa_kar == pytest.approx(63.48, abs=0.01)
     assert 40.0 <= p_ea.post_pa_kar <= 60.0
     assert p_ea.mismatched_key_bits > 90
 
-    p_eb = p_pairs["Bob–Eve1-Bob"]
+    p_eb = p_pairs["Alice–Eve1-Bob"]
     assert p_eb.exact_key_match is False
-    assert p_eb.pre_pa_kar == pytest.approx(56.27, abs=0.01)
+    assert p_eb.pre_pa_kar == pytest.approx(66.65, abs=0.01)
     assert 40.0 <= p_eb.post_pa_kar <= 60.0
     assert p_eb.mismatched_key_bits > 90
 
     # 3. Channel Keys
     for p_name in ("quant_2bit", "prbs_2bit"):
         ch_dict = pa_res.channel_keys[p_name]
-        assert set(ch_dict.keys()) == {"Alice", "Bob", "Bob (Source)", "Eve1-Alice", "Eve1-Bob"}
+        assert set(ch_dict.keys()) == {"Alice", "Bob", "Eve1-Alice", "Eve1-Bob"}
         for ch_name, k_res in ch_dict.items():
             assert len(k_res.key_bin) == 256
             assert len(k_res.key_hex) == 64
@@ -464,7 +464,7 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
     assert csv_keys.exists()
     with open(csv_keys, "r", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        assert len(reader) == 10  # 2 paths * 5 channel roles (Alice, Bob, Bob (Source), Eve1-Alice, Eve1-Bob)
+        assert len(reader) == 8  # 2 paths * 4 channel roles (Alice, Bob, Eve1-Alice, Eve1-Bob)
         for r in reader:
             assert len(r["key_bin"]) == 256
             assert len(r["key_hex"]) == 64
@@ -486,9 +486,9 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
     assert "Channel Keys" in wb.sheetnames
     assert "Config & Disclaimers" in wb.sheetnames
 
-    # Check that Text format '@' is explicitly preserved for key cells
+    # Check that Text format '@' is explicitly preserved for key cells (8 channel key rows)
     ws_keys = wb["Channel Keys"]
-    for row in ws_keys.iter_rows(min_row=2, max_row=11, min_col=6, max_col=7):
+    for row in ws_keys.iter_rows(min_row=2, max_row=9, min_col=6, max_col=7):
         for cell in row:
             assert cell.number_format == "@"
 
@@ -556,4 +556,51 @@ def test_cli_pa_candidate_keys_alias(tmp_path: Path) -> None:
     assert keys_csv.exists()
     with open(keys_csv, "r", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        assert len(reader) == 10
+        assert len(reader) == 8
+
+
+def test_eavesdropper_threat_model_pa_keys_and_reference_comparison() -> None:
+    """Regression test proving:
+    1. Channel keys: Exactly 4 channels exist (Alice, Bob, Eve1-Alice, Eve1-Bob).
+    2. 'Bob (Source)' key does not exist.
+    3. Evaluated pairs: Alice–Bob, Alice–Eve1-Alice, Alice–Eve1-Bob (both Eve streams compared against Alice).
+    4. Unchanged legitimate keys: Alice and Bob keys match 100%.
+    """
+    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    raw_data = load_rssi_workbook(input_file)
+    filtered = filter_rssi_channels(raw_data, FilterConfig())
+    quant_res = quantize_channels(filtered, QuantizationConfig())
+    prbs_res = expand_channels_prbs(quant_res, PRBSConfig())
+    reconcile_res = reconcile_all_paths(quant_res, prbs_res, ReconciliationConfig(seed=42))
+    pa_res = amplify_privacy_all_paths(reconcile_result=reconcile_res)
+
+    for path_name in ["quant_2bit", "prbs_2bit"]:
+        ch_keys = pa_res.channel_keys[path_name]
+        assert set(ch_keys.keys()) == {"Alice", "Bob", "Eve1-Alice", "Eve1-Bob"}
+        assert "Bob (Source)" not in ch_keys
+
+        # Correct channel roles
+        assert ch_keys["Alice"].channel_role == "Legitimate Source (Reference Key)"
+        assert ch_keys["Bob"].channel_role == "Legitimate Receiver (Reconciled to Alice)"
+        assert ch_keys["Eve1-Alice"].channel_role == "Passive Eavesdropper (Overhearing Alice)"
+        assert ch_keys["Eve1-Bob"].channel_role == "Passive Eavesdropper (Overhearing Bob)"
+
+        p_pairs = pa_res.pair_results[path_name]
+        assert set(p_pairs.keys()) == {"Alice–Bob", "Alice–Eve1-Alice", "Alice–Eve1-Bob"}
+        assert "Bob–Eve1-Bob" not in p_pairs
+
+        # Both Eve keys compared against Alice reference key
+        assert p_pairs["Alice–Bob"].source_name == "Alice"
+        assert p_pairs["Alice–Eve1-Alice"].source_name == "Alice"
+        assert p_pairs["Alice–Eve1-Bob"].source_name == "Alice"
+
+        assert p_pairs["Alice–Eve1-Alice"].source_key_hex == ch_keys["Alice"].key_hex
+        assert p_pairs["Alice–Eve1-Bob"].source_key_hex == ch_keys["Alice"].key_hex
+
+        # Legitimate keys match 100%
+        assert p_pairs["Alice–Bob"].exact_key_match is True
+        assert ch_keys["Alice"].key_hex == ch_keys["Bob"].key_hex
+
+        # Both Eve streams fail exact key match
+        assert p_pairs["Alice–Eve1-Alice"].exact_key_match is False
+        assert p_pairs["Alice–Eve1-Bob"].exact_key_match is False

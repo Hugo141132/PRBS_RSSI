@@ -69,6 +69,8 @@ from rssi_skg.prbs import (
 )
 from rssi_skg.reconciliation import (
     DEFAULT_BCH_CODE,
+    DEFAULT_BCH_CODE_2BIT,
+    DEFAULT_BCH_CODE_4BIT,
     GLOBAL_BCH_CODE,
     INTERLEAVING_STATUS,
     MultiPathReconciliationResult,
@@ -78,6 +80,28 @@ from rssi_skg.reconciliation import (
     export_reconciliation_metrics_csv,
     export_reconciliation_workbook_xlsx,
     reconcile_all_paths,
+)
+from rssi_skg.nist import (
+    KeyRandomnessResult,
+    MultiPathNISTResult,
+    NISTConfig,
+    NISTTestResult,
+    evaluate_pa_keys_randomness,
+    export_nist_config_json,
+    export_nist_metrics_csv,
+)
+from rssi_skg.kgr import (
+    BCH_CACHE_POLICY_DESC,
+    KGRConfig,
+    MultiPathKGRResult,
+    PathKGRResult,
+    RESEARCH_DISCLAIMER_KGR,
+    TIMER_END_BOUNDARY,
+    TIMER_START_BOUNDARY,
+    export_evaluation_workbook_xlsx,
+    export_kgr_config_json,
+    export_kgr_metrics_csv,
+    measure_multipath_kgr,
 )
 
 
@@ -101,8 +125,8 @@ class ObsoleteReconciliationFlagAction(argparse.Action):
                 "future stage requiring a separate request. Please run '--reconcile' without candidate-key options."
             )
         parser.error(
-            f"'{flag}' is obsolete. Both quant_2bit and prbs_2bit paths now automatically "
-            "use the global BCH(1023, 46, 200) configuration (designed d=401, interleaving OFF). "
+            f"'{flag}' is obsolete. Configured BCH codes are used automatically "
+            f"(2-bit: BCH{DEFAULT_BCH_CODE_2BIT}, 4-bit: BCH{DEFAULT_BCH_CODE_4BIT}, interleaving OFF). "
             "Please use '--reconcile' without mode or shared flags."
         )
 
@@ -226,31 +250,18 @@ def run_correlation_analysis(
     pa_xlsx_output: str | Path | None = None,
     pa_figure_prefix: str | Path | None = None,
     return_pa_result: bool = False,
-) -> (
-    tuple[list[dict[str, Any]], tuple[Path, Path] | None]
-    | tuple[list[dict[str, Any]], tuple[Path, Path] | None, ChannelQuantizationResult | None]
-    | tuple[
-        list[dict[str, Any]],
-        tuple[Path, Path] | None,
-        ChannelQuantizationResult | None,
-        MultiChannelPRBSResult | None,
-    ]
-    | tuple[
-        list[dict[str, Any]],
-        tuple[Path, Path] | None,
-        ChannelQuantizationResult | None,
-        MultiChannelPRBSResult | None,
-        MultiPathReconciliationResult | None,
-    ]
-    | tuple[
-        list[dict[str, Any]],
-        tuple[Path, Path] | None,
-        ChannelQuantizationResult | None,
-        MultiChannelPRBSResult | None,
-        MultiPathReconciliationResult | None,
-        MultiPathPrivacyAmplificationResult | None,
-    ]
-):
+    enable_nist: bool = False,
+    nist_config: NISTConfig | None = None,
+    nist_metrics_output: str | Path | None = None,
+    nist_config_output: str | Path | None = None,
+    return_nist_result: bool = False,
+    enable_kgr: bool = False,
+    kgr_config: KGRConfig | None = None,
+    kgr_metrics_output: str | Path | None = None,
+    kgr_config_output: str | Path | None = None,
+    evaluation_xlsx_output: str | Path | None = None,
+    return_kgr_result: bool = False,
+) -> Any:
     """Execute correlation analysis on the given workbook, optionally filtering, quantizing, expanding via PRBS, reconciling, and saving artifacts.
 
     Args:
@@ -301,8 +312,10 @@ def run_correlation_analysis(
 
     results: list[dict[str, Any]] = []
 
-    # Automatic prerequisite chaining: PA requires Reconcile, Reconcile requires PRBS, PRBS requires Quantization, Quantization requires Filtering
-    effective_pa = enable_pa
+    # Automatic prerequisite chaining: KGR requires NIST, NIST requires PA, PA requires Reconcile, Reconcile requires PRBS, PRBS requires Quantization, Quantization requires Filtering
+    effective_kgr = enable_kgr
+    effective_nist = enable_nist or effective_kgr
+    effective_pa = enable_pa or effective_nist
     effective_reconcile = enable_reconcile or effective_pa
     effective_prbs = enable_prbs or effective_reconcile
     effective_quantize = enable_quantize or effective_prbs
@@ -343,6 +356,10 @@ def run_correlation_analysis(
                 prefix_path=figure_prefix,
             )
 
+        if return_kgr_result:
+            return results, fig_paths, None, None, None, None, None, None
+        if return_nist_result:
+            return results, fig_paths, None, None, None, None, None
         if return_pa_result:
             return results, fig_paths, None, None, None, None
         if return_reconcile_result:
@@ -657,6 +674,74 @@ def run_correlation_analysis(
             )
             pa_res.figure_paths = pa_fig_paths
 
+    # NIST SP 800-22 Randomness Testing (PA.pdf Section 3.2.8.d & Eqs 3.65–3.73)
+    nist_res: MultiPathNISTResult | None = None
+    if effective_nist and pa_res is not None:
+        n_cfg = nist_config if nist_config is not None else NISTConfig()
+        nist_res = evaluate_pa_keys_randomness(pa_res, config=n_cfg)
+
+        if nist_metrics_output is not None:
+            export_nist_metrics_csv(
+                nist_result=nist_res,
+                output_path=nist_metrics_output,
+            )
+
+        if nist_config_output is not None:
+            export_nist_config_json(
+                nist_result=nist_res,
+                output_path=nist_config_output,
+                extra_metadata={
+                    "data_kind": data_kind,
+                    "input_file": str(in_path),
+                },
+            )
+
+    # Key Generation Rate (KGR) Measurement (PA.pdf Section 3.2.8.b & Eq 3.63)
+    kgr_res: MultiPathKGRResult | None = None
+    if effective_kgr:
+        k_cfg = kgr_config if kgr_config is not None else KGRConfig()
+        kgr_res = measure_multipath_kgr(
+            raw_data=raw_data,
+            nist_result=nist_res,
+            filter_config=filter_config,
+            quant_config=quantize_config,
+            prbs_config=prbs_config,
+            recon_config=reconcile_config,
+            pa_config=pa_config,
+            nist_config=nist_config,
+            config=k_cfg,
+        )
+
+        if kgr_metrics_output is not None:
+            export_kgr_metrics_csv(
+                kgr_result=kgr_res,
+                output_path=kgr_metrics_output,
+            )
+
+        if kgr_config_output is not None:
+            export_kgr_config_json(
+                kgr_result=kgr_res,
+                output_path=kgr_config_output,
+                extra_metadata={
+                    "data_kind": data_kind,
+                    "input_file": str(in_path),
+                },
+            )
+
+    # Companion Multi-Sheet Evaluation Workbook (.xlsx)
+    if evaluation_xlsx_output is not None and nist_res is not None and kgr_res is not None:
+        export_evaluation_workbook_xlsx(
+            nist_result=nist_res,
+            kgr_result=kgr_res,
+            output_path=evaluation_xlsx_output,
+        )
+
+    if return_kgr_result:
+        return results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res, nist_res, kgr_res
+
+    if return_nist_result:
+        return results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res, nist_res
+
     if return_pa_result:
         return results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res
 
@@ -952,9 +1037,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path prefix to export privacy amplification comparison figures in PNG (300 dpi) and PDF (optional; defaults to figure-prefix with '_pa_comparison' suffix).",
     )
 
+    # NIST SP 800-22 Randomness Evaluation Options (PA.pdf Section 3.2.8.d)
+    nist_group = parser.add_argument_group("NIST Randomness Evaluation (PA.pdf Section 3.2.8.d)")
+    nist_group.add_argument(
+        "--nist",
+        action="store_true",
+        help="Enable NIST SP 800-22 Rev. 1a statistical randomness evaluation (Frequency, Runs, Approximate Entropy).",
+    )
+    nist_group.add_argument(
+        "--nist-alpha",
+        type=float,
+        default=0.01,
+        help="Significance level alpha for NIST tests (default: 0.01).",
+    )
+    nist_group.add_argument(
+        "--nist-m",
+        type=int,
+        default=2,
+        help="Block length m for Approximate Entropy test (default: 2, satisfies m < floor(log2(n))-5).",
+    )
+    nist_group.add_argument(
+        "--nist-metrics-output",
+        default=None,
+        help="Path to export NIST randomness metrics CSV (optional).",
+    )
+    nist_group.add_argument(
+        "--nist-config-output",
+        default=None,
+        help="Path to export NIST configuration metadata JSON (optional).",
+    )
+
+    # Key Generation Rate (KGR) Options (PA.pdf Section 3.2.8.b)
+    kgr_group = parser.add_argument_group("Key Generation Rate (KGR, PA.pdf Section 3.2.8.b)")
+    kgr_group.add_argument(
+        "--kgr",
+        action="store_true",
+        help="Enable Key Generation Rate (KGR) measurement and evaluation per PA.pdf Eq (3.63).",
+    )
+    kgr_group.add_argument(
+        "--kgr-metrics-output",
+        default=None,
+        help="Path to export KGR metrics CSV (optional).",
+    )
+    kgr_group.add_argument(
+        "--kgr-config-output",
+        default=None,
+        help="Path to export KGR configuration metadata JSON (optional).",
+    )
+    kgr_group.add_argument(
+        "--evaluation-xlsx-output",
+        default=None,
+        help="Path to export companion NIST & KGR evaluation Excel workbook (.xlsx) (optional).",
+    )
+
     args = parser.parse_args(argv)
 
-    pa_active = args.privacy_amplify
+    kgr_active = args.kgr
+    nist_active = args.nist or kgr_active
+    pa_active = args.privacy_amplify or nist_active
     recon_active = args.reconcile or pa_active
     prbs_active = args.prbs or recon_active
     quant_active = args.quantize or prbs_active
@@ -964,7 +1104,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("RSSI SECRET KEY GENERATION (SKG) - ANALYSIS PIPELINE")
     print(f"[STATUS] Data Kind:         {args.data_kind.upper()}")
     filter_desc = "ENABLED (Modified Sage–Husa AKF)" if filter_active else "DISABLED (Raw Correlation Only)"
-    if pa_active and not args.filter:
+    if kgr_active and not args.filter:
+        filter_desc += " [prerequisite for KGR]"
+    elif nist_active and not args.filter:
+        filter_desc += " [prerequisite for NIST evaluation]"
+    elif pa_active and not args.filter:
         filter_desc += " [prerequisite for privacy amplification]"
     elif recon_active and not args.filter:
         filter_desc += " [prerequisite for reconciliation]"
@@ -975,7 +1119,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"[STATUS] Filtering Mode:    {filter_desc}")
 
     quant_desc = "ENABLED (Modified ADQ)" if quant_active else "DISABLED"
-    if pa_active and not args.quantize:
+    if kgr_active and not args.quantize:
+        quant_desc += " [prerequisite for KGR]"
+    elif nist_active and not args.quantize:
+        quant_desc += " [prerequisite for NIST evaluation]"
+    elif pa_active and not args.quantize:
         quant_desc += " [prerequisite for privacy amplification]"
     elif recon_active and not args.quantize:
         quant_desc += " [prerequisite for reconciliation]"
@@ -984,23 +1132,51 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"[STATUS] Quantization Mode: {quant_desc}")
 
     prbs_desc = "ENABLED (Galois XOR-LFSR, per-sample reset)" if prbs_active else "DISABLED"
-    if pa_active and not args.prbs:
+    if kgr_active and not args.prbs:
+        prbs_desc += " [prerequisite for KGR]"
+    elif nist_active and not args.prbs:
+        prbs_desc += " [prerequisite for NIST evaluation]"
+    elif pa_active and not args.prbs:
         prbs_desc += " [prerequisite for privacy amplification]"
     elif recon_active and not args.prbs:
         prbs_desc += " [prerequisite for reconciliation]"
     print(f"[STATUS] PRBS Expansion:    {prbs_desc}")
 
     if recon_active:
-        n_c, k_c, t_c = DEFAULT_BCH_CODE
-        recon_desc = f"ENABLED (Global BCH({n_c}, {k_c}, {t_c}), Designed d={2*t_c+1}, Interleaving OFF)"
-        if pa_active and not args.reconcile:
+        n2, k2, t2 = DEFAULT_BCH_CODE_2BIT
+        n4, k4, t4 = DEFAULT_BCH_CODE_4BIT
+        recon_desc = f"ENABLED (2-bit: BCH({n2},{k2},{t2}), 4-bit: BCH({n4},{k4},{t4}), Interleaving OFF)"
+        if kgr_active and not args.reconcile:
+            recon_desc += " [prerequisite for KGR]"
+        elif nist_active and not args.reconcile:
+            recon_desc += " [prerequisite for NIST evaluation]"
+        elif pa_active and not args.reconcile:
             recon_desc += " [prerequisite for privacy amplification]"
     else:
         recon_desc = "DISABLED"
     print(f"[STATUS] Reconciliation:    {recon_desc}")
 
     pa_desc = "ENABLED (Bit-Level SHA-256, 256-bit Final Key, PA.pdf Section 3.2.6)" if pa_active else "DISABLED"
+    if kgr_active and not args.privacy_amplify:
+        pa_desc += " [prerequisite for KGR]"
+    elif nist_active and not args.privacy_amplify:
+        pa_desc += " [prerequisite for NIST evaluation]"
     print(f"[STATUS] Privacy Amplification: {pa_desc}")
+
+    nist_desc = (
+        f"ENABLED (NIST SP 800-22 Rev. 1a: Monobit, Runs, ApEn m={args.nist_m}, alpha={args.nist_alpha})"
+        if nist_active
+        else "DISABLED"
+    )
+    if kgr_active and not args.nist:
+        nist_desc += " [prerequisite for KGR]"
+    print(f"[STATUS] NIST Randomness:   {nist_desc}")
+
+    kgr_desc = "ENABLED (PA.pdf Section 3.2.8.b, Eq 3.63: KGR = N_bit / T bps)" if kgr_active else "DISABLED"
+    print(f"[STATUS] Key Generation Rate: {kgr_desc}")
+    if pa_active or nist_active or kgr_active:
+        print("[NOTICE] Downstream evaluation (PA, NIST SP 800-22, KGR) is PAUSED for the 8-bit PRBS / 4-path revision")
+        print("         pending 4-path key derivation architecture; running strictly under historical 2-bit configuration.")
     print("[NOTICE] Software validation only; empirical channel probing is postponed.")
     print("=" * 70)
 
@@ -1039,6 +1215,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     effective_reconcile_keys = getattr(args, "reconcile_keys_output", None)
     effective_pa_keys = args.pa_keys_output if args.pa_keys_output is not None else effective_reconcile_keys
+
+    nist_cfg = NISTConfig(
+        alpha=args.nist_alpha,
+        approximate_entropy_m=args.nist_m,
+    ) if nist_active else None
+
+    kgr_cfg = KGRConfig() if kgr_active else None
 
     try:
         ret_val = run_correlation_analysis(
@@ -1085,8 +1268,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             pa_xlsx_output=args.pa_xlsx_output,
             pa_figure_prefix=args.pa_figure_prefix,
             return_pa_result=True,
+            enable_nist=nist_active,
+            nist_config=nist_cfg,
+            nist_metrics_output=args.nist_metrics_output,
+            nist_config_output=args.nist_config_output,
+            return_nist_result=nist_active,
+            enable_kgr=kgr_active,
+            kgr_config=kgr_cfg,
+            kgr_metrics_output=args.kgr_metrics_output,
+            kgr_config_output=args.kgr_config_output,
+            evaluation_xlsx_output=args.evaluation_xlsx_output,
+            return_kgr_result=kgr_active,
         )
-        results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res = ret_val  # type: ignore[misc]
+        if kgr_active:
+            results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res, nist_res, kgr_res = ret_val  # type: ignore[misc]
+        elif nist_active:
+            results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res, nist_res = ret_val  # type: ignore[misc]
+            kgr_res = None
+        else:
+            results, fig_paths, quant_res, prbs_res, reconcile_res, pa_res = ret_val  # type: ignore[misc]
+            nist_res = None
+            kgr_res = None
     except Exception as err:
         print(f"\n[ERROR] Analysis failed: {err}", file=sys.stderr)
         return 1
@@ -1233,6 +1435,47 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         print("-" * 105)
 
+    if nist_res is not None:
+        print("\nCalculated NIST SP 800-22 Randomness Test Results (PA.pdf Section 3.2.8.d & Eqs 3.65–3.73):")
+        print("-" * 125)
+        print(
+            f"{'Path':<12} | {'Channel':<15} | {'Monobit (s/P)':<20} | {'Runs (Vn/P)':<20} | {'ApEn m=2 (chi2/P)':<22} | {'Overall':<10}"
+        )
+        print("-" * 125)
+        for res in nist_res.all_results:
+            mono_p = "P" if res.monobit.passed else "F"
+            runs_p = "P" if res.runs.passed else "F"
+            apen_p = "P" if res.approximate_entropy.passed else "F"
+            mono_s = f"{res.monobit.statistic:.2f} (p={res.monobit.p_value:.4f}) {mono_p}"
+            runs_s = f"{res.runs.statistic:.0f} (p={res.runs.p_value:.4f}) {runs_p}"
+            apen_s = f"{res.approximate_entropy.statistic:.2f} (p={res.approximate_entropy.p_value:.4f}) {apen_p}"
+            ov_s = "ACCEPTED" if res.overall_accepted else "REJECTED"
+            print(
+                f"{res.path_name:<12} | {res.channel_name:<15} | {mono_s:<20} | {runs_s:<20} | {apen_s:<22} | {ov_s:<10}"
+            )
+        print("-" * 125)
+
+    if kgr_res is not None:
+        print("\nCalculated Key Generation Rate (KGR) Results (PA.pdf Section 3.2.8.b & Eq 3.63):")
+        print("-" * 125)
+        print(
+            f"{'Path':<12} | {'N_raw (b)':<10} | {'NIST Pass':<10} | {'N_bit (b)':<10} | {'Time (ms)':<12} | {'Accepted KGR':<18} | {'Raw KGR':<16} | {'Alice–Bob Match':<20}"
+        )
+        print("-" * 125)
+        for km in kgr_res.metrics:
+            p_pass = "YES" if km.nist_overall_passed else "NO"
+            t_ms = f"{km.duration_ms:.2f} ms"
+            acc_kgr = f"{km.accepted_kgr_bps:.2f} bps"
+            raw_kgr = f"{km.raw_kgr_bps:.2f} bps"
+            agr_str = "MATCH (100.00%)" if km.alice_bob_exact_match else f"MISMATCH ({km.alice_bob_kar:.2f}%)"
+            print(
+                f"{km.path_name:<12} | {km.raw_generated_bits:<10} | {p_pass:<10} | {km.accepted_bits:<10} | {t_ms:<12} | {acc_kgr:<18} | {raw_kgr:<16} | {agr_str:<20}"
+            )
+        print("-" * 125)
+        print(f"[TIMING] Timer Scope:   {TIMER_START_BOUNDARY} -> {TIMER_END_BOUNDARY}")
+        print(f"[TIMING] Cache Policy:  {BCH_CACHE_POLICY_DESC}")
+        print(f"[LABEL]  Validation:    {RESEARCH_DISCLAIMER_KGR}")
+
     if args.output:
         print(f"\n[OUTPUT] Correlation CSV exported to:              {args.output}")
 
@@ -1301,6 +1544,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.pa_xlsx_output:
         print(f"[OUTPUT] Privacy amplification Excel workbook:     {args.pa_xlsx_output}")
+        print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in bit/hex keys)")
+
+    if args.nist_metrics_output:
+        print(f"[OUTPUT] NIST SP 800-22 metrics CSV:               {args.nist_metrics_output}")
+
+    if args.nist_config_output:
+        print(f"[OUTPUT] NIST SP 800-22 config metadata JSON:      {args.nist_config_output}")
+
+    if args.kgr_metrics_output:
+        print(f"[OUTPUT] Key Generation Rate (KGR) metrics CSV:    {args.kgr_metrics_output}")
+
+    if args.kgr_config_output:
+        print(f"[OUTPUT] KGR configuration metadata JSON:          {args.kgr_config_output}")
+
+    if args.evaluation_xlsx_output:
+        print(f"[OUTPUT] Evaluation companion Excel (.xlsx):       {args.evaluation_xlsx_output}")
         print("         (Excel users should open .xlsx rather than .csv to preserve leading zeros in bit/hex keys)")
 
     if fig_paths is not None:
