@@ -498,51 +498,49 @@ A bounded, cached candidate search over valid narrow-sense primitive binary BCH 
 > **Milestone Status**: **Experimental Reconciliation Milestone with Demonstrated Public-Helper Recovery on Tested Dummy Data**.
 > Downstream stages (Privacy Amplification using bit-level SHA-256, NIST SP 800-22 Rev. 1a statistical testing, and Key Generation Rate) remain intentionally paused.
 
-Information reconciliation routes parameters per path family via `ReconciliationConfig`:
-- **2-bit paths (`quant_2bit`, `prbs_2bit`)**: $\text{BCH}(127, 1, 62)$ with designed distance $d = 125$.
-- **4-bit paths (`quant_4bit`, `prbs_4bit`)**: $\text{BCH}(255, 9, 63)$ with designed distance $d = 127$.
-- **Interleaving**: Strictly `OFF` (sequential blocks, trailing zero-padding).
+Information reconciliation routes parameters per path family via ReconciliationConfig:
+- **2-bit paths (quant_2bit, prbs_2bit)**: $\text{BCH}(511, 1, 198)$ with designed distance  = 397$.
+- **4-bit paths (quant_4bit, prbs_4bit)**: $\text{BCH}(255, 9, 62)$ with designed distance  = 125$.
+- **Interleaving**: Strictly OFF (sequential blocks, trailing zero-padding).
 
 ##### Legitimate Channel Reconciliation (Alice–Bob)
-Max observed per-block error counts on dummy data are derived from actual code execution ($t=62$ for $n=127$, $t=63$ for $n=255$):
+Max observed per-block error counts on dummy data are derived from actual code execution (=198$ for =511$, =62$ for =255$):
 
-| Path | Payload Bits | Configured Code ($n, k, t, d$) | Code Rate ($k/n$) | Blocks | Pad Bits | Max Error / Block ($\le t$) | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) | Independent Parity Constraints |
-| :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`quant_2bit`** | 1,000 | **BCH(127, 1, 62, d=125)** | 0.00787 | 8 | 16 | **44** ($\le 62$) | 80.40% | **100.00%** | **TRUE** | 8 / 0 / 0 | 126 constraints ($n-k=126$) |
-| **`quant_4bit`** | 2,000 | **BCH(255, 9, 63, d=127)** | 0.03529 | 8 | 40 | **42** ($\le 63$) | 90.20% | **100.00%** | **TRUE** | 8 / 0 / 0 | 246 constraints ($n-k=246$) |
-| **`prbs_2bit`** | 4,000 | **BCH(127, 1, 62, d=125)** | 0.00787 | 32 | 64 | **62** ($\le 62$) | 75.85% | **100.00%** | **TRUE** | 32 / 0 / 0 | 126 constraints ($n-k=126$) |
-| **`prbs_4bit`** | 4,000 | **BCH(255, 9, 63, d=127)** | 0.03529 | 16 | 80 | **62** ($\le 63$) | 86.20% | **100.00%** | **TRUE** | 16 / 0 / 0 | 246 constraints ($n-k=246$) |
+| Path | Payload Bits | Configured Code (, k, t, d$) | Code Rate (/n$) | Blocks | Pad Bits | Max Error / Block ($\le t$) | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) | Independent Parity Constraints |
+| :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **quant_2bit** | 1,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 2 | 22 | **111** ($\le 198$) | 80.40% | **100.00%** | **TRUE** | 2 / 0 / 0 | 510 constraints (-k=510$) |
+| **quant_4bit** | 2,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 8 | 40 | **42** ($\le 62$) | 90.20% | **100.00%** | **TRUE** | 8 / 0 / 0 | 246 constraints (-k=246$) |
+| **prbs_2bit** | 4,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 8 | 88 | **198** ($\le 198$) | 75.85% | **100.00%** | **TRUE** | 8 / 0 / 0 | 510 constraints (-k=510$) |
+| **prbs_4bit** | 4,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 16 | 80 | **62** ($\le 62$) | 86.20% | **100.00%** | **TRUE** | 16 / 0 / 0 | 246 constraints (-k=246$) |
 
-*(Note on Discrepancy Resolution: Earlier exploratory runs on 4-bit data at $n=127$ produced per-block maxima of 23 for `quant_4bit` and 36 for `prbs_4bit`. Those values belong strictly to $n=127$ block partitioning, where $t \ge 36$ forces $k=1$. Under the selected $n=255$ configuration, actual maxima are 42 for `quant_4bit` and 62 for `prbs_4bit`, both covered by $t=63$. On 2-bit paths at $n=127$, actual maxima are 44 for `quant_2bit` and 62 for `prbs_2bit`, both covered by $t=62$.)*
+*(Note on Error Coverage: Under the calibrated multi-path architecture, BCH(511, 1, 198) handles error counts up to 111 on quant_2bit (2 blocks, 22 pad bits) and up to 198 on prbs_2bit (8 blocks, 88 pad bits). For 4-bit paths, BCH(255, 9, 62) handles error counts up to 42 on quant_4bit and up to 62 on prbs_4bit.)*
 
 ##### Eavesdropper Performance Under Single Alice Reference & Reused Helper Data
-Under the authoritative threat model, Alice broadcasts helper data $H = A \oplus C$ once per path/block. Eve passively receives two separate observation streams (`Eve1-Alice` and `Eve1-Bob`) and attempts reconstruction using Alice's public helper data. Both streams are evaluated against Alice's ground-truth bitstream.
+Under the authoritative threat model, Alice broadcasts helper data  = A \oplus C$ once per path/block. Eve passively receives two separate observation streams (Eve1-Alice and Eve1-Bob) and attempts reconstruction using Alice's public helper data. Both streams are evaluated against Alice's ground-truth bitstream.
 
 We explicitly separate **ordinary-decoder performance**, **bit agreement (post-KAR)**, and **public-helper enumeration recovery**:
 
 | Path | Eavesdropper Pair (Stream vs Alice Ref) | Configured Code | Pre-KAR | Ordinary Post-KAR | Ordinary Decoder Exact Recovery | Blocks (S/F/M) | Public-Helper Enumeration Recovery |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `quant_2bit` | Alice–Eve1-Alice (Eve Stream 1) | BCH(127, 1, 62, d=125) | 58.20% | **61.90%** | **FALSE** | 5 / 0 / 3 | Unverified (2 candidates/block) |
-| `quant_2bit` | Alice–Eve1-Bob (Eve Stream 2) | BCH(127, 1, 62, d=125) | 57.80% | **74.60%** | **FALSE** | 6 / 0 / 2 | Unverified (2 candidates/block) |
-| `quant_4bit` | Alice–Eve1-Alice (Eve Stream 1) | BCH(255, 9, 63, d=127) | 79.10% | **89.60%** | **FALSE** | 5 / 3 / 0 | **100% (0 ambiguity)** |
-| `quant_4bit` | Alice–Eve1-Bob (Eve Stream 2) | BCH(255, 9, 63, d=127) | 78.90% | **96.35%** | **FALSE** | 7 / 1 / 0 | **100% (0 ambiguity)** |
-| `prbs_2bit` | Alice–Eve1-Alice (Eve Stream 1) | BCH(127, 1, 62, d=125) | 56.10% | **63.48%** | **FALSE** | 20 / 1 / 11 | Unverified (2 candidates/block) |
-| `prbs_2bit` | Alice–Eve1-Bob (Eve Stream 2) | BCH(127, 1, 62, d=125) | 55.67% | **66.65%** | **FALSE** | 21 / 1 / 10 | Unverified (2 candidates/block) |
-| `prbs_4bit` | Alice–Eve1-Alice (Eve Stream 1) | BCH(255, 9, 63, d=127) | 73.25% | **81.85%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
-| `prbs_4bit` | Alice–Eve1-Bob (Eve Stream 2) | BCH(255, 9, 63, d=127) | 72.90% | **82.05%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
+| quant_2bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(511, 1, 198, d=397) | 58.20% | **58.20%** | **FALSE** | 0 / 2 / 0 | Unverified |
+| quant_2bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(511, 1, 198, d=397) | 57.80% | **57.80%** | **FALSE** | 0 / 2 / 0 | Unverified |
+| quant_4bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(255, 9, 62, d=125) | 79.10% | **89.60%** | **FALSE** | 5 / 3 / 0 | **100% (0 ambiguity)** |
+| quant_4bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(255, 9, 62, d=125) | 78.90% | **93.20%** | **FALSE** | 6 / 2 / 0 | **100% (0 ambiguity)** |
+| prbs_2bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(511, 1, 198, d=397) | 56.10% | **69.42%** | **FALSE** | 3 / 5 / 0 | Unverified |
+| prbs_2bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(511, 1, 198, d=397) | 55.67% | **59.65%** | **FALSE** | 1 / 7 / 0 | Unverified |
+| prbs_4bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(255, 9, 62, d=125) | 73.25% | **81.85%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
+| prbs_4bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(255, 9, 62, d=125) | 72.90% | **82.05%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
 
 > [!CAUTION]
 > **Critical Distinctions in Eavesdropper Recovery Metrics**:
 > 1. **Ordinary Decoder Failure $\ne$ 0% Recovered Bits**:
 >    `Exact Recovery = False` indicates only that Eve's ordinary bounded syndrome decoder failed to achieve 100% bitwise recovery across all blocks due to detected decoding failures or miscorrections. It does **NOT** mean Eve recovers 0% of the bits; in fact, Eve retains **61.90% to 96.35% bit agreement** with Alice after ordinary decoding.
-> 2. **Bounded Public-Helper Candidate Enumeration ($k=9, 512$ Codewords)**:
->    Because $k=9$ has a small code space ($2^9 = 512$ codewords), an eavesdropper is not constrained to bounded syndrome decoding. Eve can enumerate all 512 codewords $C \in \mathcal{C}$ once and construct candidate blocks $A_{\text{cand}} = H \oplus C$.
->    - **Complete Publicly Specified Alphabet**: The quantizer output alphabet is fixed by the public protocol specification (PA.pdf Eq 3.23 and `CODE_4BIT_MAP`) to 3 levels: `{"1010", "1011", "1001"}`. Expanding these 3 seeds through the public 8-clock Galois LFSR ($x^4+x+1$, mask 3) yields exactly 3 valid 8-bit PRBS codewords: `{"10111100", "10101111", "10001001"}`. Neither alphabet is a private subset learned from Alice; both are public protocol definitions.
->    - **Generator Matrix Full Rank Condition**: For code generator matrix $G \in \mathbb{F}_2^{9 \times 255}$, candidate equations $m \cdot G_{*, J} = (h \oplus v)_J$ constrain the message space. Crucially, having 9 arbitrary known bits is not automatically sufficient unless the submatrix has full row rank. We proved that $\text{rank}(G_{*, J}) = 9$ over $\text{GF}(2)$ for both the 40 trailing zero-padding columns and the known bit columns across sample positions.
->    - **Empirical Enumeration Verification**: Applying public padding and public alphabet constraints across symbol boundaries collapses the candidate set from 512 to **exactly 1 surviving candidate per block** across all 8 blocks of `quant_4bit` and all 16 blocks of `prbs_4bit`.
->    - **Ground-Truth Evaluation**: Evaluated strictly *after* candidate selection, the unique surviving candidate matches Alice's true bitstream with **100% accuracy and 0 unresolved ambiguity**.
+> 2. **Candidate Enumeration vs. Verified Unique Recovery**:
+>    Having a small code space (e.g. $k=1 \implies 2$ codewords, or $k=9 \implies 512$ codewords) enables fast exhaustive enumeration ($<0.1$ s), but candidate enumeration alone does not prove immediate unique bitstream recovery. For unique recovery, the attacker must additionally possess sufficiently independent constraints (e.g. public padding columns or fixed alphabet structure) whose constraint submatrix has full row rank over $\text{GF}(2)$ to collapse all candidate ambiguity down to a single solution.
+>    - **Demonstrated Recovery Scope**: On the tested 4-bit dummy dataset (`quant_4bit` and `prbs_4bit` under $\text{BCH}(255, 9, 62)$ and $\text{BCH}(255, 9, 63)$), the combination of 40 trailing zero-padding columns ($\text{rank}=9$) and the publicly known 3-level quantizer/PRBS alphabet was empirically verified to collapse all 512 candidates down to **exactly 1 surviving candidate per block** (100% ground-truth bitstream recovery with 0 unresolved ambiguity).
+>    - **Unverified Scope**: On 2-bit paths under $k=1$, although there are only 2 codewords per block, full-stream unique recovery via public-helper enumeration has not been empirically verified across all blocks, so candidate enumeration on 2-bit paths remains classified as *Unverified*.
 > 3. **Cryptographic Secrecy Finding & Impossibility of Restoration via Hashing**:
->    Neither $k=9$ nor ordinary-decoder failure establishes cryptographic secrecy. Because Eve uniquely reconstructs Alice's entire unpadded bitstream $A$ from public helper data and public constraints alone, **hashing a fully recovered input cannot restore secrecy**.
+>    Neither small dimension $k$ nor ordinary-decoder failure establishes cryptographic secrecy. Where Eve uniquely reconstructs Alice's entire unpadded bitstream $A$ from public helper data and public constraints alone, **hashing a fully recovered input cannot restore secrecy**.
 >    Whether privacy amplification employs the repository's historical bit-level SHA-256 implementation (PA.pdf Section 3.2.6, Equations 3.37–3.53) or universal hashing with a publicly broadcast seed, evaluating any deterministic public hash function on a known input $A$ produces a digest $K = \text{Hash}(A)$ that Eve computes identically. Secrecy can only be established if physical entropy remains unobserved and helper data leakage does not span the entire input entropy.
 
 > [!IMPORTANT]

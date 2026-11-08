@@ -168,31 +168,29 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
   - **Direct Bitstream Equality & Privacy Amplification Status**:
     - Direct unpadded bitstream equality: $\text{exact\_recovery} = (A == \hat{A}_{\text{unpadded}})$.
     - Privacy Amplification (`PA.pdf` Section 3.2.6) is fully implemented via bit-level SHA-256 compression yielding 256-bit secret keys across both supported reconciled paths.
-  - **Four-Path BCH Configuration Architecture (`DEFAULT_BCH_CODE_2BIT = (127, 1, 62)`, `DEFAULT_BCH_CODE_4BIT = (255, 9, 63)`)**:
+  - **Four-Path BCH Configuration Architecture (`DEFAULT_BCH_CODE_2BIT = (511, 1, 198, d=397)`, `DEFAULT_BCH_CODE_4BIT = (255, 9, 62, d=125)`)**:
     - **Experimental Milestone Status**: Reached an **Experimental Reconciliation Milestone with Demonstrated Public-Helper Recovery on Tested Dummy Data**. Downstream stages (Privacy Amplification using bit-level SHA-256, NIST SP 800-22 Rev. 1a statistical testing, and Key Generation Rate) remain intentionally paused.
-    - **Baseline & Configuration Error Verification ($N=500$, `dummy`)**:
-      * `quant_2bit` ($L=1000$ bits, $n=127, k=1, t=62, d=125$): 8 blocks, 16 pad bits, Alice–Bob errors per block `[17, 18, 16, 34, 16, 14, 37, 44]`, max = **44** ($\le t=62$).
-      * `prbs_2bit` ($L=4000$ bits, $n=127, k=1, t=62, d=125$): 32 blocks, 64 pad bits, Alice–Bob errors per block max = **62** ($\le t=62$).
-      * `quant_4bit` ($L=2000$ bits, $n=255, k=9, t=63, d=127$): 8 blocks, 40 pad bits, Alice–Bob errors per block `[17, 18, 16, 34, 16, 14, 39, 42]`, max = **42** ($\le t=63$).
-      * `prbs_4bit` ($L=4000$ bits, $n=255, k=9, t=63, d=127$): 16 blocks, 80 pad bits, Alice–Bob errors per block `[21, 30, 25, 25, 21, 27, 39, 55, 25, 19, 9, 33, 58, 49, 62, 54]`, max = **62** ($\le t=63$).
-      * *Discrepancy Resolution*: Earlier exploratory runs at $n=127$ on 4-bit data produced maxima of 23 for `quant_4bit` and 36 for `prbs_4bit`, which belong strictly to $n=127$ block partitioning. Under the actual $n=255$ configuration, maxima are 42 and 62, both corrected by $t=63$. On 2-bit paths at $n=127$, maxima are 44 and 62, both corrected by $t=62$.
+    - **Current Configuration Error Verification ($N=500$, `dummy`)**:
+      * `quant_2bit` ($L=1000$ bits, $n=511, k=1, t=198, d=397$): 2 blocks, 22 pad bits, Alice–Bob max error per block = **111** ($\le t=198$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 58.20% $\to$ 58.20% ($\Delta = +0.00\text{ pp}$, 0/2/0). Eve1-Bob: 57.80% $\to$ 57.80% ($\Delta = +0.00\text{ pp}$, 0/2/0).
+      * `prbs_2bit` ($L=4000$ bits, $n=511, k=1, t=198, d=397$): 8 blocks, 88 pad bits, Alice–Bob max error per block = **198** ($\le t=198$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 56.10% $\to$ 69.42% ($\Delta = +13.32\text{ pp}$, 3/5/0). Eve1-Bob: 55.67% $\to$ 59.65% ($\Delta = +3.98\text{ pp}$, 1/7/0).
+      * `quant_4bit` ($L=2000$ bits, $n=255, k=9, t=62, d=125$): 8 blocks, 40 pad bits, Alice–Bob max error per block = **42** ($\le t=62$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 79.10% $\to$ 89.60% ($\Delta = +10.50\text{ pp}$, 5/3/0). Eve1-Bob: 78.90% $\to$ 93.20% ($\Delta = +14.30\text{ pp}$, 6/2/0).
+      * `prbs_4bit` ($L=4000$ bits, $n=255, k=9, t=62, d=125$): 16 blocks, 80 pad bits, Alice–Bob max error per block = **62** ($\le t=62$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 73.25% $\to$ 81.85% ($\Delta = +8.60\text{ pp}$, 7/9/0). Eve1-Bob: 72.90% $\to$ 82.05% ($\Delta = +9.15\text{ pp}$, 7/9/0).
     - **Candidate Search Rationale**:
-      * For $n \le 127$, covering error count 36 on `prbs_4bit` forces $k=1$ ($\text{BCH}(127, 1, 62)$). No code with $k > 1$ exists for $n \le 127$.
-      * For $n=255$, covering maximum block error 62 with $k > 1$ uniquely selects **$\text{BCH}(255, 9, 63)$** ($d=127, k=9$).
-      * Achieves 100% KAR and exact Bob recovery on both `quant_4bit` (8 blocks) and `prbs_4bit` (16 blocks).
+      * Evaluated primitive block lengths $n \in \{31, 63, 127, 255, 511, 1023\}$.
+      * Selected shared 2-bit code: $\text{BCH}(511, 1, 198, d=397)$. Achieves $\Delta=0\text{ pp}$ on `quant_2bit` and min positive increase on `prbs_2bit` while guaranteeing 100% Bob exact recovery.
+      * Selected shared 4-bit code: $\text{BCH}(255, 9, 62, d=125)$. Shared generator with $t=63$, but configured decoder radius $t=62$ strictly bounds Eve correction.
     - **Ordinary-Decoder vs. Public-Helper Enumeration Recovery**:
       * *Ordinary Syndrome Decoding*: Legitimate Alice–Bob achieves `exact_recovery = True` (100.00% post-KAR). Passive eavesdropper decoding achieves `exact_recovery = False` across all paths due to detected decoding failures and miscorrections.
-      * *Ordinary Post-KAR Bit Agreement*: Eve's ordinary decoding failure does **NOT** mean 0% recovered bits; Eve retains 61.90%–74.60% bit agreement on 2-bit paths, and 81.85%–96.35% bit agreement on 4-bit paths.
-      * *Bounded Public-Helper Candidate Analysis ($k=9, 512$ Codewords)*:
-        1. Eavesdropper pre-enumerates all 512 codewords $C \in \mathcal{C}$ in $< 0.1$ s and forms $A_{\text{cand}} = H \oplus C$.
-        2. Complete public alphabet: Quantizer outputs are publicly fixed to 3 symbols by PA.pdf Eq (3.23) and `CODE_4BIT_MAP` (`{"1010", "1011", "1001"}`). Expanding these 3 seeds through the 8-clock Galois LFSR yields exactly 3 valid 8-bit PRBS codewords (`{"10111100", "10101111", "10001001"}`). Neither is a private subset learned from Alice.
-        3. Generator matrix rank: Candidate equations $m \cdot G_{*, J} = (h \oplus v)_J$ constrain the code space. We proved that $\text{rank}(G_{*, J}) = 9$ over $\text{GF}(2)$ on both the 40 trailing zero-padding columns and the sample bit columns, spanning the full 9 message dimensions.
-        4. Symbol boundary filtering: Pruning candidates across complete symbol boundaries reduces the candidate set from 512 to **exactly 1 candidate per block** across all 8 blocks of `quant_4bit` and all 16 blocks of `prbs_4bit`.
-        5. Ground-truth evaluation: Evaluated strictly *after* candidate selection, the unique candidate matches Alice's true bitstream with **100% accuracy and 0 unresolved ambiguity**.
+      * *Ordinary Post-KAR Bit Agreement*: Eve's ordinary decoding failure does **NOT** mean 0% recovered bits; Eve retains 57.80%–69.42% bit agreement on 2-bit paths, and 81.85%–93.20% bit agreement on 4-bit paths.
+      * *Candidate Enumeration vs. Verified Unique Recovery*:
+        1. Small codeword count alone (=1 \implies 2$ codewords, =9 \implies 512$ codewords) enables fast enumeration ($< 0.1$ s), but candidate enumeration alone does **NOT** prove immediate unique bitstream recovery.
+        2. Verified unique recovery requires independent constraints over $\text{GF}(2)$ to eliminate all candidate ambiguity.
+        3. On the tested 4-bit dummy dataset (quant_4bit and prbs_4bit), trailing zero padding (40 bits, rank=9) and the public 3-symbol alphabet collapse the 512 candidates down to **exactly 1 surviving candidate per block**, achieving 100% ground-truth recovery with 0 unresolved ambiguity.
+        4. On 2-bit paths (=1$), full-stream recovery via public-helper enumeration has not been empirically verified across all blocks, remaining classified as *Unverified*.
     - **Cryptographic Secrecy Finding & Impossibility of Restoration via Hashing**:
-      * Ordinary syndrome decoder failure and small $k$ ($k=9$) do NOT establish cryptographic secrecy; $n - k = 246$ independent linear parity constraints exist on the public channel.
-      * Because Eve uniquely reconstructs Alice's entire unpadded bitstream $A$ from public data alone, **hashing a fully recovered input cannot restore secrecy**.
-      * Whether privacy amplification employs the repository's historical bit-level SHA-256 implementation (PA.pdf Section 3.2.6, Equations 3.37–3.53) or universal hashing with a publicly broadcast seed, evaluating any deterministic public hash function on a known input $A$ produces a digest $K = \text{Hash}(A)$ that Eve computes identically.
+      * Ordinary syndrome decoder failure and small $ do NOT establish cryptographic secrecy;  - k$ independent linear parity constraints exist on the public channel.
+      * Where Eve uniquely reconstructs Alice's entire unpadded bitstream $ from public data alone, **hashing a fully recovered input cannot restore secrecy**.
+      * Whether privacy amplification employs the repository's historical bit-level SHA-256 implementation (PA.pdf Section 3.2.6, Equations 3.37–3.53) or universal hashing with a publicly broadcast seed, evaluating any deterministic public hash function on a known input $ produces a digest  = \text{Hash}(A)$ that Eve computes identically.
   - **Shared BCH Parameter Investigation & Public Information Leakage Audit**:
     - Evaluated primitive lengths $n \in \{31, 63, 127, 255, 511, 1023\}$ across both supported paths (`quant_2bit` and `prbs_2bit`) on the actual dummy dataset:
       * Without interleaving:
@@ -257,6 +255,11 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
         - `quant_4bit`: 16 blocks, 32 pad bits, max block errors = 23 $\le 62$, Exact match: TRUE.
         - `prbs_2bit`: 32 blocks, 64 pad bits, max block errors = 62 $\le 62$, Exact match: TRUE.
         - `prbs_4bit`: 32 blocks, 64 pad bits, max block errors = 36 $\le 62$, Exact match: TRUE.
+  - **Reconciliation Visualization Layout (src/rssi_skg/plotting.py)**:
+    - Refactored plot_reconciliation_figure to eliminate any legend collisions across panels (a)–(d) by placing legends cleanly at top-right (
+col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical headroom above 100% bars and annotations).
+    - Panel (f) title has explicit vertical separation (pad=10, y=0.94) above the quantitative summary table, with table bbox allocated at [0.0, 0.0, 1.0, 0.85] and methodological notes box intact at the bottom.
+    - High-resolution 300-dpi raster PNG and vector PDF regenerated and visually verified without text clipping or overlapping.
     - **Tradeoff & Information Leakage**:
       * Shared code rate is $k/n = 1/127 \approx 0.00787$.
       * Leaks $n - k = 126$ parity bits per block (99.2% parity leakage).
@@ -374,28 +377,27 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
   - Raw KGR: 3,040.90 bps
   - Alice–Bob Exact Match: TRUE (100.00% KAR)
 
-### Four-Path BCH Reconciliation Results (2-bit: BCH(127,1,62), 4-bit: BCH(255,9,63), Interleaving OFF)
+### Four-Path BCH Reconciliation Results (2-bit: BCH(511,1,198,d=397), 4-bit: BCH(255,9,62,d=125), Interleaving OFF)
 - **Parameters**:
-  - 2-bit paths (`quant_2bit`, `prbs_2bit`): $n = 127, k = 1, t = 62, d = 125$.
-  - 4-bit paths (`quant_4bit`, `prbs_4bit`): $n = 255, k = 9, t = 63, d = 127$.
-  - Interleaving `OFF` across all paths. Single Alice reference; helper data reused for Bob and both Eve observation streams.
-- **`quant_2bit` (8 blocks, 16 pad bits excluded, BCH(127,1,62))**:
-  - Alice–Bob: Pre-KAR 80.40% $\to$ Post-KAR **100.00%** ($\Delta = +19.60\text{ pp}$), Exact: **TRUE**, Blocks (S/F/M): 8/0/0.
-  - Alice–Eve1-Alice (Stream 1): Pre-KAR 58.20% $\to$ Post-KAR 61.90% ($\Delta = +3.70\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 5/0/3.
-  - Alice–Eve1-Bob (Stream 2): Pre-KAR 57.80% $\to$ Post-KAR 74.60% ($\Delta = +16.80\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 6/0/2.
-- **`quant_4bit` (8 blocks, 40 pad bits excluded, BCH(255,9,63))**:
+  - 2-bit paths (quant_2bit, prbs_2bit):  = 511, k = 1, t = 198, d = 397$.
+  - 4-bit paths (quant_4bit, prbs_4bit):  = 255, k = 9, t = 62, d = 125$.
+  - Interleaving OFF across all paths. Single Alice reference; helper data reused for Bob and both Eve observation streams.
+- **quant_2bit (2 blocks, 22 pad bits excluded, BCH(511,1,198))**:
+  - Alice–Bob: Pre-KAR 80.40% $\to$ Post-KAR **100.00%** ($\Delta = +19.60\text{ pp}$), Exact: **TRUE**, Blocks (S/F/M): 2/0/0.
+  - Alice–Eve1-Alice (Stream 1): Pre-KAR 58.20% $\to$ Post-KAR 58.20% ($\Delta = +0.00\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 0/2/0.
+  - Alice–Eve1-Bob (Stream 2): Pre-KAR 57.80% $\to$ Post-KAR 57.80% ($\Delta = +0.00\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 0/2/0.
+- **quant_4bit (8 blocks, 40 pad bits excluded, BCH(255,9,62))**:
   - Alice–Bob: Pre-KAR 90.20% $\to$ Post-KAR **100.00%** ($\Delta = +9.80\text{ pp}$), Exact: **TRUE**, Blocks (S/F/M): 8/0/0.
   - Alice–Eve1-Alice (Stream 1): Pre-KAR 79.10% $\to$ Post-KAR 89.60% ($\Delta = +10.50\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 5/3/0.
-  - Alice–Eve1-Bob (Stream 2): Pre-KAR 78.90% $\to$ Post-KAR 96.35% ($\Delta = +17.45\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 7/1/0.
-- **`prbs_2bit` (32 blocks, 64 pad bits excluded, BCH(127,1,62))**:
-  - Alice–Bob: Pre-KAR 75.85% $\to$ Post-KAR **100.00%** ($\Delta = +24.15\text{ pp}$), Exact: **TRUE**, Blocks (S/F/M): 32/0/0.
-  - Alice–Eve1-Alice (Stream 1): Pre-KAR 56.10% $\to$ Post-KAR 63.48% ($\Delta = +7.38\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 20/1/11.
-  - Alice–Eve1-Bob (Stream 2): Pre-KAR 55.67% $\to$ Post-KAR 66.65% ($\Delta = +10.98\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 21/1/10.
-- **`prbs_4bit` (16 blocks, 80 pad bits excluded, BCH(255,9,63))**:
+  - Alice–Eve1-Bob (Stream 2): Pre-KAR 78.90% $\to$ Post-KAR 93.20% ($\Delta = +14.30\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 6/2/0.
+- **prbs_2bit (8 blocks, 88 pad bits excluded, BCH(511,1,198))**:
+  - Alice–Bob: Pre-KAR 75.85% $\to$ Post-KAR **100.00%** ($\Delta = +24.15\text{ pp}$), Exact: **TRUE**, Blocks (S/F/M): 8/0/0.
+  - Alice–Eve1-Alice (Stream 1): Pre-KAR 56.10% $\to$ Post-KAR 69.42% ($\Delta = +13.32\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 3/5/0.
+  - Alice–Eve1-Bob (Stream 2): Pre-KAR 55.67% $\to$ Post-KAR 59.65% ($\Delta = +3.98\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 1/7/0.
+- **prbs_4bit (16 blocks, 80 pad bits excluded, BCH(255,9,62))**:
   - Alice–Bob: Pre-KAR 86.20% $\to$ Post-KAR **100.00%** ($\Delta = +13.80\text{ pp}$), Exact: **TRUE**, Blocks (S/F/M): 16/0/0.
   - Alice–Eve1-Alice (Stream 1): Pre-KAR 73.25% $\to$ Post-KAR 81.85% ($\Delta = +8.60\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 7/9/0.
   - Alice–Eve1-Bob (Stream 2): Pre-KAR 72.90% $\to$ Post-KAR 82.05% ($\Delta = +9.15\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 7/9/0.
-
 ### Two-Path Privacy Amplification Results (SHA-256 Bit-Level Compression, FIPS 180-4)
 - **Mathematical Specification**: Bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53). Padding $M' = M \parallel 1 \parallel 0^p \parallel [L]_{64}$, yielding 256-bit secret key $K$.
 - **Path: `quant_2bit` ($L = 1000$ bits $\to 256$ bits)**:

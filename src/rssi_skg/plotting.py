@@ -1358,7 +1358,7 @@ def plot_reconciliation_figure(
         r_pre = ax.bar(x - b_width / 2.0, pre, width=b_width, color=c_pre, edgecolor="black", linewidth=0.8, label="Pre-BCH KAR")
         r_post = ax.bar(x + b_width / 2.0, post, width=b_width, color=c_bar_post, edgecolor="black", linewidth=0.8, label="Post-BCH KAR")
 
-        ax.set_ylim(0, 118)
+        ax.set_ylim(0, 132)
         ax.set_ylabel("Key Agreement Rate (%)", fontsize=9.2, fontweight="bold")
         ax.set_title(
             f"({letter}) {path_key}: Pre vs Post KAR\n({blk_txt}, {p_cnt} Pad Bits Excluded)",
@@ -1369,7 +1369,18 @@ def plot_reconciliation_figure(
         ax.set_xticks(x)
         ax.set_xticklabels(pair_labels, fontsize=8.2)
         ax.grid(True, linestyle="--", alpha=0.4, axis="y")
-        ax.legend(leg_handles_a, leg_labels_a, loc="upper right", framealpha=0.92, fontsize=7.2)
+        # Place legend inside plot at the top with a neat single row or 2 columns well above bars
+        ax.legend(
+            leg_handles_a,
+            leg_labels_a,
+            loc="upper right",
+            ncol=2,
+            framealpha=0.92,
+            fontsize=7.2,
+            handlelength=1.2,
+            handletextpad=0.4,
+            columnspacing=0.8,
+        )
 
         for i, rect in enumerate(r_pre):
             h = rect.get_height()
@@ -1384,8 +1395,8 @@ def plot_reconciliation_figure(
             ax.annotate(d_txt, xy=(rect.get_x() + rect.get_width() / 2.0, badge_y), ha="center", va="center", fontsize=7.2, fontweight="bold", color=col, bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor=col, alpha=0.92, linewidth=0.7))
 
     if is_4path:
-        fig = plt.figure(figsize=(19.0, 12.0))
-        gs = fig.add_gridspec(2, 3, hspace=0.36, wspace=0.26, left=0.05, right=0.97, top=0.90, bottom=0.06)
+        fig = plt.figure(figsize=(20.0, 13.0))
+        gs = fig.add_gridspec(2, 3, hspace=0.38, wspace=0.28, left=0.05, right=0.97, top=0.90, bottom=0.06)
 
         fig.suptitle(
             f"BCH Information Reconciliation & KAR Comparison Across All 4 Paths\n"
@@ -1420,7 +1431,7 @@ def plot_reconciliation_figure(
         ax_e.bar(x_paths, ea_succ_pct, width=w3, color=c_eve1, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Alice (Eve 1)")
         ax_e.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Bob (Eve 2)")
 
-        ax_e.set_ylim(0, 115)
+        ax_e.set_ylim(0, 132)
         ax_e.set_ylabel("Block Recovery Rate (%)", fontsize=9.2, fontweight="bold")
         ax_e.set_title(
             f"(e) Exact Block Recovery Rates for All 4 Paths\n(Decoder Success Rate per Block | Error Capabilities: {t_summary})",
@@ -1431,14 +1442,22 @@ def plot_reconciliation_figure(
         ax_e.set_xticks(x_paths)
         ax_e.set_xticklabels(path_labels_e, fontsize=8.0)
         ax_e.grid(True, linestyle="--", alpha=0.4, axis="y")
-        ax_e.legend(loc="upper right", framealpha=0.92, fontsize=7.2)
+        ax_e.legend(
+            loc="upper right",
+            ncol=2,
+            framealpha=0.92,
+            fontsize=7.2,
+            handlelength=1.2,
+            handletextpad=0.4,
+            columnspacing=0.8,
+        )
 
         for i in range(4):
             ax_e.annotate(f"{ab_succ_pct[i]:.0f}%", xy=(x_paths[i] - w3, ab_succ_pct[i] + 2), ha="center", va="bottom", fontsize=7.2, fontweight="bold", color=c_legit)
             ax_e.annotate(f"{ea_succ_pct[i]:.0f}%", xy=(x_paths[i], ea_succ_pct[i] + 2), ha="center", va="bottom", fontsize=7.2, fontweight="bold", color=c_eve1)
             ax_e.annotate(f"{eb_succ_pct[i]:.0f}%", xy=(x_paths[i] + w3, eb_succ_pct[i] + 2), ha="center", va="bottom", fontsize=7.2, fontweight="bold", color=c_eve2)
 
-        sub_gs_f = gs[1, 2].subgridspec(2, 1, height_ratios=[0.55, 0.45], hspace=0.18)
+        sub_gs_f = gs[1, 2].subgridspec(2, 1, height_ratios=[0.58, 0.42], hspace=0.22)
         ax_f_tbl = fig.add_subplot(sub_gs_f[0])
         ax_f_tbl.axis("off")
 
@@ -1466,12 +1485,12 @@ def plot_reconciliation_figure(
         tbl_f = ax_f_tbl.table(
             cellText=table_data,
             cellLoc="center",
-            loc="center",
+            loc="lower center",
             colWidths=col_widths,
+            bbox=[0.0, 0.0, 1.0, 0.85],
         )
         tbl_f.auto_set_font_size(False)
         tbl_f.set_fontsize(7.0)
-        tbl_f.scale(1.0, 1.05)
 
         for (row_i, col_i), cell in tbl_f.get_celld().items():
             if row_i == 0:
@@ -1484,7 +1503,7 @@ def plot_reconciliation_figure(
                     txt = cell.get_text().get_text()
                     cell.set_text_props(color=c_legit if txt == "EXACT" else c_eve1, fontweight="bold")
 
-        ax_f_tbl.set_title("(f) Quantitative Summary: All 4 Paths", fontsize=9.5, fontweight="bold", pad=4)
+        ax_f_tbl.set_title("(f) Quantitative Summary: All 4 Paths", fontsize=9.5, fontweight="bold", pad=8, y=0.92)
 
         ax_f_notes = fig.add_subplot(sub_gs_f[1])
         ax_f_notes.axis("off")

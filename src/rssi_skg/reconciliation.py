@@ -53,8 +53,8 @@ from rssi_skg.quantization import ChannelQuantizationResult, EXCEL_MAX_CELL_CHAR
 # Global & Default BCH Configuration Sources
 # ==============================================================================
 # Default BCH configurations per path family:
-#   - 2-bit paths (quant_2bit, prbs_2bit): BCH(127, 1, 62), designed_d=125
-#   - 4-bit paths (quant_4bit, prbs_4bit): BCH(255, 9, 63), designed_d=127
+#   - 2-bit paths (quant_2bit, prbs_2bit): BCH(511, 1, 198), designed_d=397
+#   - 4-bit paths (quant_4bit, prbs_4bit): BCH(255, 9, 62), designed_d=125
 #
 # Rules for editing parameters:
 #   1. n must be a valid primitive BCH block length: n = 2^m - 1 (e.g. 15, 31, 63, 127, 255, 511, 1023).
@@ -62,8 +62,8 @@ from rssi_skg.quantization import ChannelQuantizationResult, EXCEL_MAX_CELL_CHAR
 #   3. designed_d is derived automatically as designed_d = 2 * t + 1.
 #   4. k is the message dimension returned by galois.BCH(n, d=designed_d).
 #   5. The tuple (n, k, t) must be strictly consistent with Galois; inconsistent values raise ValueError.
-DEFAULT_BCH_CODE_2BIT: tuple[int, int, int] = (127, 1, 62)
-DEFAULT_BCH_CODE_4BIT: tuple[int, int, int] = (255, 9, 63)
+DEFAULT_BCH_CODE_2BIT: tuple[int, int, int] = (511, 1, 198)
+DEFAULT_BCH_CODE_4BIT: tuple[int, int, int] = (255, 9, 62)
 DEFAULT_BCH_CODE: tuple[int, int, int] = DEFAULT_BCH_CODE_2BIT
 GLOBAL_BCH_CODE: tuple[int, int, int] = DEFAULT_BCH_CODE
 INTERLEAVING_STATUS: str = "OFF"
@@ -136,15 +136,15 @@ class ReconciliationConfig:
 
     Supports 2-bit paths (quant_2bit, prbs_2bit) and 4-bit paths (quant_4bit, prbs_4bit).
     By default:
-        - 2-bit paths use DEFAULT_BCH_CODE_2BIT: (127, 1, 62), designed_d=125
-        - 4-bit paths use DEFAULT_BCH_CODE_4BIT: (255, 9, 63), designed_d=127
+        - 2-bit paths use DEFAULT_BCH_CODE_2BIT: (511, 1, 198), designed_d=397
+        - 4-bit paths use DEFAULT_BCH_CODE_4BIT: (255, 9, 62), designed_d=125
     An explicit global `code=(n, k, t)` configures all four paths uniformly.
     Alternatively, `code_2bit` and `code_4bit` can be configured independently.
 
     Attributes:
-        code: (n, k, t) tuple for the BCH code (default: (127, 1, 62) or shared override).
-        code_2bit: (n, k, t) tuple for 2-bit paths (default: (127, 1, 62)).
-        code_4bit: (n, k, t) tuple for 4-bit paths (default: (255, 9, 63)).
+        code: (n, k, t) tuple for the BCH code (default: (511, 1, 198) or shared override).
+        code_2bit: (n, k, t) tuple for 2-bit paths (default: (511, 1, 198)).
+        code_4bit: (n, k, t) tuple for 4-bit paths (default: (255, 9, 62)).
         random_seed: Optional integer seed for reproducible random codeword generation.
         seed: Optional alias for random_seed.
         interleaving: Interleaving status (strictly 'OFF').

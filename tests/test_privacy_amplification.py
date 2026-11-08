@@ -371,14 +371,14 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
 
     q_ea = q_pairs["Alice–Eve1-Alice"]
     assert q_ea.exact_key_match is False
-    assert q_ea.pre_pa_kar == pytest.approx(61.90, abs=0.01)
+    assert q_ea.pre_pa_kar == pytest.approx(58.20, abs=0.01)
     # Eavesdropper residual mismatches induce ~50% post-PA KAR
     assert 40.0 <= q_ea.post_pa_kar <= 60.0
     assert q_ea.mismatched_key_bits > 90
 
     q_eb = q_pairs["Alice–Eve1-Bob"]
     assert q_eb.exact_key_match is False
-    assert q_eb.pre_pa_kar == pytest.approx(74.60, abs=0.01)
+    assert q_eb.pre_pa_kar == pytest.approx(57.80, abs=0.01)
     assert 35.0 <= q_eb.post_pa_kar <= 60.0
     assert q_eb.mismatched_key_bits > 90
 
@@ -394,13 +394,13 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
 
     p_ea = p_pairs["Alice–Eve1-Alice"]
     assert p_ea.exact_key_match is False
-    assert p_ea.pre_pa_kar == pytest.approx(63.48, abs=0.01)
+    assert p_ea.pre_pa_kar == pytest.approx(69.42, abs=0.01)
     assert 40.0 <= p_ea.post_pa_kar <= 60.0
     assert p_ea.mismatched_key_bits > 90
 
     p_eb = p_pairs["Alice–Eve1-Bob"]
     assert p_eb.exact_key_match is False
-    assert p_eb.pre_pa_kar == pytest.approx(66.65, abs=0.01)
+    assert p_eb.pre_pa_kar == pytest.approx(59.65, abs=0.01)
     assert 40.0 <= p_eb.post_pa_kar <= 60.0
     assert p_eb.mismatched_key_bits > 90
 

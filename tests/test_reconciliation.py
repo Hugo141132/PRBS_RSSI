@@ -52,19 +52,19 @@ from rssi_skg.reconciliation import (
 
 def test_bch_code_cache_and_properties() -> None:
     """Verify supported BCH code parameters, caching, and invalid configurations."""
-    # Test 2-bit default
+    # Test 2-bit default: BCH(511, 1, 198)
     bch_2bit = get_bch_code(*DEFAULT_BCH_CODE_2BIT)
-    assert bch_2bit.n == 127
+    assert bch_2bit.n == 511
     assert bch_2bit.k == 1
-    assert bch_2bit.t == 62
-    assert bch_2bit.d == 125
+    assert bch_2bit.t == 198
+    assert bch_2bit.d == 397
 
-    # Test 4-bit default
+    # Test 4-bit default: BCH(255, 9, 62)
     bch_4bit = get_bch_code(*DEFAULT_BCH_CODE_4BIT)
     assert bch_4bit.n == 255
     assert bch_4bit.k == 9
-    assert bch_4bit.t == 63
-    assert bch_4bit.d == 127
+    assert bch_4bit.t == 62
+    assert bch_4bit.d == 125
 
     # Test small valid candidate
     bch15 = get_bch_code(15, 7, 2)
@@ -80,8 +80,8 @@ def test_bch_code_cache_and_properties() -> None:
     assert bch31.d == 31
 
     # Check cache identity
-    assert get_bch_code(127, 1, 62) is bch_2bit
-    assert get_bch_code(255, 9, 63) is bch_4bit
+    assert get_bch_code(511, 1, 198) is bch_2bit
+    assert get_bch_code(255, 9, 62) is bch_4bit
     assert get_bch_code(15, 7, 2) is bch15
 
     # Inconsistent configurations raise actionable ValueError
@@ -345,16 +345,16 @@ def test_reconcile_supported_paths(pipeline_results: tuple) -> None:
 
     metrics_by_key = {(m.path, m.pair): m for m in rec_result.metrics}
 
-    # Path 1: quant_2bit (Shared BCH 127, 1, 62)
+    # Path 1: quant_2bit (Shared BCH 511, 1, 198)
     ab_q2 = metrics_by_key[("quant_2bit", "Alice–Bob")]
     assert ab_q2.pre_kar == pytest.approx(80.40, abs=0.01)
     assert ab_q2.post_kar == 100.00
     assert ab_q2.exact_recovery is True
-    assert ab_q2.successful_blocks == 8
+    assert ab_q2.successful_blocks == 2
     assert ab_q2.detected_failures == 0
     assert ab_q2.miscorrected_blocks == 0
 
-    # Path 2: quant_4bit (BCH 255, 9, 63)
+    # Path 2: quant_4bit (BCH 255, 9, 62)
     ab_q4 = metrics_by_key[("quant_4bit", "Alice–Bob")]
     assert ab_q4.pre_kar == pytest.approx(90.20, abs=0.01)
     assert ab_q4.post_kar == 100.00
@@ -363,16 +363,16 @@ def test_reconcile_supported_paths(pipeline_results: tuple) -> None:
     assert ab_q4.detected_failures == 0
     assert ab_q4.miscorrected_blocks == 0
 
-    # Path 3: prbs_2bit (BCH 127, 1, 62)
+    # Path 3: prbs_2bit (BCH 511, 1, 198)
     ab_p2 = metrics_by_key[("prbs_2bit", "Alice–Bob")]
     assert ab_p2.pre_kar == pytest.approx(75.85, abs=0.01)
     assert ab_p2.post_kar == 100.00
     assert ab_p2.exact_recovery is True
-    assert ab_p2.successful_blocks == 32
+    assert ab_p2.successful_blocks == 8
     assert ab_p2.detected_failures == 0
     assert ab_p2.miscorrected_blocks == 0
 
-    # Path 4: prbs_4bit (BCH 255, 9, 63)
+    # Path 4: prbs_4bit (BCH 255, 9, 62)
     ab_p4 = metrics_by_key[("prbs_4bit", "Alice–Bob")]
     assert ab_p4.pre_kar == pytest.approx(86.20, abs=0.01)
     assert ab_p4.post_kar == 100.00
@@ -396,23 +396,23 @@ def test_reconcile_supported_paths(pipeline_results: tuple) -> None:
 
 
 def test_paths_use_identical_parameters() -> None:
-    """Verify that 2-bit paths use BCH(127,1,62) and 4-bit paths route to shared BCH(255,9,63)."""
+    """Verify that 2-bit paths use BCH(511,1,198) and 4-bit paths route to shared BCH(255,9,62)."""
     cfg = ReconciliationConfig()
     code_q2 = cfg.get_code_for_path("quant_2bit")
     code_q4 = cfg.get_code_for_path("quant_4bit")
     code_p2 = cfg.get_code_for_path("prbs_2bit")
     code_p4 = cfg.get_code_for_path("prbs_4bit")
-    assert code_q2 == code_p2 == DEFAULT_BCH_CODE_2BIT == (127, 1, 62)
-    assert code_q4 == code_p4 == DEFAULT_BCH_CODE_4BIT == (255, 9, 63)
+    assert code_q2 == code_p2 == DEFAULT_BCH_CODE_2BIT == (511, 1, 198)
+    assert code_q4 == code_p4 == DEFAULT_BCH_CODE_4BIT == (255, 9, 62)
 
     # Independent configuration per path family
-    custom_cfg = ReconciliationConfig(code_2bit=(31, 1, 15), code_4bit=(255, 9, 63))
+    custom_cfg = ReconciliationConfig(code_2bit=(31, 1, 15), code_4bit=(255, 9, 62))
     assert custom_cfg.code_2bit == (31, 1, 15)
-    assert custom_cfg.code_4bit == (255, 9, 63)
+    assert custom_cfg.code_4bit == (255, 9, 62)
     assert custom_cfg.get_code_for_path("quant_2bit") == (31, 1, 15)
     assert custom_cfg.get_code_for_path("prbs_2bit") == (31, 1, 15)
-    assert custom_cfg.get_code_for_path("quant_4bit") == (255, 9, 63)
-    assert custom_cfg.get_code_for_path("prbs_4bit") == (255, 9, 63)
+    assert custom_cfg.get_code_for_path("quant_4bit") == (255, 9, 62)
+    assert custom_cfg.get_code_for_path("prbs_4bit") == (255, 9, 62)
 
 
 def test_second_small_valid_bch_configuration() -> None:
@@ -461,15 +461,15 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
         assert len(reader) == 12
         for row in reader:
             if row["path"] in ("quant_2bit", "prbs_2bit"):
-                assert row["n"] == "127"
+                assert row["n"] == "511"
                 assert row["k"] == "1"
-                assert row["t"] == "62"
-                assert row["designed_d"] == "125"
+                assert row["t"] == "198"
+                assert row["designed_d"] == "397"
             else:
                 assert row["n"] == "255"
                 assert row["k"] == "9"
-                assert row["t"] == "63"
-                assert row["designed_d"] == "127"
+                assert row["t"] == "62"
+                assert row["designed_d"] == "125"
             assert row["interleaving"] == "OFF"
 
     # 2. Block details CSV
@@ -491,10 +491,10 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
         assert "quant_4bit" in data["parameters"]["paths"]
         assert "prbs_2bit" in data["parameters"]["paths"]
         assert "prbs_4bit" in data["parameters"]["paths"]
-        assert data["parameters"]["paths"]["quant_2bit"]["n"] == 127
-        assert data["parameters"]["paths"]["quant_2bit"]["designed_d"] == 125
+        assert data["parameters"]["paths"]["quant_2bit"]["n"] == 511
+        assert data["parameters"]["paths"]["quant_2bit"]["designed_d"] == 397
         assert data["parameters"]["paths"]["quant_4bit"]["n"] == 255
-        assert data["parameters"]["paths"]["quant_4bit"]["designed_d"] == 127
+        assert data["parameters"]["paths"]["quant_4bit"]["designed_d"] == 125
 
     # 4. Excel Workbook (.xlsx)
     xlsx_path = tmp_path / "reconciliation.xlsx"
@@ -585,36 +585,36 @@ def test_obsolete_cli_options_rejected(capsys: pytest.CaptureFixture) -> None:
 
 
 # ==============================================================================
-# 11. Global BCH(127, 1, 62) Verification Tests
+# 11. Global BCH Verification Tests: 2-bit BCH(511,1,198) & 4-bit BCH(255,9,62)
 # ==============================================================================
 
 
 def test_global_bch_code_properties_and_config() -> None:
     """Verify default BCH code properties and ReconciliationConfig guarantees."""
     bch_2bit = get_bch_code(*DEFAULT_BCH_CODE_2BIT)
-    assert bch_2bit.n == 127
+    assert bch_2bit.n == 511
     assert bch_2bit.k == 1
-    assert bch_2bit.d == 125
-    assert bch_2bit.t == 62
+    assert bch_2bit.d == 397
+    assert bch_2bit.t == 198
 
     bch_4bit = get_bch_code(*DEFAULT_BCH_CODE_4BIT)
     assert bch_4bit.n == 255
     assert bch_4bit.k == 9
-    assert bch_4bit.d == 127
-    assert bch_4bit.t == 63
+    assert bch_4bit.d == 125
+    assert bch_4bit.t == 62
 
     cfg = ReconciliationConfig(seed=42)
-    assert cfg.get_code_for_path("quant_2bit") == (127, 1, 62)
-    assert cfg.get_code_for_path("quant_4bit") == (255, 9, 63)
-    assert cfg.get_code_for_path("prbs_2bit") == (127, 1, 62)
-    assert cfg.get_code_for_path("prbs_4bit") == (255, 9, 63)
+    assert cfg.get_code_for_path("quant_2bit") == (511, 1, 198)
+    assert cfg.get_code_for_path("quant_4bit") == (255, 9, 62)
+    assert cfg.get_code_for_path("prbs_2bit") == (511, 1, 198)
+    assert cfg.get_code_for_path("prbs_4bit") == (255, 9, 62)
     assert cfg.interleaving == "OFF"
 
     meta = cfg.to_metadata_dict()
-    assert meta["parameters"]["paths"]["quant_2bit"]["designed_d"] == 125
-    assert meta["parameters"]["paths"]["quant_4bit"]["designed_d"] == 127
-    assert meta["parameters"]["paths"]["prbs_2bit"]["designed_d"] == 125
-    assert meta["parameters"]["paths"]["prbs_4bit"]["designed_d"] == 127
+    assert meta["parameters"]["paths"]["quant_2bit"]["designed_d"] == 397
+    assert meta["parameters"]["paths"]["quant_4bit"]["designed_d"] == 125
+    assert meta["parameters"]["paths"]["prbs_2bit"]["designed_d"] == 397
+    assert meta["parameters"]["paths"]["prbs_4bit"]["designed_d"] == 125
     assert meta["parameters"]["paths"]["quant_2bit"]["interleaving"] == "OFF"
     assert meta["parameters"]["paths"]["quant_4bit"]["interleaving"] == "OFF"
     assert meta["parameters"]["paths"]["prbs_2bit"]["interleaving"] == "OFF"
@@ -632,26 +632,26 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
     cfg = ReconciliationConfig(seed=42)
     reconcile_res = reconcile_all_paths(quant_res, prbs_res, config=cfg)
 
-    # 1. Verify quant_2bit ground truth (BCH(127,1,62))
+    # 1. Verify quant_2bit ground truth (BCH(511,1,198))
     q_ab = reconcile_res.path_results["quant_2bit"]["Alice–Bob"]
-    assert q_ab.n == 127
+    assert q_ab.n == 511
     assert q_ab.k == 1
-    assert q_ab.t == 62
-    assert q_ab.designed_d == 125
+    assert q_ab.t == 198
+    assert q_ab.designed_d == 397
     assert q_ab.interleaving == "OFF"
     assert q_ab.exact_recovery is True
     assert q_ab.pre_reconcile_kar == pytest.approx(80.40, abs=0.01)
     assert q_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
-    assert q_ab.success_blocks == 8
+    assert q_ab.success_blocks == 2
     assert q_ab.detected_failure_blocks == 0
     assert q_ab.miscorrected_blocks == 0
 
-    # 2. Verify quant_4bit ground truth (BCH(255,9,63))
+    # 2. Verify quant_4bit ground truth (BCH(255,9,62))
     q4_ab = reconcile_res.path_results["quant_4bit"]["Alice–Bob"]
     assert q4_ab.n == 255
     assert q4_ab.k == 9
-    assert q4_ab.t == 63
-    assert q4_ab.designed_d == 127
+    assert q4_ab.t == 62
+    assert q4_ab.designed_d == 125
     assert q4_ab.exact_recovery is True
     assert q4_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
     assert q4_ab.success_blocks == 8
@@ -664,28 +664,28 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
     assert q4_ea.detected_failure_blocks == 3
     q4_eb = reconcile_res.path_results["quant_4bit"]["Alice–Eve1-Bob"]
     assert q4_eb.exact_recovery is False
-    assert q4_eb.detected_failure_blocks == 1
+    assert q4_eb.detected_failure_blocks == 2
 
-    # 3. Verify prbs_2bit ground truth (BCH(127,1,62))
+    # 3. Verify prbs_2bit ground truth (BCH(511,1,198))
     p_ab = reconcile_res.path_results["prbs_2bit"]["Alice–Bob"]
-    assert p_ab.n == 127
+    assert p_ab.n == 511
     assert p_ab.k == 1
-    assert p_ab.t == 62
-    assert p_ab.designed_d == 125
+    assert p_ab.t == 198
+    assert p_ab.designed_d == 397
     assert p_ab.interleaving == "OFF"
     assert p_ab.exact_recovery is True
     assert p_ab.pre_reconcile_kar == pytest.approx(75.85, abs=0.01)
     assert p_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
-    assert p_ab.success_blocks == 32
+    assert p_ab.success_blocks == 8
     assert p_ab.detected_failure_blocks == 0
     assert p_ab.miscorrected_blocks == 0
 
-    # 4. Verify prbs_4bit ground truth (BCH(255,9,63))
+    # 4. Verify prbs_4bit ground truth (BCH(255,9,62))
     p4_ab = reconcile_res.path_results["prbs_4bit"]["Alice–Bob"]
     assert p4_ab.n == 255
     assert p4_ab.k == 9
-    assert p4_ab.t == 63
-    assert p4_ab.designed_d == 127
+    assert p4_ab.t == 62
+    assert p4_ab.designed_d == 125
     assert p4_ab.exact_recovery is True
     assert p4_ab.post_reconcile_kar == pytest.approx(100.00, abs=0.01)
     assert p4_ab.success_blocks == 16
@@ -727,15 +727,15 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
         assert len(rows) == 12
         for r in rows:
             if r["path"] in ("quant_2bit", "prbs_2bit"):
-                assert r["n"] == "127"
+                assert r["n"] == "511"
                 assert r["k"] == "1"
-                assert r["t"] == "62"
-                assert r["designed_d"] == "125"
+                assert r["t"] == "198"
+                assert r["designed_d"] == "397"
             else:
                 assert r["n"] == "255"
                 assert r["k"] == "9"
-                assert r["t"] == "63"
-                assert r["designed_d"] == "127"
+                assert r["t"] == "62"
+                assert r["designed_d"] == "125"
             assert r["interleaving"] == "OFF"
 
 
@@ -771,31 +771,31 @@ def test_eavesdropper_threat_model_helper_data_reuse_and_isolation(pipeline_resu
 
         # Verify exact code parameters, block counts, and padding per path
         if path_name == "quant_2bit":
-            assert res_ab.n == 127
+            assert res_ab.n == 511
             assert res_ab.k == 1
-            assert res_ab.t == 62
-            assert res_ab.designed_d == 125
-            assert res_ab.num_blocks == 8
-            assert res_ab.padding_count == 16
+            assert res_ab.t == 198
+            assert res_ab.designed_d == 397
+            assert res_ab.num_blocks == 2
+            assert res_ab.padding_count == 22
         elif path_name == "quant_4bit":
             assert res_ab.n == 255
             assert res_ab.k == 9
-            assert res_ab.t == 63
-            assert res_ab.designed_d == 127
+            assert res_ab.t == 62
+            assert res_ab.designed_d == 125
             assert res_ab.num_blocks == 8
             assert res_ab.padding_count == 40
         elif path_name == "prbs_2bit":
-            assert res_ab.n == 127
+            assert res_ab.n == 511
             assert res_ab.k == 1
-            assert res_ab.t == 62
-            assert res_ab.designed_d == 125
-            assert res_ab.num_blocks == 32
-            assert res_ab.padding_count == 64
+            assert res_ab.t == 198
+            assert res_ab.designed_d == 397
+            assert res_ab.num_blocks == 8
+            assert res_ab.padding_count == 88
         else:
             assert res_ab.n == 255
             assert res_ab.k == 9
-            assert res_ab.t == 63
-            assert res_ab.designed_d == 127
+            assert res_ab.t == 62
+            assert res_ab.designed_d == 125
             assert res_ab.num_blocks == 16
             assert res_ab.padding_count == 80
 
