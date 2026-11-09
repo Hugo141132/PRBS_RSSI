@@ -662,9 +662,10 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
     q4_ea = reconcile_res.path_results["quant_4bit"]["Alice–Eve1-Alice"]
     assert q4_ea.exact_recovery is False
     assert q4_ea.detected_failure_blocks == 3
-    q4_eb = reconcile_res.path_results["quant_4bit"]["Alice–Eve1-Bob"]
+    q4_eb = reconcile_res.path_results["quant_4bit"]["Bob–Eve1-Bob"]
     assert q4_eb.exact_recovery is False
-    assert q4_eb.detected_failure_blocks == 2
+    assert q4_eb.detected_failure_blocks == 3
+    assert q4_eb.success_blocks == 5
 
     # 3. Verify prbs_2bit ground truth (BCH(511,1,198))
     p_ab = reconcile_res.path_results["prbs_2bit"]["Alice–Bob"]
@@ -696,9 +697,10 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
     p4_ea = reconcile_res.path_results["prbs_4bit"]["Alice–Eve1-Alice"]
     assert p4_ea.exact_recovery is False
     assert p4_ea.detected_failure_blocks == 9
-    p4_eb = reconcile_res.path_results["prbs_4bit"]["Alice–Eve1-Bob"]
+    p4_eb = reconcile_res.path_results["prbs_4bit"]["Bob–Eve1-Bob"]
     assert p4_eb.exact_recovery is False
     assert p4_eb.detected_failure_blocks == 9
+    assert p4_eb.success_blocks == 7
 
     # 5. Test Exports & Figures
     csv_metrics = tmp_path / "recon_metrics.csv"
@@ -741,10 +743,15 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
 
 def test_eavesdropper_threat_model_helper_data_reuse_and_isolation(pipeline_results: tuple) -> None:
     """Regression test proving:
-    1. Helper data reuse: Alice's helper data is generated once per path and reused for Bob, Eve1-Alice, Eve1-Bob.
-    2. Common reference bits: Eve1-Alice and Eve1-Bob are both reconstructed against Alice's source bits.
-    3. Passive receiver isolation: Eve only accesses her own observation bits and Alice's public helper data.
-    4. Bob-generated helper data and 'Bob–Eve1-Bob' session do not exist.
+    1. Source-specific helper data:
+       - Alice generates helper data used for Alice–Bob (legitimate) and Alice–Eve1-Alice (passive observer).
+       - Bob generates independent helper data used for Bob–Eve1-Bob (passive observer).
+    2. Receiver isolation:
+       - Bob reconstructs against Alice's helper data and Alice's source bits.
+       - Eve1-Alice reconstructs against Alice's helper data and Alice's source bits.
+       - Eve1-Bob reconstructs against Bob's separate helper data and Bob's source bits.
+    3. Passive receiver isolation: Eve only accesses her own observation bits and the respective source helper data.
+    4. Evaluated pairs match established measurements: Alice–Bob, Alice–Eve1-Alice, Bob–Eve1-Bob.
     """
     _, quant_res, prbs_res = pipeline_results
     rec_cfg = ReconciliationConfig(seed=42)
@@ -753,19 +760,25 @@ def test_eavesdropper_threat_model_helper_data_reuse_and_isolation(pipeline_resu
     for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
         p_res = rec_res.path_results[path_name]
 
-        # Exact 3 pairs evaluated: Alice–Bob, Alice–Eve1-Alice, Alice–Eve1-Bob
-        assert set(p_res.keys()) == {"Alice–Bob", "Alice–Eve1-Alice", "Alice–Eve1-Bob"}
-        assert "Bob–Eve1-Bob" not in p_res
+        # Exact 3 pairs evaluated: Alice–Bob, Alice–Eve1-Alice, Bob–Eve1-Bob
+        assert set(p_res.keys()) == {"Alice–Bob", "Alice–Eve1-Alice", "Bob–Eve1-Bob"}
+        assert "Alice–Eve1-Bob" not in p_res
 
         res_ab = p_res["Alice–Bob"]
         res_ea = p_res["Alice–Eve1-Alice"]
-        res_eb = p_res["Alice–Eve1-Bob"]
+        res_eb = p_res["Bob–Eve1-Bob"]
 
-        # Helper data reuse: All 3 pairs must use Alice as source and have identical helper block lengths and padding
+        # Source-specific helper data & reference bits
         assert res_ab.source_name == "Alice"
         assert res_ea.source_name == "Alice"
-        assert res_eb.source_name == "Alice"
-        assert res_ab.source_unpadded == res_ea.source_unpadded == res_eb.source_unpadded
+        assert res_eb.source_name == "Bob"
+
+        assert res_ab.source_unpadded == res_ea.source_unpadded
+        assert res_ab.receiver_name == "Bob"
+        assert res_ea.receiver_name == "Eve1-Alice"
+        assert res_eb.receiver_name == "Eve1-Bob"
+
+        # Padding counts and block counts match path requirements
         assert res_ab.padding_count == res_ea.padding_count == res_eb.padding_count
         assert res_ab.num_blocks == res_ea.num_blocks == res_eb.num_blocks
 

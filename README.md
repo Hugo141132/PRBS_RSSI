@@ -515,21 +515,26 @@ Max observed per-block error counts on dummy data are derived from actual code e
 
 *(Note on Error Coverage: Under the calibrated multi-path architecture, BCH(511, 1, 198) handles error counts up to 111 on quant_2bit (2 blocks, 22 pad bits) and up to 198 on prbs_2bit (8 blocks, 88 pad bits). For 4-bit paths, BCH(255, 9, 62) handles error counts up to 42 on quant_4bit and up to 62 on prbs_4bit.)*
 
-##### Eavesdropper Performance Under Single Alice Reference & Reused Helper Data
-Under the authoritative threat model, Alice broadcasts helper data  = A \oplus C$ once per path/block. Eve passively receives two separate observation streams (Eve1-Alice and Eve1-Bob) and attempts reconstruction using Alice's public helper data. Both streams are evaluated against Alice's ground-truth bitstream.
+##### Eavesdropper Performance Under Source-Specific Helper Data (Alice–Eve1-Alice & Bob–Eve1-Bob)
+In accordance with established physical measurement comparisons (correlation, filtering, quantization, and PRBS):
+- **Alice–Bob**: Alice is the source/reference; Bob is the legitimate receiver. Alice generates helper data  = A \oplus C_A$.
+- **Alice–Eve1-Alice**: Alice is the source/reference; Eve1-Alice is the passive observer overhearing Alice's transmission. Eve1-Alice decodes against Alice's public helper data $.
+- **Bob–Eve1-Bob**: Bob is the source/reference; Eve1-Bob is the passive observer overhearing Bob's transmission. Eve1-Bob decodes against Bob's separate helper data  = B \oplus C_B$ generated independently from Bob's bitstream.
+
+*(Note: Bob being the reference for Bob–Eve1-Bob does NOT imply an interactive Bob–Eve communication session; Eve remains a passive eavesdropper in an offline measurement comparison).*
 
 We explicitly separate **ordinary-decoder performance**, **bit agreement (post-KAR)**, and **public-helper enumeration recovery**:
 
-| Path | Eavesdropper Pair (Stream vs Alice Ref) | Configured Code | Pre-KAR | Ordinary Post-KAR | Ordinary Decoder Exact Recovery | Blocks (S/F/M) | Public-Helper Enumeration Recovery |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| quant_2bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(511, 1, 198, d=397) | 58.20% | **58.20%** | **FALSE** | 0 / 2 / 0 | Unverified |
-| quant_2bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(511, 1, 198, d=397) | 57.80% | **57.80%** | **FALSE** | 0 / 2 / 0 | Unverified |
-| quant_4bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(255, 9, 62, d=125) | 79.10% | **89.60%** | **FALSE** | 5 / 3 / 0 | **100% (0 ambiguity)** |
-| quant_4bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(255, 9, 62, d=125) | 78.90% | **93.20%** | **FALSE** | 6 / 2 / 0 | **100% (0 ambiguity)** |
-| prbs_2bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(511, 1, 198, d=397) | 56.10% | **69.42%** | **FALSE** | 3 / 5 / 0 | Unverified |
-| prbs_2bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(511, 1, 198, d=397) | 55.67% | **59.65%** | **FALSE** | 1 / 7 / 0 | Unverified |
-| prbs_4bit | Alice–Eve1-Alice (Eve Stream 1) | BCH(255, 9, 62, d=125) | 73.25% | **81.85%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
-| prbs_4bit | Alice–Eve1-Bob (Eve Stream 2) | BCH(255, 9, 62, d=125) | 72.90% | **82.05%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
+| Path | Eavesdropper Pair | Reference / Source | Configured Code | Pre-KAR | Ordinary Post-KAR | Ordinary Decoder Exact Recovery | Blocks (S/F/M) | Public-Helper Enumeration Recovery |
+| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| quant_2bit | Alice–Eve1-Alice | Alice | BCH(511, 1, 198, d=397) | 58.20% | **58.20%** | **FALSE** | 0 / 2 / 0 | Unverified |
+| quant_2bit | Bob–Eve1-Bob | Bob | BCH(511, 1, 198, d=397) | 55.40% | **55.40%** | **FALSE** | 0 / 2 / 0 | Unverified |
+| quant_4bit | Alice–Eve1-Alice | Alice | BCH(255, 9, 62, d=125) | 79.10% | **89.60%** | **FALSE** | 5 / 3 / 0 | **100% (0 ambiguity)** |
+| quant_4bit | Bob–Eve1-Bob | Bob | BCH(255, 9, 62, d=125) | 77.70% | **89.50%** | **FALSE** | 5 / 3 / 0 | **100% (0 ambiguity)** |
+| prbs_2bit | Alice–Eve1-Alice | Alice | BCH(511, 1, 198, d=397) | 56.10% | **69.42%** | **FALSE** | 3 / 5 / 0 | Unverified |
+| prbs_2bit | Bob–Eve1-Bob | Bob | BCH(511, 1, 198, d=397) | 56.38% | **60.92%** | **FALSE** | 1 / 7 / 0 | Unverified |
+| prbs_4bit | Alice–Eve1-Alice | Alice | BCH(255, 9, 62, d=125) | 73.25% | **81.85%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
+| prbs_4bit | Bob–Eve1-Bob | Bob | BCH(255, 9, 62, d=125) | 72.45% | **81.58%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
 
 > [!CAUTION]
 > **Critical Distinctions in Eavesdropper Recovery Metrics**:
@@ -545,7 +550,7 @@ We explicitly separate **ordinary-decoder performance**, **bit agreement (post-K
 
 > [!IMPORTANT]
 > **Paused Downstream Evaluation Notice**:
-> Downstream evaluation (**Privacy Amplification via SHA-256**, **NIST SP 800-22 Rev. 1a statistical randomness testing**, and **Key Generation Rate**) remains intentionally paused at this experimental reconciliation milestone. Historical PA, NIST, and KGR metrics in documentation reflect the earlier 2-bit baseline.
+> Downstream stages (**Privacy Amplification via SHA-256**, **NIST SP 800-22 Rev. 1a statistical randomness testing**, and **Key Generation Rate**) have **not been recalculated or re-evaluated** following this BCH measurement comparison pairing correction (Bob–Eve1-Bob with independent Bob helper data). All downstream components remain strictly paused until explicitly requested. Historical PA, NIST, and KGR metrics in documentation reflect earlier exploratory runs.
 
 ### 3. Direct Bitstream Equality and Receiver Isolation
 - **Direct Bitstream Equality**: BCH reconciliation success is defined strictly by bitwise equality between the source unpadded bitstream $A$ and receiver unpadded recovered bitstream $\hat{A}$ (`exact_recovery = bool(source_bits == recovered_bits)`).

@@ -74,7 +74,7 @@ OBSOLETE_PATHS: tuple[str, ...] = ()
 EVALUATION_PAIRS: tuple[tuple[str, str, str, str], ...] = (
     ("Alice", "Bob", "Alice–Bob", "Alice"),
     ("Alice", "Eve1-Alice", "Alice–Eve1-Alice", "Alice"),
-    ("Alice", "Eve1-Bob", "Alice–Eve1-Bob", "Alice"),
+    ("Bob", "Eve1-Bob", "Bob–Eve1-Bob", "Bob"),
 )
 
 RESEARCH_ARTIFACT_LABEL: str = "[DUMMY RESEARCH ARTIFACT - SYNTHETIC DATA ONLY]"
@@ -715,7 +715,7 @@ def reconcile_all_paths(
     Pairs per path:
         - Alice–Bob (legitimate, using Alice helper data)
         - Alice–Eve1-Alice (passive eavesdropper stream 1: overhearing Alice, using Alice helper data)
-        - Alice–Eve1-Bob (passive eavesdropper stream 2: overhearing Bob, using Alice helper data)
+        - Bob–Eve1-Bob (passive eavesdropper stream 2: overhearing Bob, using Bob helper data)
 
     Args:
         quant_result: Completed ChannelQuantizationResult.
@@ -758,10 +758,18 @@ def reconcile_all_paths(
 
         d_val = 2 * t + 1
 
-        # Generate Alice helper data ONCE per path
-        # Reused across legitimate Bob and both passive Eve observation streams
+        # Generate Alice helper data (used for Bob and Eve1-Alice)
         alice_helpers, alice_orig_len, alice_pad = generate_helper_data(
             source_bits=bitstreams["Alice"],
+            n=n,
+            k=k,
+            t=t,
+            rng=rng,
+        )
+
+        # Generate Bob helper data (used for Eve1-Bob)
+        bob_helpers, bob_orig_len, bob_pad = generate_helper_data(
+            source_bits=bitstreams["Bob"],
             n=n,
             k=k,
             t=t,
@@ -804,21 +812,21 @@ def reconcile_all_paths(
             interleaving=cfg.interleaving,
         )
 
-        # 3. Alice -> Eve1-Bob (Passive Eavesdropper stream 2: overhearing Bob)
-        # Decodes against Alice's public helper data using Eve1-Bob's passive reception
+        # 3. Bob -> Eve1-Bob (Passive Eavesdropper stream 2: overhearing Bob)
+        # Decodes against Bob's separate helper data using Eve1-Bob's passive reception
         res_eb = evaluate_reconciliation_pair(
-            source_bits=bitstreams["Alice"],
+            source_bits=bitstreams["Bob"],
             receiver_bits=bitstreams["Eve1-Bob"],
-            helper_blocks=alice_helpers,
+            helper_blocks=bob_helpers,
             n=n,
             k=k,
             t=t,
             path_name=path_name,
-            pair_name="Alice–Eve1-Bob",
-            source_name="Alice",
+            pair_name="Bob–Eve1-Bob",
+            source_name="Bob",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
-            padding_count=alice_pad,
+            padding_count=bob_pad,
             designed_d=d_val,
             interleaving=cfg.interleaving,
         )
@@ -826,7 +834,7 @@ def reconcile_all_paths(
         path_results[path_name] = {
             "Alice–Bob": res_ab,
             "Alice–Eve1-Alice": res_ea,
-            "Alice–Eve1-Bob": res_eb,
+            "Bob–Eve1-Bob": res_eb,
         }
 
     return MultiPathReconciliationResult(

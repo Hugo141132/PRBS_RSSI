@@ -1319,11 +1319,11 @@ def plot_reconciliation_figure(
     available_paths = [p for p in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"] if p in reconcile_result.path_results]
     is_4path = len(available_paths) >= 4
 
-    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Alice–Eve1-Bob"]
+    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Bob–Eve1-Bob"]
     pair_labels = [
         "Alice–Bob\n(Legitimate)",
         "Alice–Eve1-Alice\n(Eve stream 1)",
-        "Alice–Eve1-Bob\n(Eve stream 2)",
+        "Bob–Eve1-Bob\n(Eve stream 2)",
     ]
 
     # Consistent color palette
@@ -1339,7 +1339,7 @@ def plot_reconciliation_figure(
         plt.Rectangle((0, 0), 1, 1, facecolor=c_eve1, edgecolor="black", linewidth=0.8),
         plt.Rectangle((0, 0), 1, 1, facecolor=c_eve2, edgecolor="black", linewidth=0.8),
     ]
-    leg_labels_a = ["Pre-BCH KAR", "Post-BCH (Alice–Bob)", "Post-BCH (Eve1-Alice)", "Post-BCH (Eve1-Bob)"]
+    leg_labels_a = ["Pre-BCH KAR", "Post-BCH (Alice–Bob)", "Post-BCH (Eve1-Alice)", "Post-BCH (Bob–Eve1-Bob)"]
 
     x = np.arange(len(pair_names))
     b_width = 0.35
@@ -1425,11 +1425,11 @@ def plot_reconciliation_figure(
 
         ab_succ_pct = [reconcile_result.path_results[p]["Alice–Bob"].block_success_rate for p in available_paths]
         ea_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Alice"].block_success_rate for p in available_paths]
-        eb_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Bob"].block_success_rate for p in available_paths]
+        eb_succ_pct = [reconcile_result.path_results[p]["Bob–Eve1-Bob"].block_success_rate for p in available_paths]
 
         ax_e.bar(x_paths - w3, ab_succ_pct, width=w3, color=c_legit, edgecolor="black", linewidth=0.8, label="Alice–Bob (Legitimate)")
         ax_e.bar(x_paths, ea_succ_pct, width=w3, color=c_eve1, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Alice (Eve 1)")
-        ax_e.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Bob (Eve 2)")
+        ax_e.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Bob–Eve1-Bob (Eve 2)")
 
         ax_e.set_ylim(0, 132)
         ax_e.set_ylabel("Block Recovery Rate (%)", fontsize=9.2, fontweight="bold")
@@ -1556,11 +1556,11 @@ def plot_reconciliation_figure(
 
         ab_succ_pct = [reconcile_result.path_results[p]["Alice–Bob"].block_success_rate for p in path_names]
         ea_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Alice"].block_success_rate for p in path_names]
-        eb_succ_pct = [reconcile_result.path_results[p]["Alice–Eve1-Bob"].block_success_rate for p in path_names]
+        eb_succ_pct = [reconcile_result.path_results[p]["Bob–Eve1-Bob"].block_success_rate for p in path_names]
 
         r_c_ab = ax_c.bar(x_paths - w3, ab_succ_pct, width=w3, color=c_legit, edgecolor="black", linewidth=0.8, label="Alice–Bob (Legitimate)")
         r_c_ea = ax_c.bar(x_paths, ea_succ_pct, width=w3, color=c_eve1, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Alice (Eve stream 1)")
-        r_c_eb = ax_c.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Bob (Eve stream 2)")
+        r_c_eb = ax_c.bar(x_paths + w3, eb_succ_pct, width=w3, color=c_eve2, edgecolor="black", linewidth=0.8, label="Bob–Eve1-Bob (Eve stream 2)")
 
         ax_c.set_ylim(0, 115)
         ax_c.set_ylabel("Block Recovery Rate (%)", fontsize=10.5, fontweight="bold")
@@ -1597,7 +1597,7 @@ def plot_reconciliation_figure(
                 fontweight="bold",
                 color=c_eve1,
             )
-            res_eb = reconcile_result.path_results[p]["Alice–Eve1-Bob"]
+            res_eb = reconcile_result.path_results[p]["Bob–Eve1-Bob"]
             ax_c.annotate(
                 f"{eb_succ_pct[i]:.1f}%\n({res_eb.success_blocks}/{res_eb.num_blocks})",
                 xy=(x_paths[i] + w3, eb_succ_pct[i] + 2),
