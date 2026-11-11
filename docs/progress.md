@@ -399,22 +399,37 @@ col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical 
 > **Paused Downstream Stages Notice**:
 > Downstream stages (**Privacy Amplification via SHA-256**, **NIST SP 800-22 Rev. 1a statistical randomness testing**, and **Key Generation Rate**) have **not been recalculated or re-evaluated** following this BCH measurement comparison pairing correction (Bob–Eve1-Bob with independent Bob helper data). All downstream components remain strictly paused until explicitly requested. Historical downstream metrics and files reflect earlier exploratory runs.
 
-### Two-Path Privacy Amplification Results (SHA-256 Bit-Level Compression, FIPS 180-4)
-- **Mathematical Specification**: Bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53). Padding $M' = M \parallel 1 \parallel 0^p \parallel [L]_{64}$, yielding 256-bit secret key $K$.
-- **Path: `quant_2bit` ($L = 1000$ bits $\to 256$ bits)**:
-  - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Key Match: **TRUE (MATCH)**.
-    - Key Hex (both Alice and Bob Reconciled Receiver): `98cadafbd85954df27fd02d37199f75e57e9efb0118b247f02db2b81030fd764`
-  - Alice–Eve1-Alice: Pre-PA KAR 58.20% $\to$ Post-PA KAR **50.39%** ($\Delta = -7.81\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)** (127/256 mismatches).
-    - Key Hex (Eve1-Alice): `bb8de661d797ee9f0cb06c3dbf58a6a50607799b67ec3fd596cfa9ad591e247d`
-  - Alice–Eve1-Bob: Pre-PA KAR 57.80% $\to$ Post-PA KAR **42.19%** ($\Delta = -15.61\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)** (148/256 mismatches).
-    - Key Hex (Eve1-Bob): `e5a5c17476411af6221438058bcf28f931b5914dfaf99bd016801035696e4719`
-- **Path: `prbs_2bit` ($L = 1500$ bits $\to 256$ bits)**:
-  - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Key Match: **TRUE (MATCH)**.
-    - Key Hex (both Alice and Bob Reconciled Receiver): `39c81f5d669fddce09059213589b68fa81f79f3ac9302a361301bbc9e50c94e6`
-  - Alice–Eve1-Alice: Pre-PA KAR 68.93% $\to$ Post-PA KAR **50.78%** ($\Delta = -18.15\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)** (126/256 mismatches).
-    - Key Hex (Eve1-Alice): `ef36998806f42bdfec287859320892e58dc1735e8a78a8fd89a0ec094db4a123`
-  - Alice–Eve1-Bob: Pre-PA KAR 55.87% $\to$ Post-PA KAR **47.66%** ($\Delta = -8.21\text{ pp}$), Exact Key Match: **FALSE (MISMATCH)** (134/256 mismatches).
-    - Key Hex (Eve1-Bob): `075ee9dee6716684cd81a77840513cfebc926858717d0d8bac3c568b506d6320`
+### Four-Path Segmented Privacy Amplification Results (100-Bit Segmentation, SHA-256 FIPS 180-4)
+- **Mathematical Specification**: 100-bit non-overlapping segmentation followed by bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53). Padding $S'_c = S_c \parallel 1 \parallel 0^{347} \parallel [100]_{64}$, yielding independent 256-bit secret keys per segment.
+- **Dynamic Chunk Count Derivation**:
+  - `quant_2bit` ($L = 1000$ bits $\to$ **10 keys**)
+  - `quant_4bit` ($L = 2000$ bits $\to$ **20 keys**)
+  - `prbs_2bit`  ($L = 4000$ bits $\to$ **40 keys**)
+  - `prbs_4bit`  ($L = 4000$ bits $\to$ **40 keys**)
+- **Bidirectional Transmission Observation Model**:
+  - Evaluates 3 evaluation pairs matching physical channel observation:
+    1. `Alice–Bob`: Legitimate communication pair (Alice reference vs Bob receiver, using Alice helper data).
+    2. `Alice–Eve1-Alice`: Passive eavesdropper overhearing Alice (Alice reference vs Eve1-Alice receiver, using Alice helper data).
+    3. `Bob–Eve1-Bob`: Passive eavesdropper overhearing Bob (Bob reference vs Eve1-Bob receiver, using Bob helper data).
+- **Empirical Results Summary on Dummy Indoor Dataset ($N=500$)**:
+  - **quant_2bit (10 Chunks)**:
+    - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA Mean KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Match: **10/10 (100.0%)**, All Match: **TRUE**.
+    - Alice–Eve1-Alice: Pre-PA KAR 58.20% $\to$ Post-PA Mean KAR **50.47%** ($\Delta = -7.73\text{ pp}$), Exact Match: **0/10 (0.0%)**, All Match: **FALSE**.
+    - Bob–Eve1-Bob: Pre-PA KAR 55.40% $\to$ Post-PA Mean KAR **49.18%** ($\Delta = -6.22\text{ pp}$), Exact Match: **0/10 (0.0%)**, All Match: **FALSE**.
+  - **quant_4bit (20 Chunks)**:
+    - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA Mean KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Match: **20/20 (100.0%)**, All Match: **TRUE**.
+    - Alice–Eve1-Alice: Pre-PA KAR 89.60% $\to$ Post-PA Mean KAR **80.43%** ($\Delta = -9.17\text{ pp}$), Exact Match: **12/20 (60.0%)**, All Match: **FALSE**.
+    - Bob–Eve1-Bob: Pre-PA KAR 89.50% $\to$ Post-PA Mean KAR **50.16%** ($\Delta = -39.34\text{ pp}$), Exact Match: **0/20 (0.0%)**, All Match: **FALSE**.
+  - **prbs_2bit (40 Chunks)**:
+    - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA Mean KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Match: **40/40 (100.0%)**, All Match: **TRUE**.
+    - Alice–Eve1-Alice: Pre-PA KAR 69.42% $\to$ Post-PA Mean KAR **68.59%** ($\Delta = -0.83\text{ pp}$), Exact Match: **15/40 (37.5%)**, All Match: **FALSE**.
+    - Bob–Eve1-Bob: Pre-PA KAR 60.92% $\to$ Post-PA Mean KAR **51.98%** ($\Delta = -8.94\text{ pp}$), Exact Match: **2/40 (5.0%)**, All Match: **FALSE**.
+  - **prbs_4bit (40 Chunks)**:
+    - Alice–Bob: Pre-PA KAR 100.00% $\to$ Post-PA Mean KAR **100.00%** ($\Delta = 0.00\text{ pp}$), Exact Match: **40/40 (100.0%)**, All Match: **TRUE**.
+    - Alice–Eve1-Alice: Pre-PA KAR 81.85% $\to$ Post-PA Mean KAR **69.75%** ($\Delta = -12.10\text{ pp}$), Exact Match: **16/40 (40.0%)**, All Match: **FALSE**.
+    - Bob–Eve1-Bob: Pre-PA KAR 81.58% $\to$ Post-PA Mean KAR **53.52%** ($\Delta = -28.06\text{ pp}$), Exact Match: **3/40 (7.5%)**, All Match: **FALSE**.
+
+*(Historical Note: Earlier exploratory single-digest PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 100-bit segmented four-path architecture aligned with the bidirectional transmission observation model. NIST SP 800-22 and KGR remain explicitly paused).*
 
 ## 6. Windows PowerShell Reproduction Commands
 > The primary execution guide with output locations is maintained in [README.md](../README.md#petunjuk-penyiapan-lingkungan--eksekusi).

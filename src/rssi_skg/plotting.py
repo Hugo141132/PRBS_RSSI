@@ -1705,12 +1705,12 @@ def plot_privacy_amplification_figure(
     pa_result: Any,
     prefix_path: str | Path,
 ) -> tuple[Path, Path]:
-    """Generate 2x2 figure evaluating Privacy Amplification (Pre-PA vs Post-PA KAR).
+    """Generate 2x2 figure evaluating Privacy Amplification (Pre-PA vs Post-PA Mean KAR).
 
     Panels:
-        (a) quant_2bit: Pre-PA vs Post-PA KAR across Alice–Bob, Alice–Eve1-Alice, Bob–Eve1-Bob.
-        (b) prbs_2bit: Pre-PA vs Post-PA KAR across Alice–Bob, Alice–Eve1-Alice, Bob–Eve1-Bob.
-        (c) Final 256-bit Key Agreement & Exact Match Status across both paths.
+        (a) quant_2bit & quant_4bit: Pre-PA vs Post-PA Mean KAR across pairs.
+        (b) prbs_2bit & prbs_4bit: Pre-PA vs Post-PA Mean KAR across pairs.
+        (c) 4-Path Secret Key Exact Match Rates across Alice–Bob, Alice–Eve1-Alice, Bob–Eve1-Bob.
         (d) Quantitative Summary Table & Scientific Disclaimer Box.
 
     Args:
@@ -1733,11 +1733,11 @@ def plot_privacy_amplification_figure(
     png_path = prefix.with_name(f"{base_stem}.png")
     pdf_path = prefix.with_name(f"{base_stem}.pdf")
 
-    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Alice–Eve1-Bob"]
+    pair_names = ["Alice–Bob", "Alice–Eve1-Alice", "Bob–Eve1-Bob"]
     pair_labels = [
         "Alice–Bob\n(Legitimate)",
         "Alice–Eve1-Alice\n(Eve stream 1)",
-        "Alice–Eve1-Bob\n(Eve stream 2)",
+        "Bob–Eve1-Bob\n(Eve stream 2)",
     ]
 
     # Color palette matching pipeline aesthetic
@@ -1747,15 +1747,12 @@ def plot_privacy_amplification_figure(
     c_eve2 = "#e66101"      # Amber orange for Eve1-Bob
     c_bar_post = [c_legit, c_eve1, c_eve2]
 
-    q_res = pa_result.pair_results["quant_2bit"]
-    p_res = pa_result.pair_results["prbs_2bit"]
-
-    fig = plt.figure(figsize=(15.5, 12.0))
-    gs = fig.add_gridspec(2, 2, hspace=0.36, wspace=0.26, left=0.06, right=0.96, top=0.88, bottom=0.06)
+    fig = plt.figure(figsize=(16.0, 12.5))
+    gs = fig.add_gridspec(2, 2, hspace=0.38, wspace=0.28, left=0.06, right=0.96, top=0.88, bottom=0.06)
 
     fig.suptitle(
-        "Privacy Amplification (SHA-256) Key Agreement Rate (KAR) Comparison\n"
-        "[PA.pdf Section 3.2.6 (Eqs. 3.37–3.53) & Eq. 3.64 | 256-bit Final Keys | Software Validation on Synthetic Data]",
+        "Segmented Privacy Amplification (SHA-256) Key Agreement Rate (KAR) Comparison\n"
+        "[PA.pdf Section 3.2.6 & Eq. 3.64 | 100-bit Segments -> 256-bit Final Keys | 4 Supported Paths | Synthetic Data]",
         fontsize=13,
         fontweight="bold",
         y=0.965,
@@ -1765,20 +1762,68 @@ def plot_privacy_amplification_figure(
     b_width = 0.35
 
     # =========================================================================
-    # Panel (a): quant_2bit: Pre-PA vs Post-PA KAR
+    # Panel (a): Quantization Paths (quant_2bit vs quant_4bit) Pre-PA vs Post-PA Mean KAR
     # =========================================================================
     ax_a = fig.add_subplot(gs[0, 0])
-    q_pre = [q_res[p].pre_pa_kar for p in pair_names]
-    q_post = [q_res[p].post_pa_kar for p in pair_names]
-    q_deltas = [q_res[p].kar_delta for p in pair_names]
+    q2_res = pa_result.pair_results.get("quant_2bit", {})
+    q4_res = pa_result.pair_results.get("quant_4bit", {})
 
-    r_q_pre = ax_a.bar(x - b_width / 2.0, q_pre, width=b_width, color=c_pre, edgecolor="black", linewidth=0.8, label="Pre-PA KAR (Reconciled)")
-    r_q_post = ax_a.bar(x + b_width / 2.0, q_post, width=b_width, color=c_bar_post, edgecolor="black", linewidth=0.8, label="Post-PA KAR (256-bit Key)")
+    q2_pre = [q2_res[p].pre_pa_kar for p in pair_names] if q2_res else [0, 0, 0]
+    q2_post = [q2_res[p].post_pa_kar for p in pair_names] if q2_res else [0, 0, 0]
+    q4_pre = [q4_res[p].pre_pa_kar for p in pair_names] if q4_res else [0, 0, 0]
+    q4_post = [q4_res[p].post_pa_kar for p in pair_names] if q4_res else [0, 0, 0]
+
+    w_grp = 0.18
+    color_q2 = "#2b83ba"
+    color_q4 = "#fdae61"
+
+    r_q2_pre = ax_a.bar(
+        x - 1.5 * w_grp,
+        q2_pre,
+        width=w_grp,
+        color=color_q2,
+        alpha=0.60,
+        hatch="///",
+        edgecolor="black",
+        linewidth=0.8,
+        label="quant_2bit (Pre-PA)",
+    )
+    r_q2_post = ax_a.bar(
+        x - 0.5 * w_grp,
+        q2_post,
+        width=w_grp,
+        color=color_q2,
+        alpha=0.95,
+        edgecolor="black",
+        linewidth=0.8,
+        label="quant_2bit (Post-PA)",
+    )
+    r_q4_pre = ax_a.bar(
+        x + 0.5 * w_grp,
+        q4_pre,
+        width=w_grp,
+        color=color_q4,
+        alpha=0.60,
+        hatch="///",
+        edgecolor="black",
+        linewidth=0.8,
+        label="quant_4bit (Pre-PA)",
+    )
+    r_q4_post = ax_a.bar(
+        x + 1.5 * w_grp,
+        q4_post,
+        width=w_grp,
+        color=color_q4,
+        alpha=0.95,
+        edgecolor="black",
+        linewidth=0.8,
+        label="quant_4bit (Post-PA)",
+    )
 
     ax_a.set_ylim(0, 118)
-    ax_a.set_ylabel("Key Agreement Rate (%)", fontsize=10.5, fontweight="bold")
+    ax_a.set_ylabel("Key Agreement Rate (KAR) (%)", fontsize=10.5, fontweight="bold")
     ax_a.set_title(
-        "(a) quant_2bit Path: Pre-PA vs Post-PA KAR\n(Input: 1,000 bits | Output: 256-bit SHA-256 Key)",
+        "(a) Quantization Paths: Pre-PA vs Post-PA Mean KAR\n(quant_2bit: 1,000b -> 10 keys | quant_4bit: 2,000b -> 20 keys)",
         fontsize=10.5,
         fontweight="bold",
         pad=8,
@@ -1786,43 +1831,83 @@ def plot_privacy_amplification_figure(
     ax_a.set_xticks(x)
     ax_a.set_xticklabels(pair_labels, fontsize=9.2)
     ax_a.grid(True, linestyle="--", alpha=0.4, axis="y")
+    ax_a.legend(loc="upper right", framealpha=0.92, fontsize=7.8, ncol=2)
 
-    leg_handles_a = [
-        plt.Rectangle((0, 0), 1, 1, facecolor=c_pre, edgecolor="black", linewidth=0.8),
-        plt.Rectangle((0, 0), 1, 1, facecolor=c_legit, edgecolor="black", linewidth=0.8),
-        plt.Rectangle((0, 0), 1, 1, facecolor=c_eve1, edgecolor="black", linewidth=0.8),
-        plt.Rectangle((0, 0), 1, 1, facecolor=c_eve2, edgecolor="black", linewidth=0.8),
-    ]
-    leg_labels_a = ["Pre-PA KAR", "Post-PA (Alice–Bob)", "Post-PA (Eve1-Alice)", "Post-PA (Eve1-Bob)"]
-    ax_a.legend(leg_handles_a, leg_labels_a, loc="upper right", framealpha=0.92, fontsize=8.2)
-
-    for i, rect in enumerate(r_q_pre):
+    for rect in r_q2_pre:
         h = rect.get_height()
-        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=c_pre)
-    for i, rect in enumerate(r_q_post):
+        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#1c5579")
+    for rect in r_q2_post:
         h = rect.get_height()
-        col = c_bar_post[i]
-        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=col)
-        d_val_i = q_deltas[i]
-        d_txt = f"Δ={d_val_i:+.1f}pp"
-        badge_y = h + 9.5 if h < 95 else 111.0
-        ax_a.annotate(d_txt, xy=(rect.get_x() + rect.get_width() / 2.0, badge_y), ha="center", va="center", fontsize=8.0, fontweight="bold", color=col, bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor=col, alpha=0.92, linewidth=0.7))
+        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#1c5579")
+    for rect in r_q4_pre:
+        h = rect.get_height()
+        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#b35806")
+    for rect in r_q4_post:
+        h = rect.get_height()
+        ax_a.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#b35806")
 
     # =========================================================================
-    # Panel (b): prbs_2bit: Pre-PA vs Post-PA KAR
+    # Panel (b): PRBS Paths (prbs_2bit vs prbs_4bit) Pre-PA vs Post-PA Mean KAR
     # =========================================================================
     ax_b = fig.add_subplot(gs[0, 1])
-    p_pre = [p_res[p].pre_pa_kar for p in pair_names]
-    p_post = [p_res[p].post_pa_kar for p in pair_names]
-    p_deltas = [p_res[p].kar_delta for p in pair_names]
+    p2_res = pa_result.pair_results.get("prbs_2bit", {})
+    p4_res = pa_result.pair_results.get("prbs_4bit", {})
 
-    r_p_pre = ax_b.bar(x - b_width / 2.0, p_pre, width=b_width, color=c_pre, edgecolor="black", linewidth=0.8, label="Pre-PA KAR (Reconciled)")
-    r_p_post = ax_b.bar(x + b_width / 2.0, p_post, width=b_width, color=c_bar_post, edgecolor="black", linewidth=0.8, label="Post-PA KAR (256-bit Key)")
+    p2_pre = [p2_res[p].pre_pa_kar for p in pair_names] if p2_res else [0, 0, 0]
+    p2_post = [p2_res[p].post_pa_kar for p in pair_names] if p2_res else [0, 0, 0]
+    p4_pre = [p4_res[p].pre_pa_kar for p in pair_names] if p4_res else [0, 0, 0]
+    p4_post = [p4_res[p].post_pa_kar for p in pair_names] if p4_res else [0, 0, 0]
+
+    color_p2 = "#abdda4"
+    color_p4 = "#74add1"
+
+    r_p2_pre = ax_b.bar(
+        x - 1.5 * w_grp,
+        p2_pre,
+        width=w_grp,
+        color=color_p2,
+        alpha=0.60,
+        hatch="///",
+        edgecolor="black",
+        linewidth=0.8,
+        label="prbs_2bit (Pre-PA)",
+    )
+    r_p2_post = ax_b.bar(
+        x - 0.5 * w_grp,
+        p2_post,
+        width=w_grp,
+        color=color_p2,
+        alpha=0.95,
+        edgecolor="black",
+        linewidth=0.8,
+        label="prbs_2bit (Post-PA)",
+    )
+    r_p4_pre = ax_b.bar(
+        x + 0.5 * w_grp,
+        p4_pre,
+        width=w_grp,
+        color=color_p4,
+        alpha=0.60,
+        hatch="///",
+        edgecolor="black",
+        linewidth=0.8,
+        label="prbs_4bit (Pre-PA)",
+    )
+    r_p4_post = ax_b.bar(
+        x + 1.5 * w_grp,
+        p4_post,
+        width=w_grp,
+        color=color_p4,
+        alpha=0.95,
+        edgecolor="black",
+        linewidth=0.8,
+        label="prbs_4bit (Post-PA)",
+    )
 
     ax_b.set_ylim(0, 118)
-    ax_b.set_ylabel("Key Agreement Rate (%)", fontsize=10.5, fontweight="bold")
+    ax_b.set_ylabel("Key Agreement Rate (KAR) (%)", fontsize=10.5, fontweight="bold")
     ax_b.set_title(
-        "(b) prbs_2bit Path: Pre-PA vs Post-PA KAR\n(Input: 1,500 bits | Output: 256-bit SHA-256 Key)",
+        "(b) PRBS Paths: Pre-PA vs Post-PA Mean KAR\n(prbs_2bit: 4,000b -> 40 keys | prbs_4bit: 4,000b -> 40 keys)",
         fontsize=10.5,
         fontweight="bold",
         pad=8,
@@ -1830,96 +1915,97 @@ def plot_privacy_amplification_figure(
     ax_b.set_xticks(x)
     ax_b.set_xticklabels(pair_labels, fontsize=9.2)
     ax_b.grid(True, linestyle="--", alpha=0.4, axis="y")
-    ax_b.legend(leg_handles_a, leg_labels_a, loc="upper right", framealpha=0.92, fontsize=8.2)
+    ax_b.legend(loc="upper right", framealpha=0.92, fontsize=7.8, ncol=2)
 
-    for i, rect in enumerate(r_p_pre):
+    for rect in r_p2_pre:
         h = rect.get_height()
-        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=c_pre)
-    for i, rect in enumerate(r_p_post):
+        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#27681c")
+    for rect in r_p2_post:
         h = rect.get_height()
-        col = c_bar_post[i]
-        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=col)
-        d_val_i = p_deltas[i]
-        d_txt = f"Δ={d_val_i:+.1f}pp"
-        badge_y = h + 9.5 if h < 95 else 111.0
-        ax_b.annotate(d_txt, xy=(rect.get_x() + rect.get_width() / 2.0, badge_y), ha="center", va="center", fontsize=8.0, fontweight="bold", color=col, bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor=col, alpha=0.92, linewidth=0.7))
+        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#27681c")
+    for rect in r_p4_pre:
+        h = rect.get_height()
+        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#313695")
+    for rect in r_p4_post:
+        h = rect.get_height()
+        ax_b.annotate(f"{h:.1f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=6.8, fontweight="bold", color="#313695")
 
     # =========================================================================
-    # Panel (c): Key Agreement Rate & Exact Match Comparison Across Both Paths
+    # Panel (c): Exact Match Rates across All 4 Paths
     # =========================================================================
     ax_c = fig.add_subplot(gs[1, 0])
-    group_labels = ["Alice–Bob\n(Legitimate)", "Alice–Eve1-Alice\n(Eve stream 1)", "Alice–Eve1-Bob\n(Eve stream 2)"]
-    x_c = np.arange(len(group_labels))
-    w_c = 0.35
+    all_paths = [p for p in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"] if p in pa_result.pair_results]
+    x_c = np.arange(len(all_paths))
+    w_c = 0.25
 
-    q_kar_vals = [q_res[p].post_pa_kar for p in pair_names]
-    p_kar_vals = [p_res[p].post_pa_kar for p in pair_names]
+    ab_rates = [pa_result.pair_results[p]["Alice–Bob"].exact_match_rate_percent for p in all_paths]
+    ea_rates = [pa_result.pair_results[p]["Alice–Eve1-Alice"].exact_match_rate_percent for p in all_paths]
+    eb_rates = [pa_result.pair_results[p]["Bob–Eve1-Bob"].exact_match_rate_percent for p in all_paths]
 
-    bars_q = ax_c.bar(x_c - w_c / 2.0, q_kar_vals, width=w_c, color="#2b83ba", edgecolor="black", linewidth=0.8, label="quant_2bit (256-bit Key)")
-    bars_p = ax_c.bar(x_c + w_c / 2.0, p_kar_vals, width=w_c, color="#abdda4", edgecolor="black", linewidth=0.8, label="prbs_2bit (256-bit Key)")
+    b_ab = ax_c.bar(x_c - w_c, ab_rates, width=w_c, color=c_legit, edgecolor="black", linewidth=0.8, label="Alice–Bob (Legitimate)")
+    b_ea = ax_c.bar(x_c, ea_rates, width=w_c, color=c_eve1, edgecolor="black", linewidth=0.8, label="Alice–Eve1-Alice (Eve 1)")
+    b_eb = ax_c.bar(x_c + w_c, eb_rates, width=w_c, color=c_eve2, edgecolor="black", linewidth=0.8, label="Bob–Eve1-Bob (Eve 2)")
 
-    ax_c.axhline(50.0, color="#d73027", linestyle=":", linewidth=1.2, label="50% Ideal Avalanche Level (Random Guessing)")
     ax_c.set_ylim(0, 118)
-    ax_c.set_ylabel("Final Key Agreement Rate (%)", fontsize=10.5, fontweight="bold")
+    ax_c.set_ylabel("Exact Key Match Rate (%)", fontsize=10.5, fontweight="bold")
     ax_c.set_title(
-        "(c) Final Secret Key KAR & Avalanche Isolation\n(Legitimate: 100% Match | Eavesdropper: Residual Errors Induce ~50% KAR)",
+        "(c) Exact Key Match Rate across All 4 Paths\n(Legitimate: 100% Match | Eavesdropper: Residual Errors Prevent 100% Match)",
         fontsize=10.5,
         fontweight="bold",
         pad=8,
     )
+    path_labels_c = [f"{p}\n({pa_result.pair_results[p]['Alice–Bob'].num_chunks} keys)" for p in all_paths]
     ax_c.set_xticks(x_c)
-    ax_c.set_xticklabels(group_labels, fontsize=9.2)
+    ax_c.set_xticklabels(path_labels_c, fontsize=9.0)
     ax_c.grid(True, linestyle="--", alpha=0.4, axis="y")
     ax_c.legend(loc="upper right", framealpha=0.92, fontsize=8.2)
 
-    for i, rect in enumerate(bars_q):
+    for i, rect in enumerate(b_ab):
         h = rect.get_height()
-        pair_key = pair_names[i]
-        match_str = "MATCH" if q_res[pair_key].exact_key_match else "MISMATCH"
-        ax_c.annotate(f"{h:.1f}%\n[{match_str}]", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.8, fontweight="bold", color="#1c5579")
-
-    for i, rect in enumerate(bars_p):
+        ax_c.annotate(f"{h:.0f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.8, fontweight="bold", color=c_legit)
+    for i, rect in enumerate(b_ea):
         h = rect.get_height()
-        pair_key = pair_names[i]
-        match_str = "MATCH" if p_res[pair_key].exact_key_match else "MISMATCH"
-        ax_c.annotate(f"{h:.1f}%\n[{match_str}]", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.8, fontweight="bold", color="#27681c")
+        ax_c.annotate(f"{h:.0f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.8, fontweight="bold", color=c_eve1)
+    for i, rect in enumerate(b_eb):
+        h = rect.get_height()
+        ax_c.annotate(f"{h:.0f}%", xy=(rect.get_x() + rect.get_width() / 2.0, h), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.8, fontweight="bold", color=c_eve2)
 
     # =========================================================================
     # Panel (d): Quantitative Summary Table & Scientific Disclaimer Box
     # =========================================================================
-    sub_gs_d = gs[1, 1].subgridspec(2, 1, height_ratios=[1.3, 1.0], hspace=0.28)
+    sub_gs_d = gs[1, 1].subgridspec(2, 1, height_ratios=[1.35, 0.95], hspace=0.35)
 
     # Sub-panel 1: Summary Table
     ax_d_tbl = fig.add_subplot(sub_gs_d[0])
     ax_d_tbl.axis("off")
 
     table_data = [
-        ["Path", "Pair", "Pre-KAR", "Post-KAR", "Δ(pp)", "Key Match"],
+        ["Path", "Pair", "Pre-KAR", "Post-Mean", "Match (Rate)", "All Match"],
     ]
-    for p_name in ["quant_2bit", "prbs_2bit"]:
+    for p_name in all_paths:
         for pair in pair_names:
             r = pa_result.pair_results[p_name][pair]
-            p_short = "quant_2b" if p_name == "quant_2bit" else "prbs_2b"
+            p_short = p_name.replace("quant_", "q_").replace("prbs_", "p_")
             pair_short = pair.replace("–", "-").replace("Alice", "A").replace("Bob", "B").replace("Eve1", "E1")
             table_data.append([
                 p_short,
                 pair_short,
-                f"{r.pre_pa_kar:.2f}%",
-                f"{r.post_pa_kar:.2f}%",
-                f"{r.kar_delta:+.2f}",
-                "EXACT MATCH" if r.exact_key_match else "NO MATCH",
+                f"{r.pre_pa_kar:.1f}%",
+                f"{r.post_pa_kar:.1f}%",
+                f"{r.exact_match_count}/{r.num_chunks} ({r.exact_match_rate_percent:.0f}%)",
+                "YES" if r.exact_key_match else "NO",
             ])
 
-    col_widths = [0.16, 0.20, 0.16, 0.16, 0.14, 0.18]
+    col_widths = [0.14, 0.20, 0.16, 0.18, 0.20, 0.12]
     tbl_d = ax_d_tbl.table(
         cellText=table_data,
         cellLoc="center",
         loc="center",
         colWidths=col_widths,
+        bbox=[0.0, 0.0, 1.0, 0.84],
     )
     tbl_d.auto_set_font_size(False)
-    tbl_d.set_fontsize(8.2)
-    tbl_d.scale(1.0, 1.25)
+    tbl_d.set_fontsize(7.5)
 
     for (row_i, col_i), cell in tbl_d.get_celld().items():
         if row_i == 0:
@@ -1930,12 +2016,12 @@ def plot_privacy_amplification_figure(
                 cell.set_facecolor("#f7f9fb")
             if col_i == 5:
                 txt = cell.get_text().get_text()
-                if txt == "EXACT MATCH":
+                if txt == "YES":
                     cell.set_text_props(color=c_legit, fontweight="bold")
                 else:
                     cell.set_text_props(color=c_eve1, fontweight="bold")
 
-    ax_d_tbl.set_title("(d) Quantitative Summary: Pre-PA vs Post-PA KAR (PA.pdf Eq. 3.64)", fontsize=10.2, fontweight="bold", pad=4)
+    ax_d_tbl.set_title("(d) Quantitative Summary: 100-bit Segmented PA Across 4 Paths", fontsize=10.0, fontweight="bold", pad=12)
 
     # Sub-panel 2: Scientific Disclaimer Box
     ax_d_notes = fig.add_subplot(sub_gs_d[1])
@@ -1943,26 +2029,26 @@ def plot_privacy_amplification_figure(
 
     notes_text = (
         "Methodological Notes & Scientific Disclaimer:\n"
-        "• SHA-256 Bit-Level Privacy Amplification (PA.pdf Section 3.2.6, Eqs. 3.37–3.53):\n"
-        "  Bit-level padding M' = M || 1 || 0^p || [L]_64 directly accommodates arbitrary bit lengths\n"
-        "  (L=1000 for quant_2bit, L=1500 for prbs_2bit) yielding 256-bit final keys.\n"
-        "• Avalanche Effect & Channel Isolation: For Alice–Bob, error-free reconciled bitstreams\n"
-        "  yield identical keys (100% Post-PA KAR). For Eve pairs, residual errors trigger the\n"
-        "  cryptographic avalanche effect, driving key agreement to ~50% (random-guess equivalence).\n"
+        "• 100-Bit Segmented SHA-256 Privacy Amplification (PA.pdf Section 3.2.6, Eqs. 3.37–3.53):\n"
+        "  Each bitstream is divided into non-overlapping 100-bit segments (preserving temporal order).\n"
+        "  Each segment yields one 256-bit SHA-256 digest: quant_2bit -> 10 keys, quant_4bit -> 20 keys,\n"
+        "  prbs_2bit -> 40 keys, prbs_4bit -> 40 keys. Incomplete segments are strictly rejected.\n"
+        "• Avalanche Effect & Channel Isolation: For Alice–Bob, error-free segments yield 100% match.\n"
+        "  Residual errors in eavesdropper segments trigger diffusion, driving segment KAR toward ~50%.\n"
         "• Scientific Secrecy Disclaimer: Synthetic software validation only; 256-bit SHA-256 output\n"
-        "  does NOT imply 256 bits of physical entropy when upstream PRBS expansion is deterministic\n"
-        "  and public BCH helper data leaks parity relations. Physical channel probing is postponed."
+        "  does NOT imply 256 bits of physical entropy when PRBS expansion is deterministic and public\n"
+        "  BCH helper data leaks parity relations. Physical channel probing is postponed."
     )
 
     ax_d_notes.text(
         0.00,
         0.98,
         notes_text,
-        fontsize=7.8,
+        fontsize=7.4,
         va="top",
         ha="left",
         family="sans-serif",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="#fff9e6", edgecolor="#d4b106", linewidth=1.1),
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="#fff9e6", edgecolor="#d4b106", linewidth=1.0),
     )
 
     fig.savefig(png_path, dpi=300, bbox_inches="tight")

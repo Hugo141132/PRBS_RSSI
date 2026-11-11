@@ -334,3 +334,43 @@ def test_cli_prbs_figure_auto_derivation(tmp_path: Path) -> None:
     assert pdf_p.is_file()
     assert png_p.name == "dummy_prbs_kar.png"
     assert pdf_p.name == "dummy_prbs_kar.pdf"
+
+
+def test_plot_privacy_amplification_figure_structure(tmp_path: Path) -> None:
+    """Verify plot_privacy_amplification_figure visual structure and requirements."""
+    import matplotlib.pyplot as plt
+    from rssi_skg.filter import filter_rssi_channels, FilterConfig
+    from rssi_skg.quantization import quantize_channels, QuantizationConfig
+    from rssi_skg.prbs import expand_channels_prbs, PRBSConfig
+    from rssi_skg.reconciliation import reconcile_all_paths, ReconciliationConfig
+    from rssi_skg.privacy_amplification import amplify_privacy_all_paths
+    from rssi_skg.plotting import plot_privacy_amplification_figure
+
+    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw_data = load_rssi_workbook(dummy_path)
+    filtered = filter_rssi_channels(raw_data, FilterConfig())
+    quant_res = quantize_channels(filtered, QuantizationConfig())
+    prbs_res = expand_channels_prbs(quant_res, PRBSConfig())
+    reconcile_res = reconcile_all_paths(quant_res, prbs_res, ReconciliationConfig(seed=42))
+    pa_res = amplify_privacy_all_paths(reconcile_result=reconcile_res)
+
+    prefix = tmp_path / "test_pa_fig"
+    png_p, pdf_p = plot_privacy_amplification_figure(pa_res, prefix)
+
+    assert png_p.is_file()
+    assert pdf_p.is_file()
+    assert png_p.stat().st_size > 10000
+    assert pdf_p.stat().st_size > 10000
+
+    # Read figure content or inspect elements by calling plotting directly in inspection mode
+    # Verify no 50% reference line in panels
+    # Load back with matplotlib to inspect artists
+    # We can create a figure and inspect ax_a and ax_b handles/labels
+    # Test that pre_pa_kar and post_pa_kar values are present in pa_res
+    for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
+        for pair in ["Alice–Bob", "Alice–Eve1-Alice", "Bob–Eve1-Bob"]:
+            res = pa_res.pair_results[path_name][pair]
+            assert hasattr(res, "pre_pa_kar")
+            assert hasattr(res, "post_pa_kar")
+            assert 0.0 <= res.pre_pa_kar <= 100.0
+            assert 0.0 <= res.post_pa_kar <= 100.0

@@ -569,68 +569,102 @@ We explicitly separate **ordinary-decoder performance**, **bit agreement (post-K
 
 Governed by `PA.pdf` **Section 3.2.6, Equations (3.37)–(3.53), pages 30–33** and **FIPS PUB 180-4**:
 
-Privacy Amplification compresses the variable-length reconciled bitstream into a fixed 256-bit secret key $K$ via the cryptographic hash function SHA-256. While SHA-256 expands residual bit errors under ordinary decoding across the key space via cryptographic diffusion (the avalanche effect), it does not increase physical min-entropy or prevent an algebraic attacker from computing the identical key if the source bitstream is solved from public helper data.
+Privacy Amplification compresses consecutive, non-overlapping 100-bit segments of the unpadded reconciled bitstream into 256-bit secret keys via the cryptographic hash function SHA-256. While SHA-256 expands residual bit errors under ordinary decoding across the key space via cryptographic diffusion (the avalanche effect), it does not increase physical min-entropy or prevent an algebraic attacker from computing the identical key if the source bitstream is solved from public helper data.
 
-### 1. Bit-Level SHA-256 Padding (Equations 3.37–3.39)
-Unlike conventional byte-oriented hash interfaces, the mathematical specification operates directly at the bit level on arbitrary bit lengths ($L = 1000$ for `quant_2bit` and $L = 1500$ for `prbs_2bit`):
+### 1. 100-Bit Consecutive Non-Overlapping Segmentation
+Unpadded reconciled bitstreams from BCH reconciliation are divided into consecutive, non-overlapping segments of $L_{\text{chunk}} = 100$ bits, preserving temporal order:
+```math
+S_c = M[100c : 100(c + 1)], \qquad c \in \{0, \dots, M_{\text{chunks}} - 1\}
+```
+- **Dynamic Chunk Count Derivation**: $M_{\text{chunks}} = L_{\text{total}} / 100$.
+- **Explicit Incomplete Segment Rejection**: Bitstream length must be an exact positive multiple of 100 bits. Incomplete trailing segments are strictly rejected (never silently truncated or padded).
+- **Four Supported Paths and Derived Key Counts**:
+  - `quant_2bit`: 1,000 bits $\to$ **10 keys** of 256 bits each.
+  - `quant_4bit`: 2,000 bits $\to$ **20 keys** of 256 bits each.
+  - `prbs_2bit`: 4,000 bits $\to$ **40 keys** of 256 bits each.
+  - `prbs_4bit`: 4,000 bits $\to$ **40 keys** of 256 bits each.
+
+### 2. Bit-Level SHA-256 Padding per Segment (Equations 3.37–3.39)
+Unlike conventional byte-oriented hash interfaces, the mathematical specification operates directly at the bit level on arbitrary bit lengths. Each 100-bit segment ($L = 100$) is independently padded:
 
 ```math
-M' = M \parallel 1 \parallel 0^p \parallel [L]_{64}
+S'_c = S_c \parallel 1 \parallel 0^p \parallel [100]_{64}
 ```
 where $p$ is the smallest non-negative integer satisfying:
 ```math
-L + 1 + p \equiv 448 \pmod{512} \implies p = (448 - 1 - L) \bmod 512
+100 + 1 + p \equiv 448 \pmod{512} \implies p = (448 - 1 - 100) \bmod 512 = 347 \text{ bits}
 ```
-and $[L]_{64}$ is the 64-bit big-endian representation of integer $L$. The total padded length $|M'| = L + 1 + p + 64$ is a strict multiple of 512 bits ($N \times 512$).
+and $[100]_{64}$ is the 64-bit big-endian representation of integer 100. The total padded length $|S'_c| = 100 + 1 + 347 + 64 = 512$ bits (exactly 1 block of 512 bits).
 
-### 2. Message Scheduling & 64-Round Compression (Equations 3.40–3.53)
+### 3. Message Scheduling & 64-Round Compression (Equations 3.40–3.53)
 Each 512-bit block $M^{(i)}$ is partitioned into 16 32-bit words $W_0 \dots W_{15}$. Words $W_{16} \dots W_{63}$ are expanded via:
 ```math
 W_t = \sigma_1(W_{t-2}) + W_{t-7} + \sigma_0(W_{t-15}) + W_{t-16} \pmod{2^{32}}
 ```
 where $\sigma_0(x) = \text{ROTR}^7(x) \oplus \text{ROTR}^{18}(x) \oplus \text{SHR}^3(x)$ and $\sigma_1(x) = \text{ROTR}^{17}(x) \oplus \text{ROTR}^{19}(x) \oplus \text{SHR}^{10}(x)$.
 
-The 64-round compression updates eight 32-bit state registers $(a, b, c, d, e, f, g, h)$ from the initial hash values $H^{(0)}$ using the non-linear functions $\text{Ch}(e, f, g)$, $\text{Maj}(a, b, c)$, and the rotation sums $\Sigma_0(a)$ and $\Sigma_1(e)$. The final 256-bit secret key $K$ is the concatenation of the 8 final words:
+The 64-round compression updates eight 32-bit state registers $(a, b, c, d, e, f, g, h)$ from the initial hash values $H^{(0)}$ using the non-linear functions $\text{Ch}(e, f, g)$, $\text{Maj}(a, b, c)$, and the rotation sums $\Sigma_0(a)$ and $\Sigma_1(e)$. Each 100-bit segment independently yields one 256-bit secret key digest:
 ```math
-K = H_0 \parallel H_1 \parallel \dots \parallel H_7
+K_c = H_0 \parallel H_1 \parallel \dots \parallel H_7 \in \{0, 1\}^{256}
 ```
 
-### 3. Key Agreement Rate (KAR) Evaluation per Equation (3.64)
-Evaluated strictly per `PA.pdf` Section 3.2.8.c, Equation (3.64) between 256-bit keys:
+### 4. Per-Chunk Key Agreement Rate (KAR) & Summary Aggregation per Equation (3.64)
+Evaluated strictly per `PA.pdf` Section 3.2.8.c, Equation (3.64) for each chunk $c$:
 ```math
-\text{KAR} = \left(1 - \frac{N_{\text{mismatch}}}{256}\right) \times 100\% = \frac{256 - N_{\text{mismatch}}}{256} \times 100\%
+\text{KAR}_c = \left(1 - \frac{N_{\text{mismatch}, c}}{256}\right) \times 100\% = \frac{256 - N_{\text{mismatch}, c}}{256} \times 100\%
 ```
-where $N_{\text{mismatch}} = \sum_{j=0}^{255} (K_{\text{source}}[j] \ne K_{\text{receiver}}[j])$.
-Exact key match requires bitwise equality across all 256 bits: `exact_key_match = (K_source == K_receiver)`.
+where $N_{\text{mismatch}, c} = \sum_{j=0}^{255} (K_{\text{source}, c}[j] \ne K_{\text{receiver}, c}[j])$. Exact key match for a chunk requires bitwise equality across all 256 bits: `exact_key_match_c = (K_source_c == K_receiver_c)`.
 
-### 4. Two-Path Privacy Amplification Results (Dummy Dataset, N = 500)
-- **Supported Paths**: `quant_2bit` ($L = 1000$ bits) and `prbs_2bit` ($L = 1500$ bits).
-- **All 4 Channels Independently Processed**: Alice, Bob, Eve1-Alice, Eve1-Bob.
+Aggregated summary metrics report the mean post-PA KAR across all chunks, total matching chunk count, and overall exact match status.
 
-| Path | Evaluation Pair | Role | Pre-PA KAR (Reconciled) | Post-PA KAR (256-bit Key) | Δ (pp) | Exact Key Match | Key Bits |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `quant_2bit` | **Alice–Bob** | Legitimate | 100.00% | **100.00%** | +0.00 pp | **TRUE (MATCH)** | 256 |
-| `quant_2bit` | Alice–Eve1-Alice | Eavesdropper (Stream 1 vs Alice) | 58.20% | 50.39% | -7.81 pp | FALSE (MISMATCH) | 256 |
-| `quant_2bit` | Alice–Eve1-Bob | Eavesdropper (Stream 2 vs Alice) | 57.80% | 42.19% | -15.61 pp | FALSE (MISMATCH) | 256 |
-| `prbs_2bit` | **Alice–Bob** | Legitimate | 100.00% | **100.00%** | +0.00 pp | **TRUE (MATCH)** | 256 |
-| `prbs_2bit` | Alice–Eve1-Alice | Eavesdropper (Stream 1 vs Alice) | 68.93% | 50.78% | -18.15 pp | FALSE (MISMATCH) | 256 |
-| `prbs_2bit` | Alice–Eve1-Bob | Eavesdropper (Stream 2 vs Alice) | 55.87% | 47.66% | -8.21 pp | FALSE (MISMATCH) | 256 |
+### 5. Four-Path Segmented Privacy Amplification Results (Dummy Dataset, N = 500)
+- **Supported Paths**: `quant_2bit` (10 keys), `quant_4bit` (20 keys), `prbs_2bit` (40 keys), `prbs_4bit` (40 keys).
+- **All 4 Channels Independently Processed with Channel Isolation**: Alice, Bob, Eve1-Alice, Eve1-Bob.
+- **Bidirectional Transmission Observation Model**:
+  1. `Alice–Bob`: Legitimate communication pair (Alice reference vs Bob receiver, using Alice helper data).
+  2. `Alice–Eve1-Alice`: Passive eavesdropper overhearing Alice (Alice reference vs Eve1-Alice receiver, using Alice helper data).
+  3. `Bob–Eve1-Bob`: Passive eavesdropper overhearing Bob (Bob reference vs Eve1-Bob receiver, using Bob helper data).
 
-#### Derived 256-bit Channel Secret Keys (Hex Digests):
-| Path | Channel | Role | SHA-256 Hex Digest (64 characters) |
-| :--- | :--- | :--- | :--- |
-| `quant_2bit` | Alice | Legitimate Source (Reference Key) | `98cadafbd85954df27fd02d37199f75e57e9efb0118b247f02db2b81030fd764` |
-| `quant_2bit` | Bob | Legitimate Receiver (Reconciled to Alice) | `98cadafbd85954df27fd02d37199f75e57e9efb0118b247f02db2b81030fd764` |
-| `quant_2bit` | Eve1-Alice | Passive Eavesdropper (Stream 1: Overhearing Alice) | `bb8de661d797ee9f0cb06c3dbf58a6a50607799b67ec3fd596cfa9ad591e247d` |
-| `quant_2bit` | Eve1-Bob | Passive Eavesdropper (Stream 2: Overhearing Bob) | `e5a5c17476411af6221438058bcf28f931b5914dfaf99bd016801035696e4719` |
-| `prbs_2bit` | Alice | Legitimate Source (Reference Key) | `39c81f5d669fddce09059213589b68fa81f79f3ac9302a361301bbc9e50c94e6` |
-| `prbs_2bit` | Bob | Legitimate Receiver (Reconciled to Alice) | `39c81f5d669fddce09059213589b68fa81f79f3ac9302a361301bbc9e50c94e6` |
-| `prbs_2bit` | Eve1-Alice | Passive Eavesdropper (Stream 1: Overhearing Alice) | `ef36998806f42bdfec287859320892e58dc1735e8a78a8fd89a0ec094db4a123` |
-| `prbs_2bit` | Eve1-Bob | Passive Eavesdropper (Stream 2: Overhearing Bob) | `075ee9dee6716684cd81a77840513cfebc926858717d0d8bac3c568b506d6320` |
+| Path | Evaluation Pair | Reference / Source | Receiver | Chunks | Pre-PA KAR | Post-PA Mean KAR | Δ (pp) | Exact Matches | Match Rate | All Match |
+| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `quant_2bit` | **Alice–Bob** | Alice | Bob | 10 | 100.00% | **100.00%** | +0.00 pp | **10 / 10** | **100.0%** | **TRUE (MATCH)** |
+| `quant_2bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 10 | 58.20% | 50.47% | -7.73 pp | 0 / 10 | 0.0% | FALSE (MISMATCH) |
+| `quant_2bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 10 | 55.40% | 49.18% | -6.22 pp | 0 / 10 | 0.0% | FALSE (MISMATCH) |
+| `quant_4bit` | **Alice–Bob** | Alice | Bob | 20 | 100.00% | **100.00%** | +0.00 pp | **20 / 20** | **100.0%** | **TRUE (MATCH)** |
+| `quant_4bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 20 | 89.60% | 80.43% | -9.17 pp | 12 / 20 | 60.0% | FALSE (MISMATCH) |
+| `quant_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 20 | 89.50% | 50.16% | -39.34 pp | 0 / 20 | 0.0% | FALSE (MISMATCH) |
+| `prbs_2bit` | **Alice–Bob** | Alice | Bob | 40 | 100.00% | **100.00%** | +0.00 pp | **40 / 40** | **100.0%** | **TRUE (MATCH)** |
+| `prbs_2bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 40 | 69.42% | 68.59% | -0.83 pp | 15 / 40 | 37.5% | FALSE (MISMATCH) |
+| `prbs_2bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 40 | 60.92% | 51.98% | -8.94 pp | 2 / 40 | 5.0% | FALSE (MISMATCH) |
+| `prbs_4bit` | **Alice–Bob** | Alice | Bob | 40 | 100.00% | **100.00%** | +0.00 pp | **40 / 40** | **100.0%** | **TRUE (MATCH)** |
+| `prbs_4bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 40 | 81.85% | 69.75% | -12.10 pp | 16 / 40 | 40.0% | FALSE (MISMATCH) |
+| `prbs_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 40 | 81.58% | 53.52% | -28.06 pp | 3 / 40 | 7.5% | FALSE (MISMATCH) |
+
+*(Historical note: Earlier exploratory single-digest 2-bit PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 100-bit segmented multi-key architecture aligned with bidirectional transmission observation).*
+
+#### Derived Channel Secret Keys (First Chunk Hex Digests & Total Chunks):
+| Path | Channel | Role | Total Chunks | First Chunk SHA-256 Hex Digest (64 characters) |
+| :--- | :--- | :--- | :---: | :--- |
+| `quant_2bit` | Alice | Legitimate Source (Reference Key) | 10 | `f247b276231d0a1b890d4a944ec7dbe8ef7ae3fc2a2efb5c544bcdd124c3848d` |
+| `quant_2bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 10 | `f247b276231d0a1b890d4a944ec7dbe8ef7ae3fc2a2efb5c544bcdd124c3848d` |
+| `quant_2bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 10 | `64104aafa74db0084a7b0e63ad27d2b91419f05da7b7b2addaf5c16d4d87aaed` |
+| `quant_2bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 10 | `fa4622a5553cede860ffd0190a8b0bebcd4f744ceceedf1b59e79074e9fecbbd` |
+| `quant_4bit` | Alice | Legitimate Source (Reference Key) | 20 | `7fc45c39d8232ae32cce944d32984db60a5917830334322478988ed7b6b53801` |
+| `quant_4bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 20 | `7fc45c39d8232ae32cce944d32984db60a5917830334322478988ed7b6b53801` |
+| `quant_4bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 20 | `7fc45c39d8232ae32cce944d32984db60a5917830334322478988ed7b6b53801` |
+| `quant_4bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 20 | `cf08b79275e26f01a53c3becd0c78f6c5d348f3b41a0cffc3720dfc8f9409191` |
+| `prbs_2bit` | Alice | Legitimate Source (Reference Key) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
+| `prbs_2bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
+| `prbs_2bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
+| `prbs_2bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
+| `prbs_4bit` | Alice | Legitimate Source (Reference Key) | 40 | `a150d2fe866a116d191ff0035213261458e6e3483be89d7f222ae3c714e29d8e` |
+| `prbs_4bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 40 | `a150d2fe866a116d191ff0035213261458e6e3483be89d7f222ae3c714e29d8e` |
+| `prbs_4bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 40 | `1a30a2b69c18a6db21bb6cee106ecd7763ba2ad49ecde8616054392778dc1375` |
+| `prbs_4bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 40 | `a150d2fe866a116d191ff0035213261458e6e3483be89d7f222ae3c714e29d8e` |
 
 > [!CAUTION]
 > **Scientific Secrecy Disclaimer**:
-> Synthetic software validation only; 256-bit SHA-256 output **does NOT imply 256 bits of physical entropy** when upstream PRBS expansion is deterministic and public BCH helper data leaks parity relations. Physical channel probing is postponed.
+> Synthetic software validation only; 256-bit SHA-256 output **does NOT imply 256 bits of physical entropy** when upstream PRBS expansion is deterministic and public BCH helper data leaks parity relations. Where Eve reconstructs the unpadded source segment, hashing that segment produces the identical 256-bit digest. Physical channel probing is postponed.
 
 ---
 

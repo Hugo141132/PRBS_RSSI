@@ -1,47 +1,42 @@
-"""Privacy Amplification module using bit-level SHA-256.
+"""Privacy Amplification module using bit-level SHA-256 with 100-bit segmentation.
 
 Governing Specification:
     PA.pdf Section 3.2.6, Equations (3.37)–(3.53), pages 30–33 (Privacy Amplification using SHA-256).
     PA.pdf Section 3.2.8.c, Equation (3.64), page 35 (Key Agreement Rate).
     FIPS PUB 180-4: Secure Hash Standard (SHS) for SHA-256 specification.
 
-Mathematical Formulation:
-    1. Bit-level Padding (Section 3.2.6, Equations 3.37–3.39):
-       Given an unpadded bitstream M in {0, 1}^L of arbitrary length L:
-           M' = M || 1 || 0^p || [L]_64
-       where p is the smallest non-negative integer satisfying:
-           L + 1 + p = 448 (mod 512)   ==>   p = (448 - 1 - L) mod 512
-       and [L]_64 is the 64-bit big-endian binary representation of integer L.
-       Total padded length |M'| = L + 1 + p + 64 = N * 512 bits.
+Mathematical Formulation & Segmentation Architecture:
+    1. 100-Bit Consecutive Non-Overlapping Segmentation:
+       Given an unpadded reconciled bitstream M in {0, 1}^L:
+           - Incomplete segments are strictly rejected (L must be a multiple of SEGMENT_SIZE_BITS=100).
+           - The bitstream is partitioned into M_chunks = L // 100 segments:
+                 S_c = M[c * 100 : (c + 1) * 100],  c in {0, ..., M_chunks - 1}
+           - Temporal ordering of segments is strictly preserved.
+           - No padding or truncation of the source/reconciled stream is applied during chunking.
 
-    2. Message Scheduling (Section 3.2.6, Equations 3.40–3.43):
-       Each 512-bit block is parsed into sixteen 32-bit big-endian words W_0 .. W_15.
-       Words W_16 .. W_63 are generated via:
-           sigma_0(x) = ROTR^7(x) XOR ROTR^18(x) XOR SHR^3(x)   (Eq 3.40)
-           sigma_1(x) = ROTR^17(x) XOR ROTR^19(x) XOR SHR^10(x) (Eq 3.42)
-           W_t = (sigma_1(W_{t-2}) + W_{t-7} + sigma_0(W_{t-15}) + W_{t-16}) mod 2^32 (Eq 3.43)
+    2. Bit-level SHA-256 Hash Compression per Segment (PA.pdf Section 3.2.6, Equations 3.37–3.39):
+       Each 100-bit segment S_c (L_c = 100) is independently padded per FIPS 180-4:
+           S'_c = S_c || 1 || 0^p || [100]_64
+       where p = (448 - 1 - 100) mod 512 = 347 bits, and [100]_64 is the 64-bit big-endian
+       representation of integer 100. Total padded length |S'_c| = 100 + 1 + 347 + 64 = 512 bits (1 block).
 
-    3. 64-Round Compression Loop (Section 3.2.6, Equations 3.44–3.53):
-       Functions on 32-bit words:
-           Ch(x, y, z) = (x AND y) XOR (NOT x AND z)            (Eq 3.44)
-           Maj(x, y, z) = (x AND y) XOR (x AND z) XOR (y AND z) (Eq 3.45)
-           Sigma_0(x) = ROTR^2(x) XOR ROTR^13(x) XOR ROTR^22(x) (Eq 3.46)
-           Sigma_1(x) = ROTR^6(x) XOR ROTR^11(x) XOR ROTR^25(x) (Eq 3.47)
-       Round update for t = 0 .. 63:
-           T1 = (h + Sigma_1(e) + Ch(e, f, g) + K_t + W_t) mod 2^32 (Eq 3.48)
-           T2 = (Sigma_0(a) + Maj(a, b, c)) mod 2^32                (Eq 3.49)
-           h = g; g = f; f = e; e = (d + T1) mod 2^32
-           d = c; c = b; b = a; a = (T1 + T2) mod 2^32
-       Intermediate hash update:
-           H_j^(i) = (H_j^(i-1) + {a..h}_j) mod 2^32
+    3. Message Scheduling & 64-Round Compression Loop (Equations 3.40–3.53):
+       Each 512-bit block is parsed into sixteen 32-bit big-endian words W_0 .. W_15,
+       expanded to W_16 .. W_63, and processed through the 64-round SHA-256 compression
+       loop to yield a 256-bit digest:
+           K_c = H_0 || H_1 || ... || H_7 in {0, 1}^256 (64 hex characters).
 
-    4. Final 256-bit Secret Key:
-       K = H_0 || H_1 || ... || H_7 (256 bits, represented as 256-char binary string and 64-char hex digest).
+    4. Supported Paths & Chunk Counts:
+       - quant_2bit: 1,000 bits -> 10 keys
+       - quant_4bit: 2,000 bits -> 20 keys
+       - prbs_2bit:  4,000 bits -> 40 keys
+       - prbs_4bit:  4,000 bits -> 40 keys
 
-Supported Paths:
-    Strictly restricted to the two reconciled paths:
-    1. quant_2bit (L = 1,000 bits)
-    2. prbs_2bit  (L = 1,500 bits)
+    5. Key Agreement Rate (KAR) per Segment & Summary Aggregation (PA.pdf Section 3.2.8.c, Eq 3.64):
+       For each chunk c between source digest K_s^(c) and receiver digest K_r^(c):
+           KAR^(c) = ((256 - mismatches) / 256) * 100%
+           exact_key_match^(c) = (K_s^(c) == K_r^(c))
+       Summary metrics aggregate mean KAR, total matching chunks, and overall exact match status.
 
 Scientific & Secrecy Disclaimer:
     256-bit SHA-256 output does not imply 256 bits of physical entropy when upstream
@@ -63,16 +58,24 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from rssi_skg.reconciliation import (
-    EVALUATION_PAIRS,
     MultiPathReconciliationResult,
     PairReconciliationResult,
+    PATHS,
 )
 
-# Downstream Evaluation Status:
-# Paused for the 8-bit PRBS / 4-path revision pending 4-path key derivation architecture.
-# Historical PA evaluation is preserved strictly on the prior 2-bit paths.
-PA_PATHS: tuple[str, ...] = ("quant_2bit", "prbs_2bit")
-PA_DOWNSTREAM_STATUS: str = "PAUSED (historical 2-bit evaluation preserved; 4-path derivation postponed)"
+# Supported 4-path architecture
+PA_PATHS: tuple[str, ...] = ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
+SEGMENT_SIZE_BITS: int = 100
+
+# Canonical PA evaluation pairs under bidirectional transmission observation model:
+#   1. Alice–Bob: Legitimate communication pair (Alice reference, Bob receiver)
+#   2. Alice–Eve1-Alice: Passive observer overhearing Alice (Alice reference, Eve1-Alice receiver)
+#   3. Bob–Eve1-Bob: Passive observer overhearing Bob (Bob reference, Eve1-Bob receiver)
+PA_EVALUATION_PAIRS: tuple[tuple[str, str, str, str, bool], ...] = (
+    ("Alice", "Bob", "Alice–Bob", "Alice", True),
+    ("Alice", "Eve1-Alice", "Alice–Eve1-Alice", "Alice", False),
+    ("Bob", "Eve1-Bob", "Bob–Eve1-Bob", "Bob", False),
+)
 
 SCIENTIFIC_DISCLAIMER: str = (
     "Synthetic software validation only; 256-bit SHA-256 output does not imply "
@@ -82,7 +85,7 @@ SCIENTIFIC_DISCLAIMER: str = (
     "~50% Post-PA KAR under ordinary decoding failure does not establish empirical secrecy."
 )
 
-# SHA-256 Round Constants K_0 .. K_63 (first 32 bits of fractional parts of cube roots of first 64 primes)
+# SHA-256 Round Constants K_0 .. K_63
 SHA256_K: tuple[int, ...] = (
     0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5, 0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
     0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3, 0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
@@ -94,7 +97,7 @@ SHA256_K: tuple[int, ...] = (
     0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208, 0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2,
 )
 
-# Initial Hash Values H^(0) (first 32 bits of fractional parts of square roots of first 8 primes)
+# Initial Hash Values H^(0)
 SHA256_H_INIT: tuple[int, ...] = (
     0x6A09E667,
     0xBB67AE85,
@@ -156,7 +159,7 @@ def maj32(x: int, y: int, z: int) -> int:
 
 
 # ==============================================================================
-# Bit-level Padding and SHA-256 Engine
+# Bit-level Padding, Segmentation, and SHA-256 Engine
 # ==============================================================================
 
 
@@ -185,7 +188,6 @@ def pad_bitstream(bitstream: str | Sequence[int]) -> str:
             raise ValueError("Bitstream sequence must contain only binary integers (0 or 1).")
 
     L = len(bits)
-    # p is the smallest non-negative integer such that (L + 1 + p) % 512 == 448
     p = (448 - 1 - L) % 512
     l_64 = format(L, "064b")
     padded = bits + "1" + ("0" * p) + l_64
@@ -259,6 +261,54 @@ def sha256_bitstream(bitstream: str | Sequence[int]) -> tuple[str, str]:
     return key_bin, key_hex
 
 
+def segment_bitstream(
+    bitstream: str | Sequence[int],
+    segment_size: int = SEGMENT_SIZE_BITS,
+) -> list[str]:
+    """Divide bitstream into consecutive, non-overlapping segments of segment_size bits.
+
+    Validates bitstream length and rejects incomplete segments explicitly;
+    never silently truncates or pads. Preserves temporal order.
+
+    Args:
+        bitstream: Input bitstream string or int sequence.
+        segment_size: Bit length of each segment (default: 100).
+
+    Returns:
+        list[str]: Consecutive non-overlapping segments of length segment_size.
+
+    Raises:
+        ValueError: If input length is empty, contains non-binary characters,
+                    or is not an exact positive integer multiple of segment_size.
+    """
+    if isinstance(bitstream, str):
+        bits = bitstream.strip()
+        if any(c not in ("0", "1") for c in bits):
+            raise ValueError("Bitstream string must contain only '0' and '1'.")
+    else:
+        bits = "".join(str(int(b)) for b in bitstream)
+        if any(c not in ("0", "1") for c in bits):
+            raise ValueError("Bitstream sequence must contain only binary integers (0 or 1).")
+
+    total_len = len(bits)
+    if total_len == 0:
+        raise ValueError("Cannot segment an empty bitstream.")
+
+    if segment_size <= 0:
+        raise ValueError(f"segment_size must be a positive integer, got {segment_size}.")
+
+    remainder = total_len % segment_size
+    if remainder != 0:
+        raise ValueError(
+            f"Bitstream length ({total_len} bits) is not an exact multiple of segment size "
+            f"({segment_size} bits); incomplete segment of {remainder} bits would remain. "
+            "Silent truncation and padding are prohibited."
+        )
+
+    num_segments = total_len // segment_size
+    return [bits[i * segment_size : (i + 1) * segment_size] for i in range(num_segments)]
+
+
 def verify_against_hashlib(bitstream: str) -> bool:
     """Verify bitstream hash against hashlib.sha256 if bitstream is byte-aligned (L % 8 == 0).
 
@@ -290,17 +340,24 @@ class PrivacyAmplificationConfig:
 
     hash_algorithm: str = "SHA-256"
     key_length_bits: int = 256
+    segment_size_bits: int = SEGMENT_SIZE_BITS
     supported_paths: tuple[str, ...] = PA_PATHS
     scientific_disclaimer: str = SCIENTIFIC_DISCLAIMER
 
     def to_metadata_dict(self) -> dict[str, Any]:
         """Convert configuration to metadata dictionary."""
         return {
-            "algorithm": "Privacy Amplification via Bit-Level SHA-256",
-            "downstream_status": PA_DOWNSTREAM_STATUS,
+            "algorithm": "Privacy Amplification via Segmented Bit-Level SHA-256",
             "hash_algorithm": self.hash_algorithm,
             "key_length_bits": self.key_length_bits,
+            "segment_size_bits": self.segment_size_bits,
             "supported_paths": list(self.supported_paths),
+            "path_key_counts": {
+                "quant_2bit": 10,
+                "quant_4bit": 20,
+                "prbs_2bit": 40,
+                "prbs_4bit": 40,
+            },
             "governing_specification": {
                 "privacy_amplification": "PA.pdf Section 3.2.6, Equations (3.37)–(3.53), pages 30–33",
                 "key_agreement_rate": "PA.pdf Section 3.2.8.c, Equation (3.64), page 35",
@@ -311,20 +368,67 @@ class PrivacyAmplificationConfig:
 
 
 @dataclass(frozen=True)
-class ChannelPrivacyAmplificationResult:
-    """Container holding derived secret key for a single communication channel."""
+class ChunkKeyResult:
+    """Derived secret key and metadata for an individual segment."""
 
-    path_name: str
-    channel_name: str
-    channel_role: str
-    input_bit_length: int
+    chunk_index: int
+    input_segment_bits: str
     key_bin: str
     key_hex: str
 
 
 @dataclass(frozen=True)
+class ChannelPrivacyAmplificationResult:
+    """Container holding derived secret keys for a single communication channel."""
+
+    path_name: str
+    channel_name: str
+    channel_role: str
+    input_bit_length: int
+    num_chunks: int
+    chunk_size_bits: int
+    chunk_keys: list[ChunkKeyResult]
+
+    @property
+    def key_bin(self) -> str:
+        """First chunk key binary string (backward-compatibility convenience)."""
+        return self.chunk_keys[0].key_bin if self.chunk_keys else ""
+
+    @property
+    def key_hex(self) -> str:
+        """First chunk key hexadecimal digest (backward-compatibility convenience)."""
+        return self.chunk_keys[0].key_hex if self.chunk_keys else ""
+
+    @property
+    def all_keys_hex(self) -> list[str]:
+        """List of all chunk hexadecimal digests."""
+        return [ck.key_hex for ck in self.chunk_keys]
+
+    @property
+    def all_keys_bin(self) -> list[str]:
+        """List of all chunk binary strings."""
+        return [ck.key_bin for ck in self.chunk_keys]
+
+
+@dataclass(frozen=True)
+class ChunkPairPAResult:
+    """Evaluation metrics between source and receiver for a single segment."""
+
+    chunk_index: int
+    source_segment_bits: str
+    receiver_segment_bits: str
+    source_key_bin: str
+    source_key_hex: str
+    receiver_key_bin: str
+    receiver_key_hex: str
+    post_pa_kar: float
+    exact_key_match: bool
+    mismatched_key_bits: int
+
+
+@dataclass(frozen=True)
 class PairPrivacyAmplificationResult:
-    """Container holding privacy amplification evaluation between a channel pair."""
+    """Aggregated privacy amplification evaluation between a channel pair across all segments."""
 
     path_name: str
     pair_name: str
@@ -332,24 +436,49 @@ class PairPrivacyAmplificationResult:
     receiver_name: str
     is_legitimate: bool
     input_bit_length: int
-    source_key_bin: str
-    source_key_hex: str
-    receiver_key_bin: str
-    receiver_key_hex: str
+    num_chunks: int
+    chunk_size_bits: int
     pre_pa_kar: float
-    post_pa_kar: float
-    exact_key_match: bool
-    mismatched_key_bits: int
+    post_pa_kar: float  # Mean post-PA KAR across all chunks
+    exact_key_match: bool  # True if all chunks match exactly
+    exact_match_count: int
+    exact_match_rate_percent: float
+    chunk_results: list[ChunkPairPAResult]
 
     @property
     def kar_delta(self) -> float:
         """Change in KAR from pre-PA to post-PA (in percentage points)."""
         return self.post_pa_kar - self.pre_pa_kar
 
+    @property
+    def source_key_hex(self) -> str:
+        """First chunk source key hex (convenience property)."""
+        return self.chunk_results[0].source_key_hex if self.chunk_results else ""
+
+    @property
+    def receiver_key_hex(self) -> str:
+        """First chunk receiver key hex (convenience property)."""
+        return self.chunk_results[0].receiver_key_hex if self.chunk_results else ""
+
+    @property
+    def source_key_bin(self) -> str:
+        """First chunk source key bin (convenience property)."""
+        return self.chunk_results[0].source_key_bin if self.chunk_results else ""
+
+    @property
+    def receiver_key_bin(self) -> str:
+        """First chunk receiver key bin (convenience property)."""
+        return self.chunk_results[0].receiver_key_bin if self.chunk_results else ""
+
+    @property
+    def mismatched_key_bits(self) -> int:
+        """Total mismatched bits across all chunks."""
+        return sum(c.mismatched_key_bits for c in self.chunk_results)
+
 
 @dataclass
 class MultiPathPrivacyAmplificationResult:
-    """Master container holding Privacy Amplification results across both paths and all pairs."""
+    """Master container holding Privacy Amplification results across all four paths and all pairs."""
 
     config: PrivacyAmplificationConfig
     channel_keys: dict[str, dict[str, ChannelPrivacyAmplificationResult]]
@@ -358,12 +487,12 @@ class MultiPathPrivacyAmplificationResult:
 
     @property
     def metrics(self) -> list[PairPrivacyAmplificationResult]:
-        """Return flattened list of pair results in canonical order."""
+        """Return flattened list of pair results in canonical order across supported paths."""
         res: list[PairPrivacyAmplificationResult] = []
-        for path_name in PA_PATHS:
+        for path_name in self.config.supported_paths:
             if path_name in self.pair_results:
-                for pair_info in EVALUATION_PAIRS:
-                    pair_name = pair_info[2]
+                for p_info in PA_EVALUATION_PAIRS:
+                    pair_name = p_info[2]
                     if pair_name in self.pair_results[path_name]:
                         res.append(self.pair_results[path_name][pair_name])
         return res
@@ -378,101 +507,168 @@ def amplify_privacy_all_paths(
     reconcile_result: MultiPathReconciliationResult,
     config: PrivacyAmplificationConfig | None = None,
 ) -> MultiPathPrivacyAmplificationResult:
-    """Execute Stage 6 Privacy Amplification across both reconciled 2-bit paths.
+    """Execute Stage 6 Privacy Amplification across all four reconciled paths with 100-bit segmentation.
 
-    Computes 256-bit secret keys for all 4 channels independently:
-        - Alice (source / reconciliation reference)
-        - Bob (recovered from Alice's helper data)
-        - Eve1-Alice (recovered from Alice's helper data)
-        - Eve1-Bob (recovered from Alice's helper data)
+    Supported paths and chunk counts:
+        - quant_2bit: 1,000 bits -> 10 keys (10 chunks of 100 bits)
+        - quant_4bit: 2,000 bits -> 20 keys (20 chunks of 100 bits)
+        - prbs_2bit:  4,000 bits -> 40 keys (40 chunks of 100 bits)
+        - prbs_4bit:  4,000 bits -> 40 keys (40 chunks of 100 bits)
 
-    Evaluates metrics across the 3 evaluation pairs:
-        1. Alice–Bob (legitimate)
-        2. Alice–Eve1-Alice (passive eavesdropper attack stream 1: overhearing Alice)
-        3. Alice–Eve1-Bob (passive eavesdropper attack stream 2: overhearing Bob)
+    Evaluates the 4 channels independently with strict isolation:
+        - Alice (source / reference key generator for Alice–Bob & Alice–Eve1-Alice)
+        - Bob (legitimate receiver reconciled to Alice; reference key generator for Bob–Eve1-Bob)
+        - Eve1-Alice (passive eavesdropper overhearing Alice)
+        - Eve1-Bob (passive eavesdropper overhearing Bob)
+
+    Evaluates metrics across the 3 evaluation pairs under the bidirectional observation model:
+        1. Alice–Bob (legitimate pair: Alice source keys vs Bob receiver keys)
+        2. Alice–Eve1-Alice (eavesdropper stream 1: Alice source keys vs Eve1-Alice receiver keys)
+        3. Bob–Eve1-Bob (eavesdropper stream 2: Bob source keys vs Eve1-Bob receiver keys)
 
     Args:
         reconcile_result: Completed MultiPathReconciliationResult from Stage 5.
         config: PrivacyAmplificationConfig instance (uses defaults if None).
 
     Returns:
-        MultiPathPrivacyAmplificationResult: Master container holding all keys and metrics.
+        MultiPathPrivacyAmplificationResult: Master container holding all chunk keys and metrics.
     """
     cfg = config if config is not None else PrivacyAmplificationConfig()
+    seg_size = cfg.segment_size_bits
 
     channel_keys: dict[str, dict[str, ChannelPrivacyAmplificationResult]] = {}
     pair_results: dict[str, dict[str, PairPrivacyAmplificationResult]] = {}
 
-    for path_name in PA_PATHS:
+    for path_name in cfg.supported_paths:
         if path_name not in reconcile_result.path_results:
             continue
 
         p_pairs = reconcile_result.path_results[path_name]
         res_ab = p_pairs["Alice–Bob"]
         res_ea = p_pairs["Alice–Eve1-Alice"]
-        res_eb = p_pairs["Alice–Eve1-Bob"]
+        res_eb = p_pairs["Bob–Eve1-Bob"]
 
-        # Derive independent 256-bit keys for the 4 physical channels
-        # Alice: Alice unpadded source bitstream (reconciliation reference)
-        alice_bin, alice_hex = sha256_bitstream(res_ab.source_unpadded)
-        # Bob: Bob recovered bitstream from Alice–Bob reconciliation
-        bob_bin, bob_hex = sha256_bitstream(res_ab.recovered_unpadded)
-        # Eve1-Alice: Eve1-Alice recovered bitstream from Alice helper data
-        ea_bin, ea_hex = sha256_bitstream(res_ea.recovered_unpadded)
-        # Eve1-Bob: Eve1-Bob recovered bitstream from Alice helper data
-        eb_bin, eb_hex = sha256_bitstream(res_eb.recovered_unpadded)
+        # Unpadded bitstreams from reconciliation
+        alice_stream = res_ab.source_unpadded
+        bob_stream = res_ab.recovered_unpadded
+        ea_stream = res_ea.recovered_unpadded
+        eb_stream = res_eb.recovered_unpadded
+
+        # Segment each channel's bitstream into 100-bit non-overlapping chunks
+        alice_segments = segment_bitstream(alice_stream, segment_size=seg_size)
+        bob_segments = segment_bitstream(bob_stream, segment_size=seg_size)
+        ea_segments = segment_bitstream(ea_stream, segment_size=seg_size)
+        eb_segments = segment_bitstream(eb_stream, segment_size=seg_size)
+
+        num_chunks = len(alice_segments)
+        if not (len(bob_segments) == len(ea_segments) == len(eb_segments) == num_chunks):
+            raise ValueError(
+                f"Segment counts mismatch across channels in path '{path_name}': "
+                f"Alice={len(alice_segments)}, Bob={len(bob_segments)}, "
+                f"Eve1-Alice={len(ea_segments)}, Eve1-Bob={len(eb_segments)}."
+            )
+
+        # Compute SHA-256 digests for each channel's segments independently
+        def hash_segments(segments: list[str]) -> list[ChunkKeyResult]:
+            chunk_keys: list[ChunkKeyResult] = []
+            for idx, seg in enumerate(segments):
+                k_bin, k_hex = sha256_bitstream(seg)
+                chunk_keys.append(
+                    ChunkKeyResult(
+                        chunk_index=idx,
+                        input_segment_bits=seg,
+                        key_bin=k_bin,
+                        key_hex=k_hex,
+                    )
+                )
+            return chunk_keys
+
+        alice_keys = hash_segments(alice_segments)
+        bob_keys = hash_segments(bob_segments)
+        ea_keys = hash_segments(ea_segments)
+        eb_keys = hash_segments(eb_segments)
 
         channel_keys[path_name] = {
             "Alice": ChannelPrivacyAmplificationResult(
                 path_name=path_name,
                 channel_name="Alice",
                 channel_role="Legitimate Source (Reference Key)",
-                input_bit_length=len(res_ab.source_unpadded),
-                key_bin=alice_bin,
-                key_hex=alice_hex,
+                input_bit_length=len(alice_stream),
+                num_chunks=num_chunks,
+                chunk_size_bits=seg_size,
+                chunk_keys=alice_keys,
             ),
             "Bob": ChannelPrivacyAmplificationResult(
                 path_name=path_name,
                 channel_name="Bob",
                 channel_role="Legitimate Receiver (Reconciled to Alice)",
-                input_bit_length=len(res_ab.recovered_unpadded),
-                key_bin=bob_bin,
-                key_hex=bob_hex,
+                input_bit_length=len(bob_stream),
+                num_chunks=num_chunks,
+                chunk_size_bits=seg_size,
+                chunk_keys=bob_keys,
             ),
             "Eve1-Alice": ChannelPrivacyAmplificationResult(
                 path_name=path_name,
                 channel_name="Eve1-Alice",
                 channel_role="Passive Eavesdropper (Overhearing Alice)",
-                input_bit_length=len(res_ea.recovered_unpadded),
-                key_bin=ea_bin,
-                key_hex=ea_hex,
+                input_bit_length=len(ea_stream),
+                num_chunks=num_chunks,
+                chunk_size_bits=seg_size,
+                chunk_keys=ea_keys,
             ),
             "Eve1-Bob": ChannelPrivacyAmplificationResult(
                 path_name=path_name,
                 channel_name="Eve1-Bob",
                 channel_role="Passive Eavesdropper (Overhearing Bob)",
-                input_bit_length=len(res_eb.recovered_unpadded),
-                key_bin=eb_bin,
-                key_hex=eb_hex,
+                input_bit_length=len(eb_stream),
+                num_chunks=num_chunks,
+                chunk_size_bits=seg_size,
+                chunk_keys=eb_keys,
             ),
         }
 
-        # Evaluate pairs per PA.pdf Eq (3.64) against Alice's reference key
-        def evaluate_pa_pair(
+        # Evaluate pairs per PA.pdf Eq (3.64)
+        def evaluate_pair(
             pair_name: str,
             source_name: str,
             receiver_name: str,
             is_legitimate: bool,
-            recon_res: PairReconciliationResult,
-            s_bin: str,
-            s_hex: str,
-            r_bin: str,
-            r_hex: str,
+            pre_kar: float,
+            s_keys: list[ChunkKeyResult],
+            r_keys: list[ChunkKeyResult],
         ) -> PairPrivacyAmplificationResult:
-            pre_kar = recon_res.post_reconcile_kar  # Reconciled bitstream KAR is pre-PA input
-            mismatches = sum(1 for a, b in zip(s_bin, r_bin) if a != b)
-            post_kar = ((256 - mismatches) / 256.0) * 100.0
-            exact_match = (s_bin == r_bin)
+            chunk_results: list[ChunkPairPAResult] = []
+            match_count = 0
+            kar_sum = 0.0
+
+            for idx in range(num_chunks):
+                sk = s_keys[idx]
+                rk = r_keys[idx]
+                mismatches = sum(1 for a, b in zip(sk.key_bin, rk.key_bin) if a != b)
+                chunk_kar = ((256 - mismatches) / 256.0) * 100.0
+                is_match = (sk.key_bin == rk.key_bin)
+                if is_match:
+                    match_count += 1
+                kar_sum += chunk_kar
+
+                chunk_results.append(
+                    ChunkPairPAResult(
+                        chunk_index=idx,
+                        source_segment_bits=sk.input_segment_bits,
+                        receiver_segment_bits=rk.input_segment_bits,
+                        source_key_bin=sk.key_bin,
+                        source_key_hex=sk.key_hex,
+                        receiver_key_bin=rk.key_bin,
+                        receiver_key_hex=rk.key_hex,
+                        post_pa_kar=chunk_kar,
+                        exact_key_match=is_match,
+                        mismatched_key_bits=mismatches,
+                    )
+                )
+
+            mean_post_kar = kar_sum / num_chunks if num_chunks > 0 else 0.0
+            exact_match_rate = (match_count / num_chunks * 100.0) if num_chunks > 0 else 0.0
+            all_matched = (match_count == num_chunks)
 
             return PairPrivacyAmplificationResult(
                 path_name=path_name,
@@ -480,55 +676,60 @@ def amplify_privacy_all_paths(
                 source_name=source_name,
                 receiver_name=receiver_name,
                 is_legitimate=is_legitimate,
-                input_bit_length=recon_res.original_length,
-                source_key_bin=s_bin,
-                source_key_hex=s_hex,
-                receiver_key_bin=r_bin,
-                receiver_key_hex=r_hex,
+                input_bit_length=len(alice_stream),
+                num_chunks=num_chunks,
+                chunk_size_bits=seg_size,
                 pre_pa_kar=pre_kar,
-                post_pa_kar=post_kar,
-                exact_key_match=exact_match,
-                mismatched_key_bits=mismatches,
+                post_pa_kar=mean_post_kar,
+                exact_key_match=all_matched,
+                exact_match_count=match_count,
+                exact_match_rate_percent=exact_match_rate,
+                chunk_results=chunk_results,
             )
 
-        pair_ab = evaluate_pa_pair(
+        # Pre-PA KAR from Stage 5 BCH reconciliation outputs:
+        #   Alice–Bob: post_reconcile_kar from res_ab
+        #   Alice–Eve1-Alice: post_reconcile_kar from res_ea
+        #   Bob–Eve1-Bob: post_reconcile_kar from res_eb
+        pre_kar_ab = res_ab.post_reconcile_kar
+        pre_kar_ea = res_ea.post_reconcile_kar
+        pre_kar_eb = res_eb.post_reconcile_kar
+
+        # Pair 1: Alice–Bob (legitimate: Alice source keys vs Bob receiver keys)
+        pair_ab = evaluate_pair(
             pair_name="Alice–Bob",
             source_name="Alice",
             receiver_name="Bob",
             is_legitimate=True,
-            recon_res=res_ab,
-            s_bin=alice_bin,
-            s_hex=alice_hex,
-            r_bin=bob_bin,
-            r_hex=bob_hex,
+            pre_kar=pre_kar_ab,
+            s_keys=alice_keys,
+            r_keys=bob_keys,
         )
-        pair_ea = evaluate_pa_pair(
+        # Pair 2: Alice–Eve1-Alice (eavesdropper stream 1: Alice source keys vs Eve1-Alice receiver keys)
+        pair_ea = evaluate_pair(
             pair_name="Alice–Eve1-Alice",
             source_name="Alice",
             receiver_name="Eve1-Alice",
             is_legitimate=False,
-            recon_res=res_ea,
-            s_bin=alice_bin,
-            s_hex=alice_hex,
-            r_bin=ea_bin,
-            r_hex=ea_hex,
+            pre_kar=pre_kar_ea,
+            s_keys=alice_keys,
+            r_keys=ea_keys,
         )
-        pair_eb = evaluate_pa_pair(
-            pair_name="Alice–Eve1-Bob",
-            source_name="Alice",
+        # Pair 3: Bob–Eve1-Bob (eavesdropper stream 2: Bob source keys vs Eve1-Bob receiver keys)
+        pair_eb = evaluate_pair(
+            pair_name="Bob–Eve1-Bob",
+            source_name="Bob",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
-            recon_res=res_eb,
-            s_bin=alice_bin,
-            s_hex=alice_hex,
-            r_bin=eb_bin,
-            r_hex=eb_hex,
+            pre_kar=pre_kar_eb,
+            s_keys=bob_keys,
+            r_keys=eb_keys,
         )
 
         pair_results[path_name] = {
             "Alice–Bob": pair_ab,
             "Alice–Eve1-Alice": pair_ea,
-            "Alice–Eve1-Bob": pair_eb,
+            "Bob–Eve1-Bob": pair_eb,
         }
 
     return MultiPathPrivacyAmplificationResult(
@@ -547,12 +748,13 @@ def export_pa_metrics_csv(
     pa_result: MultiPathPrivacyAmplificationResult,
     output_path: str | Path,
 ) -> Path:
-    """Export privacy amplification summary metrics to CSV.
+    """Export privacy amplification summary metrics to CSV across all paths and pairs.
 
     Columns:
-        path, pair, source, receiver, is_legitimate, input_bits, key_bits,
-        pre_pa_kar_percent, post_pa_kar_percent, kar_delta_pp,
-        exact_key_match, mismatched_key_bits, source_key_hex, receiver_key_hex
+        path, pair, source, receiver, is_legitimate, input_bits, chunk_size_bits,
+        num_chunks, pre_pa_kar_percent, post_pa_kar_percent, kar_delta_pp,
+        exact_key_match, exact_match_count, exact_match_rate_percent,
+        source_key_hex, receiver_key_hex
     """
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -564,11 +766,15 @@ def export_pa_metrics_csv(
         "receiver",
         "is_legitimate",
         "input_bits",
+        "chunk_size_bits",
+        "num_chunks",
         "key_bits",
         "pre_pa_kar_percent",
         "post_pa_kar_percent",
         "kar_delta_pp",
         "exact_key_match",
+        "exact_match_count",
+        "exact_match_rate_percent",
         "source_key_hex",
         "receiver_key_hex",
     ]
@@ -585,11 +791,15 @@ def export_pa_metrics_csv(
                     "receiver": p_res.receiver_name,
                     "is_legitimate": "TRUE" if p_res.is_legitimate else "FALSE",
                     "input_bits": p_res.input_bit_length,
+                    "chunk_size_bits": p_res.chunk_size_bits,
+                    "num_chunks": p_res.num_chunks,
                     "key_bits": 256,
                     "pre_pa_kar_percent": round(p_res.pre_pa_kar, 4),
                     "post_pa_kar_percent": round(p_res.post_pa_kar, 4),
                     "kar_delta_pp": round(p_res.kar_delta, 4),
                     "exact_key_match": "TRUE" if p_res.exact_key_match else "FALSE",
+                    "exact_match_count": p_res.exact_match_count,
+                    "exact_match_rate_percent": round(p_res.exact_match_rate_percent, 4),
                     "source_key_hex": p_res.source_key_hex,
                     "receiver_key_hex": p_res.receiver_key_hex,
                 }
@@ -601,10 +811,11 @@ def export_pa_keys_csv(
     pa_result: MultiPathPrivacyAmplificationResult,
     output_path: str | Path,
 ) -> Path:
-    """Export channel secret keys to CSV (binary string and hex digest).
+    """Export channel secret keys for all chunks to CSV.
 
     Columns:
-        path, channel, channel_role, input_bits, key_bits, key_hex, key_bin
+        path, channel, channel_role, chunk_index, input_segment_bits,
+        key_bits, key_hex, key_bin
     """
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -613,7 +824,8 @@ def export_pa_keys_csv(
         "path",
         "channel",
         "channel_role",
-        "input_bits",
+        "chunk_index",
+        "input_segment_bits",
         "key_bits",
         "key_hex",
         "key_bin",
@@ -624,17 +836,19 @@ def export_pa_keys_csv(
         writer.writeheader()
         for path_name, channels in pa_result.channel_keys.items():
             for ch_name, k_res in channels.items():
-                writer.writerow(
-                    {
-                        "path": path_name,
-                        "channel": ch_name,
-                        "channel_role": k_res.channel_role,
-                        "input_bits": k_res.input_bit_length,
-                        "key_bits": 256,
-                        "key_hex": k_res.key_hex,
-                        "key_bin": k_res.key_bin,
-                    }
-                )
+                for ck in k_res.chunk_keys:
+                    writer.writerow(
+                        {
+                            "path": path_name,
+                            "channel": ch_name,
+                            "channel_role": k_res.channel_role,
+                            "chunk_index": ck.chunk_index,
+                            "input_segment_bits": ck.input_segment_bits,
+                            "key_bits": 256,
+                            "key_hex": ck.key_hex,
+                            "key_bin": ck.key_bin,
+                        }
+                    )
     return out
 
 
@@ -660,14 +874,17 @@ def export_pa_config_json(
                 "receiver": res.receiver_name,
                 "is_legitimate": res.is_legitimate,
                 "input_bits": res.input_bit_length,
+                "chunk_size_bits": res.chunk_size_bits,
+                "num_chunks": res.num_chunks,
                 "key_length_bits": 256,
                 "pre_pa_kar_percent": round(res.pre_pa_kar, 4),
                 "post_pa_kar_percent": round(res.post_pa_kar, 4),
                 "kar_delta_pp": round(res.kar_delta, 4),
                 "exact_key_match": res.exact_key_match,
-                "mismatched_key_bits": res.mismatched_key_bits,
-                "source_key_hex": res.source_key_hex,
-                "receiver_key_hex": res.receiver_key_hex,
+                "exact_match_count": res.exact_match_count,
+                "exact_match_rate_percent": round(res.exact_match_rate_percent, 4),
+                "source_first_key_hex": res.source_key_hex,
+                "receiver_first_key_hex": res.receiver_key_hex,
             }
     meta["privacy_amplification_summary"] = summary
 
@@ -686,9 +903,10 @@ def export_pa_workbook_xlsx(
     preventing Excel from stripping leading zeros.
 
     Sheets:
-        1. PA Metrics: Pre-PA vs Post-PA KAR and key match status across 2 paths x 3 pairs.
-        2. Channel Keys: 256-bit binary strings and 64-char hex digests for all 4 channels.
-        3. Config & Disclaimers: Full methodology, parameter tracking, and scientific disclaimers.
+        1. PA Metrics: Summary across 4 paths x 3 pairs.
+        2. Per-Chunk Metrics: Granular chunk-by-chunk KAR, mismatches, and match indicators.
+        3. Channel Keys: 256-bit binary strings and 64-char hex digests for all channels and chunks.
+        4. Config & Disclaimers: Full methodology, parameter tracking, and scientific disclaimers.
     """
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -704,7 +922,7 @@ def export_pa_workbook_xlsx(
     notice_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     notice_font = Font(name="Calibri", size=10, italic=True, bold=True, color="7F6000")
 
-    # Sheet 1: PA Metrics
+    # Sheet 1: PA Metrics (Summary)
     ws1 = wb.active
     ws1.title = "PA Metrics"
     headers1 = [
@@ -712,13 +930,17 @@ def export_pa_workbook_xlsx(
         "Pair",
         "Legitimate",
         "Input Bits",
+        "Chunk Size",
+        "Num Chunks",
         "Key Bits",
         "Pre-PA KAR (%)",
-        "Post-PA KAR (%)",
+        "Post-PA Mean KAR (%)",
         "Delta (pp)",
-        "Exact Key Match",
-        "Source Key Hex",
-        "Receiver Key Hex",
+        "Exact Match Count",
+        "Exact Match Rate (%)",
+        "All Chunks Match",
+        "Source First Key Hex",
+        "Receiver First Key Hex",
     ]
     ws1.append(headers1)
     for col_idx in range(1, len(headers1) + 1):
@@ -735,10 +957,14 @@ def export_pa_workbook_xlsx(
                 p_res.pair_name,
                 "YES" if p_res.is_legitimate else "NO",
                 p_res.input_bit_length,
+                p_res.chunk_size_bits,
+                p_res.num_chunks,
                 256,
                 round(p_res.pre_pa_kar, 4),
                 round(p_res.post_pa_kar, 4),
                 round(p_res.kar_delta, 4),
+                p_res.exact_match_count,
+                round(p_res.exact_match_rate_percent, 2),
                 "TRUE" if p_res.exact_key_match else "FALSE",
                 p_res.source_key_hex,
                 p_res.receiver_key_hex,
@@ -746,7 +972,7 @@ def export_pa_workbook_xlsx(
         )
         for c_idx in range(1, len(headers1) + 1):
             c = ws1.cell(row=r1_idx, column=c_idx)
-            if c_idx in (10, 11):
+            if c_idx in (14, 15):
                 c.font = mono_font
                 c.data_type = "s"
                 c.number_format = "@"
@@ -756,9 +982,20 @@ def export_pa_workbook_xlsx(
                 c.alignment = center_align
         r1_idx += 1
 
-    # Sheet 2: Channel Keys
-    ws2 = wb.create_sheet(title="Channel Keys")
-    headers2 = ["Path", "Channel", "Channel Role", "Input Bits", "Key Bits", "Key Hex (64-char)", "Key Binary (256-bit)"]
+    # Sheet 2: Per-Chunk Metrics
+    ws2 = wb.create_sheet(title="Per-Chunk Metrics")
+    headers2 = [
+        "Path",
+        "Pair",
+        "Chunk Index",
+        "Chunk Bits",
+        "Key Bits",
+        "Chunk Post-KAR (%)",
+        "Exact Match",
+        "Mismatched Bits",
+        "Source Key Hex",
+        "Receiver Key Hex",
+    ]
     ws2.append(headers2)
     for col_idx in range(1, len(headers2) + 1):
         cell = ws2.cell(row=1, column=col_idx)
@@ -767,22 +1004,25 @@ def export_pa_workbook_xlsx(
         cell.alignment = center_align
 
     r2_idx = 2
-    for path_name, channels in pa_result.channel_keys.items():
-        for ch_name, k_res in channels.items():
+    for p_res in pa_result.metrics:
+        for ck_res in p_res.chunk_results:
             ws2.append(
                 [
-                    path_name,
-                    ch_name,
-                    k_res.channel_role,
-                    k_res.input_bit_length,
+                    p_res.path_name,
+                    p_res.pair_name,
+                    ck_res.chunk_index,
+                    p_res.chunk_size_bits,
                     256,
-                    k_res.key_hex,
-                    k_res.key_bin,
+                    round(ck_res.post_pa_kar, 4),
+                    "TRUE" if ck_res.exact_key_match else "FALSE",
+                    ck_res.mismatched_key_bits,
+                    ck_res.source_key_hex,
+                    ck_res.receiver_key_hex,
                 ]
             )
             for c_idx in range(1, len(headers2) + 1):
                 c = ws2.cell(row=r2_idx, column=c_idx)
-                if c_idx in (6, 7):
+                if c_idx in (9, 10):
                     c.font = mono_font
                     c.data_type = "s"
                     c.number_format = "@"
@@ -792,30 +1032,78 @@ def export_pa_workbook_xlsx(
                     c.alignment = center_align
             r2_idx += 1
 
-    # Sheet 3: Config & Disclaimers
-    ws3 = wb.create_sheet(title="Config & Disclaimers")
-    ws3.append(["Parameter / Property", "Value / Description"])
-    ws3.cell(row=1, column=1).fill = header_fill
-    ws3.cell(row=1, column=1).font = header_font
-    ws3.cell(row=1, column=2).fill = header_fill
-    ws3.cell(row=1, column=2).font = header_font
+    # Sheet 3: Channel Keys
+    ws3 = wb.create_sheet(title="Channel Keys")
+    headers3 = [
+        "Path",
+        "Channel",
+        "Channel Role",
+        "Chunk Index",
+        "Input Segment Bits",
+        "Key Bits",
+        "Key Hex (64-char)",
+        "Key Binary (256-bit)",
+    ]
+    ws3.append(headers3)
+    for col_idx in range(1, len(headers3) + 1):
+        cell = ws3.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_align
+
+    r3_idx = 2
+    for path_name, channels in pa_result.channel_keys.items():
+        for ch_name, k_res in channels.items():
+            for ck in k_res.chunk_keys:
+                ws3.append(
+                    [
+                        path_name,
+                        ch_name,
+                        k_res.channel_role,
+                        ck.chunk_index,
+                        ck.input_segment_bits,
+                        256,
+                        ck.key_hex,
+                        ck.key_bin,
+                    ]
+                )
+                for c_idx in range(1, len(headers3) + 1):
+                    c = ws3.cell(row=r3_idx, column=c_idx)
+                    if c_idx in (5, 7, 8):
+                        c.font = mono_font
+                        c.data_type = "s"
+                        c.number_format = "@"
+                        c.alignment = left_align
+                    else:
+                        c.font = data_font
+                        c.alignment = center_align
+                r3_idx += 1
+
+    # Sheet 4: Config & Disclaimers
+    ws4 = wb.create_sheet(title="Config & Disclaimers")
+    ws4.append(["Parameter / Property", "Value / Description"])
+    ws4.cell(row=1, column=1).fill = header_fill
+    ws4.cell(row=1, column=1).font = header_font
+    ws4.cell(row=1, column=2).fill = header_fill
+    ws4.cell(row=1, column=2).font = header_font
 
     cfg_rows = [
-        ("Algorithm", "Bit-Level SHA-256 Privacy Amplification"),
+        ("Algorithm", "Segmented Bit-Level SHA-256 Privacy Amplification"),
         ("Standard Specification", "FIPS PUB 180-4 (Secure Hash Standard) / PA.pdf Section 3.2.6"),
+        ("Segmentation Size", f"{SEGMENT_SIZE_BITS} bits (consecutive non-overlapping chunks)"),
         ("Key Agreement Rate Metric", "PA.pdf Section 3.2.8.c, Equation (3.64)"),
-        ("Output Key Length", "256 bits (32 bytes / 64 hexadecimal characters)"),
-        ("Supported Paths", "quant_2bit (1,000 bits) and prbs_2bit (1,500 bits)"),
+        ("Digest Output Length", "256 bits per segment (32 bytes / 64 hexadecimal characters)"),
+        ("Supported Paths & Key Counts", "quant_2bit: 10 keys; quant_4bit: 20 keys; prbs_2bit: 40 keys; prbs_4bit: 40 keys"),
         ("Evaluated Channels", "Alice, Bob, Eve1-Alice, Eve1-Bob"),
-        ("Evaluated Pairs", "Alice–Bob (legitimate), Alice–Eve1-Alice (eavesdropper attack 1), Alice–Eve1-Bob (eavesdropper attack 2)"),
+        ("Evaluated Pairs", "Alice–Bob (legitimate: Alice vs Bob), Alice–Eve1-Alice (eavesdropper stream 1: Alice vs Eve1-Alice), Bob–Eve1-Bob (eavesdropper stream 2: Bob vs Eve1-Bob)"),
         ("Scientific Disclaimer", pa_result.config.scientific_disclaimer),
     ]
 
     for r_idx, (prop, val) in enumerate(cfg_rows, 2):
-        ws3.append([prop, val])
-        ws3.cell(row=r_idx, column=1).font = data_font
-        ws3.cell(row=r_idx, column=1).alignment = left_align
-        c_val = ws3.cell(row=r_idx, column=2)
+        ws4.append([prop, val])
+        ws4.cell(row=r_idx, column=1).font = data_font
+        ws4.cell(row=r_idx, column=1).alignment = left_align
+        c_val = ws4.cell(row=r_idx, column=2)
         c_val.font = data_font
         c_val.alignment = left_align
         if "Disclaimer" in prop:
@@ -823,7 +1111,7 @@ def export_pa_workbook_xlsx(
             c_val.font = notice_font
 
     # Adjust column widths
-    for ws in [ws1, ws2, ws3]:
+    for ws in [ws1, ws2, ws3, ws4]:
         for col in ws.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = get_column_letter(col[0].column)
@@ -831,4 +1119,3 @@ def export_pa_workbook_xlsx(
 
     wb.save(out)
     return out
-

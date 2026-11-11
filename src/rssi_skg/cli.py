@@ -39,7 +39,9 @@ from rssi_skg.plotting import (
 )
 from rssi_skg.privacy_amplification import (
     MultiPathPrivacyAmplificationResult,
+    PA_PATHS,
     PrivacyAmplificationConfig,
+    SEGMENT_SIZE_BITS,
     amplify_privacy_all_paths,
     export_pa_config_json,
     export_pa_keys_csv,
@@ -1156,7 +1158,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         recon_desc = "DISABLED"
     print(f"[STATUS] Reconciliation:    {recon_desc}")
 
-    pa_desc = "ENABLED (Bit-Level SHA-256, 256-bit Final Key, PA.pdf Section 3.2.6)" if pa_active else "DISABLED"
+    pa_desc = (
+        f"ENABLED (Bit-Level SHA-256 with {SEGMENT_SIZE_BITS}-bit Segmentation, 4 Paths, PA.pdf Section 3.2.6)"
+        if pa_active
+        else "DISABLED"
+    )
     if kgr_active and not args.privacy_amplify:
         pa_desc += " [prerequisite for KGR]"
     elif nist_active and not args.privacy_amplify:
@@ -1408,32 +1414,34 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if pa_res is not None:
         print("\nCalculated Privacy Amplification (SHA-256) Results (PA.pdf Section 3.2.6 & Eq 3.64):")
-        print("-" * 115)
+        print("-" * 140)
         print(
-            f"{'Path':<12} | {'Pair':<20} | {'Pre-PA KAR':<14} | {'Post-PA KAR':<15} | {'Delta (pp)':<12} | {'Exact Key Match':<16} | {'Key Bits':<10}"
+            f"{'Path':<12} | {'Pair':<20} | {'Pre-PA KAR':<12} | {'Post-PA Mean KAR':<18} | {'Delta':<10} | {'Exact Matches':<15} | {'Match Rate':<12} | {'All Match':<12} | {'Chunks':<8}"
         )
-        print("-" * 115)
+        print("-" * 140)
         for m in pa_res.metrics:
             pre_k = f"{m.pre_pa_kar:.2f}%"
             post_k = f"{m.post_pa_kar:.2f}%"
             d_k = f"{m.kar_delta:+.2f} pp"
-            match_str = "TRUE (MATCH)" if m.exact_key_match else "FALSE (MISMATCH)"
+            matches_s = f"{m.exact_match_count}/{m.num_chunks}"
+            rate_s = f"{m.exact_match_rate_percent:.1f}%"
+            all_m = "TRUE (MATCH)" if m.exact_key_match else "FALSE"
             print(
-                f"{m.path_name:<12} | {m.pair_name:<20} | {pre_k:<14} | {post_k:<15} | {d_k:<12} | {match_str:<16} | {'256':<10}"
+                f"{m.path_name:<12} | {m.pair_name:<20} | {pre_k:<12} | {post_k:<18} | {d_k:<10} | {matches_s:<15} | {rate_s:<12} | {all_m:<12} | {m.num_chunks:<8}"
             )
-        print("-" * 115)
-        print("\nDerived 256-bit Channel Secret Keys (Hex Digests):")
-        print("-" * 105)
+        print("-" * 140)
+        print("\nDerived 256-bit Channel Secret Keys (First Chunk Hex Digests & Total Chunks):")
+        print("-" * 120)
         print(
-            f"{'Path':<12} | {'Channel':<15} | {'Role':<32} | {'SHA-256 Hex Digest (64-char)':<64}"
+            f"{'Path':<12} | {'Channel':<15} | {'Role':<32} | {'Chunks':<8} | {'First Key Hex (64-char)':<64}"
         )
-        print("-" * 105)
+        print("-" * 120)
         for p_name, chs in pa_res.channel_keys.items():
             for ch_name, k_info in chs.items():
                 print(
-                    f"{p_name:<12} | {ch_name:<15} | {k_info.channel_role:<32} | {k_info.key_hex}"
+                    f"{p_name:<12} | {ch_name:<15} | {k_info.channel_role:<32} | {k_info.num_chunks:<8} | {k_info.key_hex}"
                 )
-        print("-" * 105)
+        print("-" * 120)
 
     if nist_res is not None:
         print("\nCalculated NIST SP 800-22 Randomness Test Results (PA.pdf Section 3.2.8.d & Eqs 3.65–3.73):")
