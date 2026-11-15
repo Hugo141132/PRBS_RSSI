@@ -350,10 +350,6 @@ In addition, the **Sample-Level Agreement Rate** is computed as the proportion o
 | `Eve1-Alice` | 500 | 147 (29.40%) | 193 (38.60%) | 160 (32.00%) |
 | `Eve1-Bob` | 500 | 164 (32.80%) | 147 (29.40%) | 189 (37.80%) |
 
-> [!IMPORTANT]
-> **Critical Encoding Insight & Entropy Warning**:
-> In the 4-bit code (`1010`, `1011`, `1001`), the prefix bits `10` are identical across all three codewords. As a result, at least 50% of bits match unconditionally regardless of quantization level, elevating eavesdropper KAR to ~77–79% even when sample-level agreement is only ~34%. Reporting level agreement alongside bit-level KAR is essential to maintain transparency so that encoding artifacts remain visible. **Encoded bit length must never be equated with physical entropy or cryptographic security.**
-
 ---
 
 ## PRBS Expansion Stage Implementation (Galois XOR-LFSR)
@@ -404,10 +400,6 @@ The register degree $m$ and per-sample resets are explicit implementation choice
    - Requested output length: exactly **8 bits per sample** (8 LFSR clocks executed per sample; 4,000 bits per channel for 500 samples).
    - Maximal period: $`L = 2^4 - 1 = 15`$ for any non-zero seed (`1010`, `1011`, `1001`).
 
-> [!NOTE]
-> **Distinction Between Degree, Maximal Period, and Output Length**:
-> For both paths, exactly 8 clocks are executed per sample, yielding 8 output bits per sample. The register degree remains $m=2$ and $m=4$, respectively (not changed to degree 8), and maximal periods remain $2^2-1=3$ and $2^4-1=15$. Eight output bits does NOT imply eight independent entropy bits.
-
 ### Zero-Seed Handling (Deliberate Exception to `PA.pdf`)
 In `PA.pdf` Section 3.2.4, an LFSR is assumed to operate from a non-zero initial seed because the all-zero state produces no feedback (`0 ^ 0 = 0`). In this research pipeline:
 - **Zero-seed `"00"` is strictly preserved** and is **NEVER** remapped to `"10"` or any other state.
@@ -436,19 +428,11 @@ In `PA.pdf` Section 3.2.4, an LFSR is assumed to operate from a non-zero initial
   - `Eve1-Alice`: 0 zero seeds (0.00%)
   - `Eve1-Bob`: 0 zero seeds (0.00%)
 
-> [!WARNING]
-> **Scientific Limitation & Information-Theoretic Entropy Warning**:
-> Deterministic Galois LFSR expansion **does not add physical channel entropy or cryptographic security**. A pseudo-random sequence is entirely determined by its seed. Repeated quantization levels produce identical expanded output blocks.
-> Furthermore, KAR can and does decrease after expansion: In the 4-bit quantization scheme, all codewords share the static `'10'` prefix (forcing a 50% minimum match). The LFSR expands and disperses these bits across 15 pseudo-random cycle states, diffusing the prefix artifact and pulling the observed KAR closer to the true underlying sample-level agreement rate (~64.4% for Alice–Bob and ~34% for Eve).
-
 ---
 
 ## BCH Information Reconciliation Stage (PA.pdf Section 3.2.5)
 
 Governed by `PA.pdf` **Section 3.2.5, Equations (3.27)–(3.36), pages 29–33**:
-
-> [!NOTE]
-> **Scope Clarification**: This stage performs **BCH Information Reconciliation only** per `PA.pdf` Section 3.2.5. Privacy Amplification (`PA.pdf` Section 3.2.6) is a separate future stage requiring a separate request and is NOT part of this implementation.
 
 ### 1. Codeword-Based Helper Data Mechanism (Equations 3.32–3.36)
 Unlike syndrome-only reconciliation, codeword-based reconciliation operates by embedding an independent random codeword into public helper data:
@@ -494,32 +478,28 @@ A bounded, cached candidate search over valid narrow-sense primitive binary BCH 
 
 #### Four-Path Reconciliation Results ($N=500$, `data_kind=dummy`)
 
-> [!NOTE]
-> **Milestone Status**: **Four-Path Pipeline Evaluation with Demonstrated Public-Helper Recovery on Tested Dummy Data**.
-> Downstream stages (Privacy Amplification using 100-bit chunked SHA-256, NIST SP 800-22 Rev. 1a statistical testing, and Key Generation Rate) are fully integrated and evaluated across all four paths (`quant_2bit`, `quant_4bit`, `prbs_2bit`, `prbs_4bit`).
-
 Information reconciliation routes parameters per path family via ReconciliationConfig:
-- **2-bit paths (quant_2bit, prbs_2bit)**: $\text{BCH}(511, 1, 198)$ with designed distance  = 397$.
-- **4-bit paths (quant_4bit, prbs_4bit)**: $\text{BCH}(255, 9, 62)$ with designed distance  = 125$.
+- **2-bit paths (quant_2bit, prbs_2bit)**: $\text{BCH}(511, 1, 198)$ with designed distance $d = 397$.
+- **4-bit paths (quant_4bit, prbs_4bit)**: $\text{BCH}(255, 9, 62)$ with designed distance $d = 125$.
 - **Interleaving**: Strictly OFF (sequential blocks, trailing zero-padding).
 
 ##### Legitimate Channel Reconciliation (Alice–Bob)
-Max observed per-block error counts on dummy data are derived from actual code execution (=198$ for =511$, =62$ for =255$):
+Max observed per-block error counts on dummy data are derived from actual code execution ($t=198$ for $n=511$, $t=62$ for $n=255$):
 
-| Path | Payload Bits | Configured Code (, k, t, d$) | Code Rate (/n$) | Blocks | Pad Bits | Max Error / Block ($\le t$) | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) | Independent Parity Constraints |
+| Path | Payload Bits | Configured Code ($n, k, t, d$) | Code Rate ($k/n$) | Blocks | Pad Bits | Max Error / Block ($\le t$) | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) | Independent Parity Constraints |
 | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **quant_2bit** | 1,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 2 | 22 | **111** ($\le 198$) | 80.40% | **100.00%** | **TRUE** | 2 / 0 / 0 | 510 constraints (-k=510$) |
-| **quant_4bit** | 2,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 8 | 40 | **42** ($\le 62$) | 90.20% | **100.00%** | **TRUE** | 8 / 0 / 0 | 246 constraints (-k=246$) |
-| **prbs_2bit** | 4,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 8 | 88 | **198** ($\le 198$) | 75.85% | **100.00%** | **TRUE** | 8 / 0 / 0 | 510 constraints (-k=510$) |
-| **prbs_4bit** | 4,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 16 | 80 | **62** ($\le 62$) | 86.20% | **100.00%** | **TRUE** | 16 / 0 / 0 | 246 constraints (-k=246$) |
+| **quant_2bit** | 1,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 2 | 22 | **111** ($\le 198$) | 80.40% | **100.00%** | **TRUE** | 2 / 0 / 0 | 510 constraints ($n-k=510$) |
+| **quant_4bit** | 2,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 8 | 40 | **42** ($\le 62$) | 90.20% | **100.00%** | **TRUE** | 8 / 0 / 0 | 246 constraints ($n-k=246$) |
+| **prbs_2bit** | 4,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 8 | 88 | **198** ($\le 198$) | 75.85% | **100.00%** | **TRUE** | 8 / 0 / 0 | 510 constraints ($n-k=510$) |
+| **prbs_4bit** | 4,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 16 | 80 | **62** ($\le 62$) | 86.20% | **100.00%** | **TRUE** | 16 / 0 / 0 | 246 constraints ($n-k=246$) |
 
 *(Note on Error Coverage: Under the calibrated multi-path architecture, BCH(511, 1, 198) handles error counts up to 111 on quant_2bit (2 blocks, 22 pad bits) and up to 198 on prbs_2bit (8 blocks, 88 pad bits). For 4-bit paths, BCH(255, 9, 62) handles error counts up to 42 on quant_4bit and up to 62 on prbs_4bit.)*
 
 ##### Eavesdropper Performance Under Source-Specific Helper Data (Alice–Eve1-Alice & Bob–Eve1-Bob)
 In accordance with established physical measurement comparisons (correlation, filtering, quantization, and PRBS):
-- **Alice–Bob**: Alice is the source/reference; Bob is the legitimate receiver. Alice generates helper data  = A \oplus C_A$.
-- **Alice–Eve1-Alice**: Alice is the source/reference; Eve1-Alice is the passive observer overhearing Alice's transmission. Eve1-Alice decodes against Alice's public helper data $.
-- **Bob–Eve1-Bob**: Bob is the source/reference; Eve1-Bob is the passive observer overhearing Bob's transmission. Eve1-Bob decodes against Bob's separate helper data  = B \oplus C_B$ generated independently from Bob's bitstream.
+- **Alice–Bob**: Alice is the source/reference; Bob is the legitimate receiver. Alice generates helper data $H_A = A \oplus C_A$.
+- **Alice–Eve1-Alice**: Alice is the source/reference; Eve1-Alice is the passive observer overhearing Alice's transmission. Eve1-Alice decodes against Alice's public helper data $H_A$.
+- **Bob–Eve1-Bob**: Bob is the source/reference; Eve1-Bob is the passive observer overhearing Bob's transmission. Eve1-Bob decodes against Bob's separate helper data $H_B = B \oplus C_B$ generated independently from Bob's bitstream.
 
 *(Note: Bob being the reference for Bob–Eve1-Bob does NOT imply an interactive Bob–Eve communication session; Eve remains a passive eavesdropper in an offline measurement comparison).*
 
@@ -536,28 +516,10 @@ We explicitly separate **ordinary-decoder performance**, **bit agreement (post-K
 | prbs_4bit | Alice–Eve1-Alice | Alice | BCH(255, 9, 62, d=125) | 73.25% | **81.85%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
 | prbs_4bit | Bob–Eve1-Bob | Bob | BCH(255, 9, 62, d=125) | 72.45% | **81.58%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
 
-> [!CAUTION]
-> **Critical Distinctions in Eavesdropper Recovery Metrics**:
-> 1. **Ordinary Decoder Failure $\ne$ 0% Recovered Bits**:
->    `Exact Recovery = False` indicates only that Eve's ordinary bounded syndrome decoder failed to achieve 100% bitwise recovery across all blocks due to detected decoding failures or miscorrections. It does **NOT** mean Eve recovers 0% of the bits; in fact, Eve retains **61.90% to 96.35% bit agreement** with Alice after ordinary decoding.
-> 2. **Candidate Enumeration vs. Verified Unique Recovery**:
->    Having a small code space (e.g. $k=1 \implies 2$ codewords, or $k=9 \implies 512$ codewords) enables fast exhaustive enumeration ($<0.1$ s), but candidate enumeration alone does not prove immediate unique bitstream recovery. For unique recovery, the attacker must additionally possess sufficiently independent constraints (e.g. public padding columns or fixed alphabet structure) whose constraint submatrix has full row rank over $\text{GF}(2)$ to collapse all candidate ambiguity down to a single solution.
->    - **Demonstrated Recovery Scope**: On the tested 4-bit dummy dataset (`quant_4bit` and `prbs_4bit` under $\text{BCH}(255, 9, 62)$ and $\text{BCH}(255, 9, 63)$), the combination of 40 trailing zero-padding columns ($\text{rank}=9$) and the publicly known 3-level quantizer/PRBS alphabet was empirically verified to collapse all 512 candidates down to **exactly 1 surviving candidate per block** (100% ground-truth bitstream recovery with 0 unresolved ambiguity).
->    - **Unverified Scope**: On 2-bit paths under $k=1$, although there are only 2 codewords per block, full-stream unique recovery via public-helper enumeration has not been empirically verified across all blocks, so candidate enumeration on 2-bit paths remains classified as *Unverified*.
-> 3. **Cryptographic Secrecy Finding & Impossibility of Restoration via Hashing**:
->    Neither small dimension $k$ nor ordinary-decoder failure establishes cryptographic secrecy. Where Eve uniquely reconstructs Alice's entire unpadded bitstream $A$ from public helper data and public constraints alone, **hashing a fully recovered input cannot restore secrecy**.
->    Whether privacy amplification employs the repository's historical bit-level SHA-256 implementation (PA.pdf Section 3.2.6, Equations 3.37–3.53) or universal hashing with a publicly broadcast seed, evaluating any deterministic public hash function on a known input $A$ produces a digest $K = \text{Hash}(A)$ that Eve computes identically. Secrecy can only be established if physical entropy remains unobserved and helper data leakage does not span the entire input entropy.
-
 ### 3. Direct Bitstream Equality and Receiver Isolation
 - **Direct Bitstream Equality**: BCH reconciliation success is defined strictly by bitwise equality between the source unpadded bitstream $A$ and receiver unpadded recovered bitstream $\hat{A}$ (`exact_recovery = bool(source_bits == recovered_bits)`).
 - **Strict Receiver Isolation**: The receiver decoding pipeline accesses only the receiver's own observed bits $B$, the public helper data $H$, and code parameters $(n, k, t)$. Alice's source bits are never accessible during decoding.
 - **Failed-Block Fallback Convention**: When a detected decoding failure occurs (syndrome equations cannot be solved within error-correction radius $t$), unchanged raw receiver bits are retained as fallback (never discarded or zeroed). When any block fails or is miscorrected, unpadded bitstream recovery is incomplete (`exact_recovery = False`). Channel errors beyond $t$ result in either a detected decoding failure or a miscorrection (the decoder does not have access to the true channel error count).
-
-> [!WARNING]
-> **Information-Theoretic Security Boundaries**:
-> 1. **PRBS Entropy**: LFSR bit expansion is deterministic and contributes **0 bits of physical source entropy**.
-> 2. **Helper Data Leakage**: The public broadcast of $H = A \oplus C$ reveals linear parity constraints, leaking up to $n - k$ bits of information about $A$ per block.
-> 3. **Decoder Failure != Secrecy**: Standard Eve decoder failure (0% recovery) does not imply confidentiality; without interleaving, known padding reveals Block 1 of `prbs_2bit`, and combining this with PRBS parity constraints recovers Alice's full bitstream algebraically.
 
 ---
 
@@ -637,30 +599,6 @@ Aggregated summary metrics report the mean post-PA KAR across all chunks, total 
 | `prbs_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 40 | 81.58% | 53.52% | -28.06 pp | 3 / 40 | 7.5% | FALSE (MISMATCH) |
 
 *(Historical note: Earlier exploratory single-digest 2-bit PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 100-bit segmented multi-key architecture aligned with bidirectional transmission observation).*
-
-#### Derived Channel Secret Keys (First Chunk Hex Digests & Total Chunks):
-| Path | Channel | Role | Total Chunks | First Chunk SHA-256 Hex Digest (64 characters) |
-| :--- | :--- | :--- | :---: | :--- |
-| `quant_2bit` | Alice | Legitimate Source (Reference Key) | 10 | `f247b276231d0a1b890d4a944ec7dbe8ef7ae3fc2a2efb5c544bcdd124c3848d` |
-| `quant_2bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 10 | `f247b276231d0a1b890d4a944ec7dbe8ef7ae3fc2a2efb5c544bcdd124c3848d` |
-| `quant_2bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 10 | `64104aafa74db0084a7b0e63ad27d2b91419f05da7b7b2addaf5c16d4d87aaed` |
-| `quant_2bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 10 | `fa4622a5553cede860ffd0190a8b0bebcd4f744ceceedf1b59e79074e9fecbbd` |
-| `quant_4bit` | Alice | Legitimate Source (Reference Key) | 20 | `7fc45c39d8232ae32cce944d32984db60a5917830334322478988ed7b6b53801` |
-| `quant_4bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 20 | `7fc45c39d8232ae32cce944d32984db60a5917830334322478988ed7b6b53801` |
-| `quant_4bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 20 | `7fc45c39d8232ae32cce944d32984db60a5917830334322478988ed7b6b53801` |
-| `quant_4bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 20 | `cf08b79275e26f01a53c3becd0c78f6c5d348f3b41a0cffc3720dfc8f9409191` |
-| `prbs_2bit` | Alice | Legitimate Source (Reference Key) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
-| `prbs_2bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
-| `prbs_2bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
-| `prbs_2bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 40 | `7d47f268d16798ebf1b62bcd21f07d9bcf1cf55844ad113e9301417b493a9c8d` |
-| `prbs_4bit` | Alice | Legitimate Source (Reference Key) | 40 | `a150d2fe866a116d191ff0035213261458e6e3483be89d7f222ae3c714e29d8e` |
-| `prbs_4bit` | Bob | Legitimate Receiver (Reconciled to Alice) | 40 | `a150d2fe866a116d191ff0035213261458e6e3483be89d7f222ae3c714e29d8e` |
-| `prbs_4bit` | Eve1-Alice | Passive Eavesdropper (Overhearing Alice) | 40 | `1a30a2b69c18a6db21bb6cee106ecd7763ba2ad49ecde8616054392778dc1375` |
-| `prbs_4bit` | Eve1-Bob | Passive Eavesdropper (Overhearing Bob) | 40 | `a150d2fe866a116d191ff0035213261458e6e3483be89d7f222ae3c714e29d8e` |
-
-> [!CAUTION]
-> **Scientific Secrecy Disclaimer**:
-> Synthetic software validation only; 256-bit SHA-256 output **does NOT imply 256 bits of physical entropy** when upstream PRBS expansion is deterministic and public BCH helper data leaks parity relations. Where Eve reconstructs the unpadded source segment, hashing that segment produces the identical 256-bit digest. Physical channel probing is postponed.
 
 ---
 
