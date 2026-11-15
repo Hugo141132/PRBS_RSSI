@@ -499,6 +499,97 @@ class MultiPathPrivacyAmplificationResult:
 
 
 # ==============================================================================
+# Pair Evaluation Function
+# ==============================================================================
+
+
+def evaluate_chunk_pair_keys(
+    path_name: str,
+    pair_name: str,
+    source_name: str,
+    receiver_name: str,
+    is_legitimate: bool,
+    pre_kar: float,
+    source_chunk_keys: list[ChunkKeyResult],
+    receiver_chunk_keys: list[ChunkKeyResult],
+    chunk_size_bits: int = SEGMENT_SIZE_BITS,
+) -> PairPrivacyAmplificationResult:
+    """Evaluate Key Agreement Rate and exact match across all chunk keys between a pair.
+
+    Args:
+        path_name: Name of pipeline path.
+        pair_name: Identification string (e.g. 'Alice–Bob').
+        source_name: Name of source channel (e.g. 'Alice').
+        receiver_name: Name of receiver channel (e.g. 'Bob').
+        is_legitimate: True for Alice–Bob, False for eavesdropper pairs.
+        pre_kar: Reconciled bitstream KAR before privacy amplification (in percent).
+        source_chunk_keys: List of ChunkKeyResult for source.
+        receiver_chunk_keys: List of ChunkKeyResult for receiver.
+        chunk_size_bits: Size of segment in bits (default: 100).
+
+    Returns:
+        PairPrivacyAmplificationResult: Aggregated pair metrics across all chunks.
+    """
+    num_chunks = len(source_chunk_keys)
+    if len(receiver_chunk_keys) != num_chunks:
+        raise ValueError(
+            f"Chunk count mismatch between source ({len(source_chunk_keys)}) and receiver ({len(receiver_chunk_keys)}) "
+            f"for pair '{pair_name}' in path '{path_name}'."
+        )
+
+    chunk_results: list[ChunkPairPAResult] = []
+    match_count = 0
+    kar_sum = 0.0
+
+    for idx in range(num_chunks):
+        sk = source_chunk_keys[idx]
+        rk = receiver_chunk_keys[idx]
+        mismatches = sum(1 for a, b in zip(sk.key_bin, rk.key_bin) if a != b)
+        chunk_kar = ((256 - mismatches) / 256.0) * 100.0
+        is_match = (sk.key_bin == rk.key_bin)
+        if is_match:
+            match_count += 1
+        kar_sum += chunk_kar
+
+        chunk_results.append(
+            ChunkPairPAResult(
+                chunk_index=idx,
+                source_segment_bits=sk.input_segment_bits,
+                receiver_segment_bits=rk.input_segment_bits,
+                source_key_bin=sk.key_bin,
+                source_key_hex=sk.key_hex,
+                receiver_key_bin=rk.key_bin,
+                receiver_key_hex=rk.key_hex,
+                post_pa_kar=chunk_kar,
+                exact_key_match=is_match,
+                mismatched_key_bits=mismatches,
+            )
+        )
+
+    mean_post_kar = kar_sum / num_chunks if num_chunks > 0 else 0.0
+    exact_match_rate = (match_count / num_chunks * 100.0) if num_chunks > 0 else 0.0
+    all_matched = (match_count == num_chunks and num_chunks > 0)
+    input_bit_length = sum(len(c.input_segment_bits) for c in source_chunk_keys) if source_chunk_keys else 0
+
+    return PairPrivacyAmplificationResult(
+        path_name=path_name,
+        pair_name=pair_name,
+        source_name=source_name,
+        receiver_name=receiver_name,
+        is_legitimate=is_legitimate,
+        input_bit_length=input_bit_length,
+        num_chunks=num_chunks,
+        chunk_size_bits=chunk_size_bits,
+        pre_pa_kar=pre_kar,
+        post_pa_kar=mean_post_kar,
+        exact_key_match=all_matched,
+        exact_match_count=match_count,
+        exact_match_rate_percent=exact_match_rate,
+        chunk_results=chunk_results,
+    )
+
+
+# ==============================================================================
 # Pipeline Execution Function
 # ==============================================================================
 
@@ -627,66 +718,6 @@ def amplify_privacy_all_paths(
             ),
         }
 
-        # Evaluate pairs per PA.pdf Eq (3.64)
-        def evaluate_pair(
-            pair_name: str,
-            source_name: str,
-            receiver_name: str,
-            is_legitimate: bool,
-            pre_kar: float,
-            s_keys: list[ChunkKeyResult],
-            r_keys: list[ChunkKeyResult],
-        ) -> PairPrivacyAmplificationResult:
-            chunk_results: list[ChunkPairPAResult] = []
-            match_count = 0
-            kar_sum = 0.0
-
-            for idx in range(num_chunks):
-                sk = s_keys[idx]
-                rk = r_keys[idx]
-                mismatches = sum(1 for a, b in zip(sk.key_bin, rk.key_bin) if a != b)
-                chunk_kar = ((256 - mismatches) / 256.0) * 100.0
-                is_match = (sk.key_bin == rk.key_bin)
-                if is_match:
-                    match_count += 1
-                kar_sum += chunk_kar
-
-                chunk_results.append(
-                    ChunkPairPAResult(
-                        chunk_index=idx,
-                        source_segment_bits=sk.input_segment_bits,
-                        receiver_segment_bits=rk.input_segment_bits,
-                        source_key_bin=sk.key_bin,
-                        source_key_hex=sk.key_hex,
-                        receiver_key_bin=rk.key_bin,
-                        receiver_key_hex=rk.key_hex,
-                        post_pa_kar=chunk_kar,
-                        exact_key_match=is_match,
-                        mismatched_key_bits=mismatches,
-                    )
-                )
-
-            mean_post_kar = kar_sum / num_chunks if num_chunks > 0 else 0.0
-            exact_match_rate = (match_count / num_chunks * 100.0) if num_chunks > 0 else 0.0
-            all_matched = (match_count == num_chunks)
-
-            return PairPrivacyAmplificationResult(
-                path_name=path_name,
-                pair_name=pair_name,
-                source_name=source_name,
-                receiver_name=receiver_name,
-                is_legitimate=is_legitimate,
-                input_bit_length=len(alice_stream),
-                num_chunks=num_chunks,
-                chunk_size_bits=seg_size,
-                pre_pa_kar=pre_kar,
-                post_pa_kar=mean_post_kar,
-                exact_key_match=all_matched,
-                exact_match_count=match_count,
-                exact_match_rate_percent=exact_match_rate,
-                chunk_results=chunk_results,
-            )
-
         # Pre-PA KAR from Stage 5 BCH reconciliation outputs:
         #   Alice–Bob: post_reconcile_kar from res_ab
         #   Alice–Eve1-Alice: post_reconcile_kar from res_ea
@@ -696,34 +727,40 @@ def amplify_privacy_all_paths(
         pre_kar_eb = res_eb.post_reconcile_kar
 
         # Pair 1: Alice–Bob (legitimate: Alice source keys vs Bob receiver keys)
-        pair_ab = evaluate_pair(
+        pair_ab = evaluate_chunk_pair_keys(
+            path_name=path_name,
             pair_name="Alice–Bob",
             source_name="Alice",
             receiver_name="Bob",
             is_legitimate=True,
             pre_kar=pre_kar_ab,
-            s_keys=alice_keys,
-            r_keys=bob_keys,
+            source_chunk_keys=alice_keys,
+            receiver_chunk_keys=bob_keys,
+            chunk_size_bits=seg_size,
         )
         # Pair 2: Alice–Eve1-Alice (eavesdropper stream 1: Alice source keys vs Eve1-Alice receiver keys)
-        pair_ea = evaluate_pair(
+        pair_ea = evaluate_chunk_pair_keys(
+            path_name=path_name,
             pair_name="Alice–Eve1-Alice",
             source_name="Alice",
             receiver_name="Eve1-Alice",
             is_legitimate=False,
             pre_kar=pre_kar_ea,
-            s_keys=alice_keys,
-            r_keys=ea_keys,
+            source_chunk_keys=alice_keys,
+            receiver_chunk_keys=ea_keys,
+            chunk_size_bits=seg_size,
         )
         # Pair 3: Bob–Eve1-Bob (eavesdropper stream 2: Bob source keys vs Eve1-Bob receiver keys)
-        pair_eb = evaluate_pair(
+        pair_eb = evaluate_chunk_pair_keys(
+            path_name=path_name,
             pair_name="Bob–Eve1-Bob",
             source_name="Bob",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
             pre_kar=pre_kar_eb,
-            s_keys=bob_keys,
-            r_keys=eb_keys,
+            source_chunk_keys=bob_keys,
+            receiver_chunk_keys=eb_keys,
+            chunk_size_bits=seg_size,
         )
 
         pair_results[path_name] = {

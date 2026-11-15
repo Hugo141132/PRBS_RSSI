@@ -1180,9 +1180,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     kgr_desc = "ENABLED (PA.pdf Section 3.2.8.b, Eq 3.63: KGR = N_bit / T bps)" if kgr_active else "DISABLED"
     print(f"[STATUS] Key Generation Rate: {kgr_desc}")
-    if pa_active or nist_active or kgr_active:
-        print("[NOTICE] Downstream evaluation (PA, NIST SP 800-22, KGR) is PAUSED for the 8-bit PRBS / 4-path revision")
-        print("         pending 4-path key derivation architecture; running strictly under historical 2-bit configuration.")
     print("[NOTICE] Software validation only; empirical channel probing is postponed.")
     print("=" * 70)
 
@@ -1447,39 +1444,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\nCalculated NIST SP 800-22 Randomness Test Results (PA.pdf Section 3.2.8.d & Eqs 3.65–3.73):")
         print("-" * 125)
         print(
-            f"{'Path':<12} | {'Channel':<15} | {'Monobit (s/P)':<20} | {'Runs (Vn/P)':<20} | {'ApEn m=2 (chi2/P)':<22} | {'Overall':<10}"
+            f"{'Path':<12} | {'Channel':<15} | {'Role':<32} | {'Accepted Chunks':<18} | {'Acceptance Rate':<16}"
         )
         print("-" * 125)
-        for res in nist_res.all_results:
-            mono_p = "P" if res.monobit.passed else "F"
-            runs_p = "P" if res.runs.passed else "F"
-            apen_p = "P" if res.approximate_entropy.passed else "F"
-            mono_s = f"{res.monobit.statistic:.2f} (p={res.monobit.p_value:.4f}) {mono_p}"
-            runs_s = f"{res.runs.statistic:.0f} (p={res.runs.p_value:.4f}) {runs_p}"
-            apen_s = f"{res.approximate_entropy.statistic:.2f} (p={res.approximate_entropy.p_value:.4f}) {apen_p}"
-            ov_s = "ACCEPTED" if res.overall_accepted else "REJECTED"
-            print(
-                f"{res.path_name:<12} | {res.channel_name:<15} | {mono_s:<20} | {runs_s:<20} | {apen_s:<22} | {ov_s:<10}"
-            )
+        for p_name, chs in nist_res.paths.items():
+            for ch_name, ch_res in chs.items():
+                acc_str = f"{ch_res.accepted_chunks_count} / {len(ch_res.chunks)}"
+                rate_str = f"{(ch_res.accepted_chunks_count / len(ch_res.chunks) * 100.0):.1f}%" if ch_res.chunks else "0.0%"
+                print(
+                    f"{p_name:<12} | {ch_name:<15} | {ch_res.channel_role:<32} | {acc_str:<18} | {rate_str:<16}"
+                )
         print("-" * 125)
 
     if kgr_res is not None:
         print("\nCalculated Key Generation Rate (KGR) Results (PA.pdf Section 3.2.8.b & Eq 3.63):")
-        print("-" * 125)
+        print("-" * 140)
         print(
-            f"{'Path':<12} | {'N_raw (b)':<10} | {'NIST Pass':<10} | {'N_bit (b)':<10} | {'Time (ms)':<12} | {'Accepted KGR':<18} | {'Raw KGR':<16} | {'Alice–Bob Match':<20}"
+            f"{'Path':<12} | {'Chunks (Acc/Tot)':<18} | {'N_raw (b)':<10} | {'N_bit (b)':<10} | {'Time (ms)':<12} | {'Accepted KGR':<18} | {'Raw KGR':<16} | {'Alice–Bob Match':<20}"
         )
-        print("-" * 125)
+        print("-" * 140)
         for km in kgr_res.metrics:
-            p_pass = "YES" if km.nist_overall_passed else "NO"
+            chunks_s = f"{km.accepted_chunks}/{km.total_chunks}"
             t_ms = f"{km.duration_ms:.2f} ms"
             acc_kgr = f"{km.accepted_kgr_bps:.2f} bps"
             raw_kgr = f"{km.raw_kgr_bps:.2f} bps"
             agr_str = "MATCH (100.00%)" if km.alice_bob_exact_match else f"MISMATCH ({km.alice_bob_kar:.2f}%)"
             print(
-                f"{km.path_name:<12} | {km.raw_generated_bits:<10} | {p_pass:<10} | {km.accepted_bits:<10} | {t_ms:<12} | {acc_kgr:<18} | {raw_kgr:<16} | {agr_str:<20}"
+                f"{km.path_name:<12} | {chunks_s:<18} | {km.raw_generated_bits:<10} | {km.accepted_bits:<10} | {t_ms:<12} | {acc_kgr:<18} | {raw_kgr:<16} | {agr_str:<20}"
             )
-        print("-" * 125)
+        print("-" * 140)
         print(f"[TIMING] Timer Scope:   {TIMER_START_BOUNDARY} -> {TIMER_END_BOUNDARY}")
         print(f"[TIMING] Cache Policy:  {BCH_CACHE_POLICY_DESC}")
         print(f"[LABEL]  Validation:    {RESEARCH_DISCLAIMER_KGR}")

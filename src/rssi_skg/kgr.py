@@ -71,6 +71,7 @@ from openpyxl.utils import get_column_letter
 
 from rssi_skg.filter import FilterConfig, filter_rssi_channels
 from rssi_skg.nist import (
+    ChannelRandomnessResult,
     KeyRandomnessResult,
     MultiPathNISTResult,
     NISTConfig,
@@ -79,14 +80,19 @@ from rssi_skg.nist import (
 from rssi_skg.prbs import PRBSConfig, expand_channels_prbs
 from rssi_skg.privacy_amplification import (
     ChannelPrivacyAmplificationResult,
+    ChunkKeyResult,
     PairPrivacyAmplificationResult,
     PrivacyAmplificationConfig,
     SCIENTIFIC_DISCLAIMER,
+    evaluate_chunk_pair_keys,
+    segment_bitstream,
     sha256_bitstream,
 )
 from rssi_skg.quantization import QuantizationConfig, quantize_channels
 from rssi_skg.reconciliation import (
     DEFAULT_BCH_CODE,
+    DEFAULT_BCH_CODE_2BIT,
+    DEFAULT_BCH_CODE_4BIT,
     PairReconciliationResult,
     ReconciliationConfig,
     evaluate_reconciliation_pair,
@@ -95,10 +101,10 @@ from rssi_skg.reconciliation import (
 )
 
 # Downstream Evaluation Status:
-# Paused for 8-bit PRBS / 4-path revision pending 4-path key derivation architecture.
-# Historical KGR evaluation is preserved strictly on the prior 2-bit paths.
-KGR_PATHS: tuple[str, ...] = ("quant_2bit", "prbs_2bit")
-KGR_DOWNSTREAM_STATUS: str = "PAUSED (historical 2-bit evaluation preserved; 4-path derivation postponed)"
+# Fully integrated across all 4 paths (quant_2bit, quant_4bit, prbs_2bit, prbs_4bit)
+# with dynamic 100-bit chunking and dual BCH cache pre-warming.
+KGR_PATHS: tuple[str, ...] = ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
+KGR_DOWNSTREAM_STATUS: str = "COMPLETED"
 
 RESEARCH_DISCLAIMER_KGR: str = (
     "Dummy-data software validation only. KGR measures pure software processing throughput "
@@ -108,27 +114,38 @@ RESEARCH_DISCLAIMER_KGR: str = (
 )
 
 TIMER_START_BOUNDARY: str = "Immediate entry to legitimate Alice–Bob filter_rssi_channels (scalar MSHKF filtering)"
-TIMER_END_BOUNDARY: str = "Completion of sha256_bitstream for legitimate Alice and Bob keys"
+TIMER_END_BOUNDARY: str = "Completion of sha256_bitstream for legitimate Alice and Bob chunk keys"
 BCH_CACHE_POLICY_DESC: str = (
-    "Pre-warmed galois.BCH(1023, 46, 200) instance and JIT decode kernel before timing "
-    "to eliminate multi-second Numba compilation order bias between paths."
+    "Pre-warmed galois.BCH instances and JIT decode kernels for both 2-bit BCH(511, 1, 198) "
+    "and 4-bit BCH(255, 9, 62) before timing to eliminate multi-second Numba compilation order bias."
 )
 
 
-def warm_up_bch_cache(code: tuple[int, int, int] = DEFAULT_BCH_CODE) -> None:
+def warm_up_bch_cache(
+    codes: Sequence[tuple[int, int, int]] | tuple[int, int, int] = (
+        DEFAULT_BCH_CODE_2BIT,
+        DEFAULT_BCH_CODE_4BIT,
+    ),
+) -> None:
     """Pre-warm BCH code construction and Numba JIT decode/encode kernels.
 
     Galois compiles JIT routines on the very first encode/decode call (taking 2–5 seconds).
-    Pre-warming ensures neither quant_2bit nor prbs_2bit suffers an asymmetric timing bias.
+    Pre-warming both 2-bit and 4-bit codes ensures no path suffers an asymmetric timing bias.
 
     Args:
-        code: Tuple of (n, k, t). Defaults to DEFAULT_BCH_CODE (1023, 46, 200).
+        codes: Sequence of (n, k, t) code tuples or a single (n, k, t) tuple.
     """
-    n, k, t = code
-    bch = get_bch_code(n, k, t)
-    dummy_msg = np.zeros(k, dtype=int)
-    dummy_codeword = bch.encode(dummy_msg)
-    bch.decode(dummy_codeword)
+    if isinstance(codes, tuple) and len(codes) == 3 and isinstance(codes[0], int):
+        target_codes = [codes]
+    else:
+        target_codes = list(codes)
+
+    for code in target_codes:
+        n, k, t = code
+        bch = get_bch_code(n, k, t)
+        dummy_msg = np.zeros(k, dtype=int)
+        dummy_codeword = bch.encode(dummy_msg)
+        bch.decode(dummy_codeword)
 
 
 @dataclass(frozen=True)
@@ -137,6 +154,7 @@ class KGRConfig:
 
     paths: tuple[str, ...] = KGR_PATHS
     key_length_bits: int = 256
+    segment_size_bits: int = 100
     pre_warm_bch: bool = True
     disclaimer: str = RESEARCH_DISCLAIMER_KGR
 
@@ -145,6 +163,7 @@ class KGRConfig:
         return {
             "supported_paths": list(self.paths),
             "key_length_bits": self.key_length_bits,
+            "segment_size_bits": self.segment_size_bits,
             "pre_warm_bch": self.pre_warm_bch,
             "governing_equation": "PA.pdf Section 3.2.8.b, Equation (3.63): KGR = N_bit / T",
             "timer_boundaries": {
@@ -172,6 +191,9 @@ class PathKGRResult:
     alice_bob_kar: float
     channel_keys: dict[str, ChannelPrivacyAmplificationResult]
     pair_results: dict[str, PairPrivacyAmplificationResult]
+    total_chunks: int = 0
+    accepted_chunks: int = 0
+    alice_chunk_evaluations: list[KeyRandomnessResult] = field(default_factory=list)
     timer_start_boundary: str = TIMER_START_BOUNDARY
     timer_end_boundary: str = TIMER_END_BOUNDARY
     bch_cache_policy: str = BCH_CACHE_POLICY_DESC
@@ -210,7 +232,7 @@ class MultiPathKGRResult:
 def execute_timed_path_pipeline(
     path_name: str,
     raw_data: dict[str, list[float]],
-    nist_alice_eval: KeyRandomnessResult | None = None,
+    nist_alice_eval: ChannelRandomnessResult | KeyRandomnessResult | Sequence[KeyRandomnessResult] | None = None,
     filter_config: FilterConfig | None = None,
     quant_config: QuantizationConfig | None = None,
     prbs_config: PRBSConfig | None = None,
@@ -222,12 +244,12 @@ def execute_timed_path_pipeline(
     """Execute and time a single path from filtering through SHA-256 Privacy Amplification.
 
     Args:
-        path_name: 'quant_2bit' or 'prbs_2bit'.
+        path_name: 'quant_2bit', 'quant_4bit', 'prbs_2bit', or 'prbs_4bit'.
         raw_data: Raw RSSI samples dictionary (4 channels).
-        nist_alice_eval: Pre-computed NIST evaluation on Alice's key (computed if None).
+        nist_alice_eval: Pre-computed NIST evaluation on Alice's key(s) (computed if None).
         filter_config: FilterConfig instance.
         quant_config: QuantizationConfig instance.
-        prbs_config: PRBSConfig instance (only utilized if path_name == 'prbs_2bit').
+        prbs_config: PRBSConfig instance (only utilized if path is PRBS expanded).
         recon_config: ReconciliationConfig instance.
         pa_config: PrivacyAmplificationConfig instance.
         nist_config: NISTConfig instance.
@@ -243,6 +265,9 @@ def execute_timed_path_pipeline(
     q_cfg = quant_config if quant_config is not None else QuantizationConfig()
     p_cfg = prbs_config if prbs_config is not None else PRBSConfig()
     r_cfg = recon_config if recon_config is not None else ReconciliationConfig()
+    pa_cfg = pa_config if pa_config is not None else PrivacyAmplificationConfig()
+    seg_size = pa_cfg.segment_size_bits
+
     n, k, t = r_cfg.get_code_for_path(path_name)
     d_val = 2 * t + 1
 
@@ -260,15 +285,31 @@ def execute_timed_path_pipeline(
     # 2. Modified ADQ Quantization (Legitimate Alice & Bob only)
     q_legit = quantize_channels(f_legit, q_cfg)
 
-    # 3. Expansion (PRBS only on prbs_2bit path, for Legitimate Alice & Bob)
-    if path_name == "prbs_2bit":
-        p_legit = expand_channels_prbs(q_legit, p_cfg)
-        legit_bitstreams = {ch: p_legit.channels[ch].bitstream_2bit for ch in ["Alice", "Bob"]}
-    else:
+    # 3. Expansion (PRBS only on prbs_2bit and prbs_4bit paths, for Legitimate Alice & Bob)
+    if path_name == "quant_2bit":
         legit_bitstreams = {
             "Alice": q_legit.bitstreams_2bit["Alice"],
             "Bob": q_legit.bitstreams_2bit["Bob"],
         }
+    elif path_name == "quant_4bit":
+        legit_bitstreams = {
+            "Alice": q_legit.bitstreams_4bit["Alice"],
+            "Bob": q_legit.bitstreams_4bit["Bob"],
+        }
+    elif path_name == "prbs_2bit":
+        p_legit = expand_channels_prbs(q_legit, p_cfg)
+        legit_bitstreams = {
+            "Alice": p_legit.channels["Alice"].bitstream_2bit,
+            "Bob": p_legit.channels["Bob"].bitstream_2bit,
+        }
+    elif path_name == "prbs_4bit":
+        p_legit = expand_channels_prbs(q_legit, p_cfg)
+        legit_bitstreams = {
+            "Alice": p_legit.channels["Alice"].bitstream_4bit,
+            "Bob": p_legit.channels["Bob"].bitstream_4bit,
+        }
+    else:
+        raise ValueError(f"Unknown path: {path_name}")
 
     # 4. BCH Codeword Helper Data Reconciliation (Alice -> Bob legitimate path)
     alice_helpers, alice_orig, alice_pad = generate_helper_data(
@@ -292,9 +333,33 @@ def execute_timed_path_pipeline(
         interleaving=r_cfg.interleaving,
     )
 
-    # 5. Bit-level SHA-256 Privacy Amplification (Legitimate Alice & Bob only)
-    alice_bin, alice_hex = sha256_bitstream(res_ab.source_unpadded)
-    bob_bin, bob_hex = sha256_bitstream(res_ab.recovered_unpadded)
+    # 5. Bit-level SHA-256 Privacy Amplification (Legitimate Alice & Bob only, 100-bit chunks)
+    alice_segments = segment_bitstream(res_ab.source_unpadded, segment_size=seg_size)
+    bob_segments = segment_bitstream(res_ab.recovered_unpadded, segment_size=seg_size)
+
+    alice_keys: list[ChunkKeyResult] = []
+    for idx, seg in enumerate(alice_segments):
+        k_bin, k_hex = sha256_bitstream(seg)
+        alice_keys.append(
+            ChunkKeyResult(
+                chunk_index=idx,
+                input_segment_bits=seg,
+                key_bin=k_bin,
+                key_hex=k_hex,
+            )
+        )
+
+    bob_keys: list[ChunkKeyResult] = []
+    for idx, seg in enumerate(bob_segments):
+        k_bin, k_hex = sha256_bitstream(seg)
+        bob_keys.append(
+            ChunkKeyResult(
+                chunk_index=idx,
+                input_segment_bits=seg,
+                key_bin=k_bin,
+                key_hex=k_hex,
+            )
+        )
 
     # --------------------------------------------------------------------------
     # TIMER END: Immediately after Legitimate Alice & Bob Privacy Amplification
@@ -306,58 +371,36 @@ def execute_timed_path_pipeline(
     # --------------------------------------------------------------------------
     # POST-TIMING: Auxiliary / Eavesdropper Channel Evaluation (Excluded from KGR Timer)
     # --------------------------------------------------------------------------
-    def _make_pair_res(
-        p_name: str,
-        s_name: str,
-        r_name: str,
-        is_legit: bool,
-        orig_len: int,
-        pre_k: float,
-        s_bin: str,
-        s_hex: str,
-        r_bin: str,
-        r_hex: str,
-    ) -> PairPrivacyAmplificationResult:
-        mismatches = sum(1 for a, b in zip(s_bin, r_bin) if a != b)
-        post_k = ((256 - mismatches) / 256.0) * 100.0
-        return PairPrivacyAmplificationResult(
-            path_name=path_name,
-            pair_name=p_name,
-            source_name=s_name,
-            receiver_name=r_name,
-            is_legitimate=is_legit,
-            input_bit_length=orig_len,
-            source_key_bin=s_bin,
-            source_key_hex=s_hex,
-            receiver_key_bin=r_bin,
-            receiver_key_hex=r_hex,
-            pre_pa_kar=pre_k,
-            post_pa_kar=post_k,
-            exact_key_match=(s_bin == r_bin),
-            mismatched_key_bits=mismatches,
-        )
-
-    pair_ab = _make_pair_res(
-        "Alice–Bob", "Alice", "Bob", True, res_ab.original_length,
-        res_ab.post_reconcile_kar, alice_bin, alice_hex, bob_bin, bob_hex
+    pair_ab = evaluate_chunk_pair_keys(
+        path_name=path_name,
+        pair_name="Alice–Bob",
+        source_name="Alice",
+        receiver_name="Bob",
+        is_legitimate=True,
+        pre_kar=res_ab.post_reconcile_kar,
+        source_chunk_keys=alice_keys,
+        receiver_chunk_keys=bob_keys,
+        chunk_size_bits=seg_size,
     )
 
     channel_keys: dict[str, ChannelPrivacyAmplificationResult] = {
         "Alice": ChannelPrivacyAmplificationResult(
             path_name=path_name,
             channel_name="Alice",
-            channel_role="Legitimate Source",
+            channel_role="Legitimate Source (Reference Key)",
             input_bit_length=len(res_ab.source_unpadded),
-            key_bin=alice_bin,
-            key_hex=alice_hex,
+            num_chunks=len(alice_keys),
+            chunk_size_bits=seg_size,
+            chunk_keys=alice_keys,
         ),
         "Bob": ChannelPrivacyAmplificationResult(
             path_name=path_name,
             channel_name="Bob",
             channel_role="Legitimate Receiver (Reconciled to Alice)",
             input_bit_length=len(res_ab.recovered_unpadded),
-            key_bin=bob_bin,
-            key_hex=bob_hex,
+            num_chunks=len(bob_keys),
+            chunk_size_bits=seg_size,
+            chunk_keys=bob_keys,
         ),
     }
 
@@ -366,19 +409,34 @@ def execute_timed_path_pipeline(
     }
 
     # Process Eve channels if present in raw_data
-    eve_keys = [ch for ch in raw_data if ch not in ("Alice", "Bob")]
     if "Eve1-Alice" in raw_data and "Eve1-Bob" in raw_data:
         eve_raw = {ch: raw_data[ch] for ch in ["Eve1-Alice", "Eve1-Bob"]}
         f_eve = filter_rssi_channels(eve_raw, f_cfg)
         q_eve = quantize_channels(f_eve, q_cfg)
-        if path_name == "prbs_2bit":
-            p_eve = expand_channels_prbs(q_eve, p_cfg)
-            eve_bitstreams = {ch: p_eve.channels[ch].bitstream_2bit for ch in ["Eve1-Alice", "Eve1-Bob"]}
-        else:
+        if path_name == "quant_2bit":
             eve_bitstreams = {
                 "Eve1-Alice": q_eve.bitstreams_2bit["Eve1-Alice"],
                 "Eve1-Bob": q_eve.bitstreams_2bit["Eve1-Bob"],
             }
+        elif path_name == "quant_4bit":
+            eve_bitstreams = {
+                "Eve1-Alice": q_eve.bitstreams_4bit["Eve1-Alice"],
+                "Eve1-Bob": q_eve.bitstreams_4bit["Eve1-Bob"],
+            }
+        elif path_name == "prbs_2bit":
+            p_eve = expand_channels_prbs(q_eve, p_cfg)
+            eve_bitstreams = {
+                "Eve1-Alice": p_eve.channels["Eve1-Alice"].bitstream_2bit,
+                "Eve1-Bob": p_eve.channels["Eve1-Bob"].bitstream_2bit,
+            }
+        elif path_name == "prbs_4bit":
+            p_eve = expand_channels_prbs(q_eve, p_cfg)
+            eve_bitstreams = {
+                "Eve1-Alice": p_eve.channels["Eve1-Alice"].bitstream_4bit,
+                "Eve1-Bob": p_eve.channels["Eve1-Bob"].bitstream_4bit,
+            }
+        else:
+            eve_bitstreams = {}
 
         res_ea = evaluate_reconciliation_pair(
             source_bits=legit_bitstreams["Alice"],
@@ -396,75 +454,134 @@ def execute_timed_path_pipeline(
             designed_d=d_val,
             interleaving=r_cfg.interleaving,
         )
+
+        bob_helpers, _, bob_pad = generate_helper_data(
+            source_bits=legit_bitstreams["Bob"], n=n, k=k, t=t, rng=rng
+        )
         res_eb = evaluate_reconciliation_pair(
-            source_bits=legit_bitstreams["Alice"],
+            source_bits=legit_bitstreams["Bob"],
             receiver_bits=eve_bitstreams["Eve1-Bob"],
-            helper_blocks=alice_helpers,
+            helper_blocks=bob_helpers,
             n=n,
             k=k,
             t=t,
             path_name=path_name,
-            pair_name="Alice–Eve1-Bob",
-            source_name="Alice",
+            pair_name="Bob–Eve1-Bob",
+            source_name="Bob",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
-            padding_count=alice_pad,
+            padding_count=bob_pad,
             designed_d=d_val,
             interleaving=r_cfg.interleaving,
         )
 
-        ea_bin, ea_hex = sha256_bitstream(res_ea.recovered_unpadded)
-        eb_bin, eb_hex = sha256_bitstream(res_eb.recovered_unpadded)
+        ea_segments = segment_bitstream(res_ea.recovered_unpadded, segment_size=seg_size)
+        eb_segments = segment_bitstream(res_eb.recovered_unpadded, segment_size=seg_size)
+
+        ea_keys: list[ChunkKeyResult] = []
+        for idx, seg in enumerate(ea_segments):
+            k_bin, k_hex = sha256_bitstream(seg)
+            ea_keys.append(
+                ChunkKeyResult(
+                    chunk_index=idx,
+                    input_segment_bits=seg,
+                    key_bin=k_bin,
+                    key_hex=k_hex,
+                )
+            )
+
+        eb_keys: list[ChunkKeyResult] = []
+        for idx, seg in enumerate(eb_segments):
+            k_bin, k_hex = sha256_bitstream(seg)
+            eb_keys.append(
+                ChunkKeyResult(
+                    chunk_index=idx,
+                    input_segment_bits=seg,
+                    key_bin=k_bin,
+                    key_hex=k_hex,
+                )
+            )
 
         channel_keys["Eve1-Alice"] = ChannelPrivacyAmplificationResult(
             path_name=path_name,
             channel_name="Eve1-Alice",
             channel_role="Passive Eavesdropper (Overhearing Alice)",
             input_bit_length=len(res_ea.recovered_unpadded),
-            key_bin=ea_bin,
-            key_hex=ea_hex,
+            num_chunks=len(ea_keys),
+            chunk_size_bits=seg_size,
+            chunk_keys=ea_keys,
         )
         channel_keys["Eve1-Bob"] = ChannelPrivacyAmplificationResult(
             path_name=path_name,
             channel_name="Eve1-Bob",
             channel_role="Passive Eavesdropper (Overhearing Bob)",
             input_bit_length=len(res_eb.recovered_unpadded),
-            key_bin=eb_bin,
-            key_hex=eb_hex,
+            num_chunks=len(eb_keys),
+            chunk_size_bits=seg_size,
+            chunk_keys=eb_keys,
         )
 
-        pair_ea = _make_pair_res(
-            "Alice–Eve1-Alice", "Alice", "Eve1-Alice", False, res_ea.original_length,
-            res_ea.post_reconcile_kar, alice_bin, alice_hex, ea_bin, ea_hex
+        pair_ea = evaluate_chunk_pair_keys(
+            path_name=path_name,
+            pair_name="Alice–Eve1-Alice",
+            source_name="Alice",
+            receiver_name="Eve1-Alice",
+            is_legitimate=False,
+            pre_kar=res_ea.post_reconcile_kar,
+            source_chunk_keys=alice_keys,
+            receiver_chunk_keys=ea_keys,
+            chunk_size_bits=seg_size,
         )
-        pair_eb = _make_pair_res(
-            "Alice–Eve1-Bob", "Alice", "Eve1-Bob", False, res_eb.original_length,
-            res_eb.post_reconcile_kar, alice_bin, alice_hex, eb_bin, eb_hex
+        pair_eb = evaluate_chunk_pair_keys(
+            path_name=path_name,
+            pair_name="Bob–Eve1-Bob",
+            source_name="Bob",
+            receiver_name="Eve1-Bob",
+            is_legitimate=False,
+            pre_kar=res_eb.post_reconcile_kar,
+            source_chunk_keys=bob_keys,
+            receiver_chunk_keys=eb_keys,
+            chunk_size_bits=seg_size,
         )
         pair_results["Alice–Eve1-Alice"] = pair_ea
-        pair_results["Alice–Eve1-Bob"] = pair_eb
+        pair_results["Bob–Eve1-Bob"] = pair_eb
 
-    # Evaluate NIST Randomness on Alice's final key (excluded from timer)
-    if nist_alice_eval is None:
-        nist_alice_eval = evaluate_key_randomness(
-            bitstream=alice_bin,
-            path_name=path_name,
-            channel_name="Alice",
-            channel_role="Legitimate Source",
-            key_hex=alice_hex,
-            config=nist_config,
-        )
+    # Evaluate NIST Randomness on Alice's keys (excluded from timer)
+    alice_evals: list[KeyRandomnessResult] = []
+    if nist_alice_eval is not None:
+        if hasattr(nist_alice_eval, "chunks"):
+            alice_evals = list(nist_alice_eval.chunks)
+        elif isinstance(nist_alice_eval, (list, tuple)):
+            alice_evals = list(nist_alice_eval)
+        else:
+            alice_evals = [nist_alice_eval]
+    else:
+        n_cfg = nist_config if nist_config is not None else NISTConfig()
+        for ck in alice_keys:
+            eval_res = evaluate_key_randomness(
+                bitstream=ck.key_bin,
+                path_name=path_name,
+                channel_name="Alice",
+                channel_role="Legitimate Source (Reference Key)",
+                key_hex=ck.key_hex,
+                config=n_cfg,
+                chunk_index=ck.chunk_index,
+                pair_name="Alice–Bob",
+            )
+            alice_evals.append(eval_res)
 
-    nist_passed = bool(nist_alice_eval.overall_accepted)
-    raw_bits = 256
-    accepted_bits = 256 if nist_passed else 0
+    total_chunks = len(alice_evals)
+    accepted_chunks = sum(1 for e in alice_evals if e.overall_accepted)
+    raw_bits = 256 * total_chunks
+    accepted_bits = 256 * accepted_chunks
+    nist_overall_passed = bool(accepted_chunks == total_chunks and total_chunks > 0)
     accepted_kgr = accepted_bits / duration
     raw_kgr = raw_bits / duration
 
     return PathKGRResult(
         path_name=path_name,
         raw_generated_bits=raw_bits,
-        nist_overall_passed=nist_passed,
+        nist_overall_passed=nist_overall_passed,
         accepted_bits=accepted_bits,
         duration_seconds=duration,
         accepted_kgr_bps=accepted_kgr,
@@ -473,6 +590,9 @@ def execute_timed_path_pipeline(
         alice_bob_kar=pair_ab.post_pa_kar,
         channel_keys=channel_keys,
         pair_results=pair_results,
+        total_chunks=total_chunks,
+        accepted_chunks=accepted_chunks,
+        alice_chunk_evaluations=alice_evals,
     )
 
 
@@ -511,18 +631,20 @@ def measure_multipath_kgr(
 
     # Pre-warm BCH cache to eliminate JIT compilation timing-order bias
     if cfg.pre_warm_bch:
-        warm_up_bch_cache(DEFAULT_BCH_CODE)
+        warm_up_bch_cache((DEFAULT_BCH_CODE_2BIT, DEFAULT_BCH_CODE_4BIT))
 
     path_results: dict[str, PathKGRResult] = {}
 
     for path_name in cfg.paths:
-        alice_eval: KeyRandomnessResult | None = None
-        if (
-            nist_result is not None
-            and path_name in nist_result.channel_evaluations
-            and "Alice" in nist_result.channel_evaluations[path_name]
-        ):
-            alice_eval = nist_result.channel_evaluations[path_name]["Alice"]
+        alice_eval: Any = None
+        if nist_result is not None:
+            if path_name in nist_result.paths and "Alice" in nist_result.paths[path_name]:
+                alice_eval = nist_result.paths[path_name]["Alice"]
+            elif (
+                path_name in nist_result.channel_evaluations
+                and "Alice" in nist_result.channel_evaluations[path_name]
+            ):
+                alice_eval = nist_result.channel_evaluations[path_name]["Alice"]
 
         res = execute_timed_path_pipeline(
             path_name=path_name,
@@ -565,15 +687,17 @@ def export_kgr_metrics_csv(
     """Export KGR summary metrics to CSV.
 
     Columns:
-        path, raw_generated_bits, accepted_bits, duration_seconds, duration_ms,
-        accepted_kgr_bps, raw_kgr_bps, nist_overall_passed,
-        alice_bob_exact_match, alice_bob_kar_percent, label
+        path, total_chunks, accepted_chunks, raw_generated_bits, accepted_bits,
+        duration_seconds, duration_ms, accepted_kgr_bps, raw_kgr_bps,
+        nist_overall_passed, alice_bob_exact_match, alice_bob_kar_percent, label
     """
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = [
         "path",
+        "total_chunks",
+        "accepted_chunks",
         "raw_generated_bits",
         "accepted_bits",
         "duration_seconds",
@@ -593,6 +717,8 @@ def export_kgr_metrics_csv(
             writer.writerow(
                 {
                     "path": res.path_name,
+                    "total_chunks": res.total_chunks,
+                    "accepted_chunks": res.accepted_chunks,
                     "raw_generated_bits": res.raw_generated_bits,
                     "accepted_bits": res.accepted_bits,
                     "duration_seconds": round(res.duration_seconds, 6),
@@ -622,6 +748,8 @@ def export_kgr_config_json(
         summary.append(
             {
                 "path": res.path_name,
+                "total_chunks": res.total_chunks,
+                "accepted_chunks": res.accepted_chunks,
                 "raw_generated_bits": res.raw_generated_bits,
                 "accepted_bits": res.accepted_bits,
                 "duration_seconds": res.duration_seconds,
@@ -686,8 +814,10 @@ def export_evaluation_workbook_xlsx(
     ws1.title = "KGR Metrics"
     headers1 = [
         "Path",
+        "Total Chunks",
+        "Accepted Chunks",
         "Raw Bits (N_raw)",
-        "NIST Passed",
+        "NIST All-Passed",
         "Accepted Bits (N_bit)",
         "Duration (s)",
         "Duration (ms)",
@@ -708,6 +838,8 @@ def export_evaluation_workbook_xlsx(
         ws1.append(
             [
                 res.path_name,
+                res.total_chunks,
+                res.accepted_chunks,
                 res.raw_generated_bits,
                 "YES" if res.nist_overall_passed else "NO",
                 res.accepted_bits,
@@ -723,7 +855,7 @@ def export_evaluation_workbook_xlsx(
         for c_idx in range(1, len(headers1) + 1):
             c = ws1.cell(row=r_idx, column=c_idx)
             c.font = data_font
-            c.alignment = center_align if c_idx not in (1, 11) else left_align
+            c.alignment = center_align if c_idx not in (1, 13) else left_align
 
     # Auto-adjust column widths for Sheet 1
     for col in ws1.columns:
@@ -735,8 +867,10 @@ def export_evaluation_workbook_xlsx(
     ws2 = wb.create_sheet(title="NIST Randomness")
     headers2 = [
         "Path",
+        "Pair",
         "Channel",
         "Role",
+        "Chunk Index",
         "Key Length",
         "Key Hex Digest",
         "Monobit s_obs",
@@ -763,8 +897,10 @@ def export_evaluation_workbook_xlsx(
         ws2.append(
             [
                 res.path_name,
+                res.pair_name or "",
                 res.channel_name,
                 res.channel_role,
+                res.chunk_index,
                 res.key_length,
                 res.key_hex,
                 round(res.monobit.statistic, 4),
@@ -783,14 +919,14 @@ def export_evaluation_workbook_xlsx(
         )
         for c_idx in range(1, len(headers2) + 1):
             c = ws2.cell(row=r_idx, column=c_idx)
-            if c_idx == 5:
+            if c_idx == 7:
                 c.font = mono_font
                 c.data_type = "s"
                 c.number_format = "@"
                 c.alignment = left_align
             else:
                 c.font = data_font
-                c.alignment = center_align if c_idx not in (1, 2, 3, 12, 16) else left_align
+                c.alignment = center_align if c_idx not in (1, 2, 3, 4, 14, 18) else left_align
 
     for col in ws2.columns:
         max_len = max(len(str(cell.value or "")) for cell in col)
@@ -810,13 +946,13 @@ def export_evaluation_workbook_xlsx(
 
     meta_rows = [
         ("KGR Formulation", "PA.pdf Section 3.2.8.b, Equation (3.63): KGR = N_bit / T (bps)"),
-        ("Single-Accounting Rule", "Alice's final key counted once (256 bits if passed, else 0). Bob's matching key is not duplicate-counted."),
+        ("Single-Accounting Rule", "Alice's chunks counted once (256 bits per passed chunk). Bob's matching chunks are not duplicate-counted."),
         ("Frequency (Monobit) Test", "PA.pdf Eq (3.65)–(3.66), NIST SP 800-22 Rev. 1a Sec 2.1 (alpha=0.01)"),
         ("Runs Test", "PA.pdf Eq (3.67)–(3.69), NIST SP 800-22 Rev. 1a Sec 2.3 (prerequisite: |pi - 0.5| < 2/sqrt(n))"),
         ("Approximate Entropy Test", "PA.pdf Eq (3.70)–(3.73), NIST SP 800-22 Rev. 1a Sec 2.12 (m=2, alpha=0.01)"),
         ("Timer Start Boundary", TIMER_START_BOUNDARY),
         ("Timer End Boundary", TIMER_END_BOUNDARY),
-        ("Timer Exclusions", "Raw data reading/parsing, plotting/rendering, CSV/JSON/XLSX exports, NIST evaluation"),
+        ("Timer Exclusions", "Raw data reading/parsing, plotting/rendering, CSV/JSON/XLSX exports, NIST evaluation, Eve channels"),
         ("BCH Cache Policy", BCH_CACHE_POLICY_DESC),
         ("Research Disclaimer", RESEARCH_DISCLAIMER_KGR),
     ]

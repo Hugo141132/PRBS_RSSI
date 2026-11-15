@@ -170,6 +170,8 @@ class KeyRandomnessResult:
     runs: NISTTestResult
     approximate_entropy: NISTTestResult
     overall_accepted: bool
+    chunk_index: int = 0
+    pair_name: str | None = None
 
     @property
     def all_applicable(self) -> bool:
@@ -177,25 +179,115 @@ class KeyRandomnessResult:
         return self.monobit.applicable and self.runs.applicable and self.approximate_entropy.applicable
 
 
+@dataclass(frozen=True)
+class ChannelRandomnessResult:
+    """Container holding NIST evaluations for all chunk keys of a channel."""
+
+    path_name: str
+    channel_name: str
+    channel_role: str
+    chunk_evaluations: list[KeyRandomnessResult]
+
+    @property
+    def chunks(self) -> list[KeyRandomnessResult]:
+        """Alias for chunk_evaluations."""
+        return self.chunk_evaluations
+
+    @property
+    def num_chunks(self) -> int:
+        """Total number of chunk keys evaluated for this channel."""
+        return len(self.chunk_evaluations)
+
+    @property
+    def accepted_chunks_count(self) -> int:
+        """Number of chunk keys that passed all three NIST tests."""
+        return sum(1 for k in self.chunk_evaluations if k.overall_accepted)
+
+    @property
+    def overall_accepted(self) -> bool:
+        """True if all chunk keys for this channel are accepted."""
+        return self.num_chunks > 0 and self.accepted_chunks_count == self.num_chunks
+
+    @property
+    def all_applicable(self) -> bool:
+        """True if all tests were applicable for all chunk keys."""
+        return all(k.all_applicable for k in self.chunk_evaluations)
+
+    # Backward-compatibility convenience properties for single-key access (e.g. chunk 0)
+    @property
+    def monobit(self) -> NISTTestResult:
+        return self.chunk_evaluations[0].monobit
+
+    @property
+    def runs(self) -> NISTTestResult:
+        return self.chunk_evaluations[0].runs
+
+    @property
+    def approximate_entropy(self) -> NISTTestResult:
+        return self.chunk_evaluations[0].approximate_entropy
+
+    @property
+    def key_length(self) -> int:
+        return self.chunk_evaluations[0].key_length if self.chunk_evaluations else 0
+
+    @property
+    def key_hex(self) -> str:
+        return self.chunk_evaluations[0].key_hex if self.chunk_evaluations else ""
+
+    @property
+    def key_bin(self) -> str:
+        return self.chunk_evaluations[0].key_bin if self.chunk_evaluations else ""
+
+    def __getitem__(self, idx: int) -> KeyRandomnessResult:
+        return self.chunk_evaluations[idx]
+
+    def __len__(self) -> int:
+        return len(self.chunk_evaluations)
+
+    def __iter__(self):
+        return iter(self.chunk_evaluations)
+
+
 @dataclass
 class MultiPathNISTResult:
     """Master container holding NIST evaluation results across all paths and channels."""
 
     config: NISTConfig
-    channel_evaluations: dict[str, dict[str, KeyRandomnessResult]]
+    channel_evaluations: dict[str, dict[str, ChannelRandomnessResult]]
+
+    def __post_init__(self) -> None:
+        # Normalize any dict containing direct KeyRandomnessResult or list[KeyRandomnessResult]
+        for path_name, channels in list(self.channel_evaluations.items()):
+            for ch_name, val in list(channels.items()):
+                if isinstance(val, KeyRandomnessResult):
+                    channels[ch_name] = ChannelRandomnessResult(
+                        path_name=val.path_name,
+                        channel_name=val.channel_name,
+                        channel_role=val.channel_role,
+                        chunk_evaluations=[val],
+                    )
+                elif isinstance(val, list):
+                    role = val[0].channel_role if val else ""
+                    channels[ch_name] = ChannelRandomnessResult(
+                        path_name=path_name,
+                        channel_name=ch_name,
+                        channel_role=role,
+                        chunk_evaluations=val,
+                    )
 
     @property
-    def paths(self) -> dict[str, dict[str, KeyRandomnessResult]]:
+    def paths(self) -> dict[str, dict[str, ChannelRandomnessResult]]:
         """Alias for channel_evaluations."""
         return self.channel_evaluations
 
     @property
     def all_results(self) -> list[KeyRandomnessResult]:
-        """Return flattened list of all key evaluations."""
+        """Return flattened list of all key evaluations across all paths, channels, and chunks."""
         out: list[KeyRandomnessResult] = []
         for path_name in sorted(self.channel_evaluations.keys()):
             for ch_name in sorted(self.channel_evaluations[path_name].keys()):
-                out.append(self.channel_evaluations[path_name][ch_name])
+                ch_eval = self.channel_evaluations[path_name][ch_name]
+                out.extend(ch_eval.chunk_evaluations)
         return out
 
 
@@ -449,6 +541,8 @@ def evaluate_key_randomness(
     channel_name: str,
     channel_role: str,
     key_hex: str,
+    chunk_index: int = 0,
+    pair_name: str | None = None,
     config: NISTConfig | None = None,
 ) -> KeyRandomnessResult:
     """Evaluate all three NIST randomness tests for a single derived key.
@@ -457,10 +551,12 @@ def evaluate_key_randomness(
 
     Args:
         bitstream: 256-bit binary key string.
-        path_name: Name of the pipeline path ('quant_2bit' or 'prbs_2bit').
+        path_name: Name of the pipeline path (e.g. 'quant_2bit', 'prbs_2bit').
         channel_name: Name of channel (e.g. 'Alice', 'Bob', 'Eve1-Alice').
         channel_role: Role description string.
         key_hex: 64-character lowercase hex digest.
+        chunk_index: 0-based chunk index for the key within the channel bitstream.
+        pair_name: Optional evaluation pair name (e.g. 'Alice–Bob').
         config: NISTConfig instance (defaults if None).
 
     Returns:
@@ -493,6 +589,8 @@ def evaluate_key_randomness(
         runs=res_runs,
         approximate_entropy=res_apen,
         overall_accepted=overall,
+        chunk_index=chunk_index,
+        pair_name=pair_name,
     )
 
 
@@ -502,7 +600,8 @@ def evaluate_pa_keys_randomness(
 ) -> MultiPathNISTResult:
     """Evaluate NIST SP 800-22 tests across all 256-bit keys from Privacy Amplification.
 
-    Preserves channel and pair roles across both reconciled paths ('quant_2bit' and 'prbs_2bit').
+    Preserves channel, pair, and chunk identity across all supported paths
+    ('quant_2bit', 'quant_4bit', 'prbs_2bit', 'prbs_4bit').
 
     Args:
         pa_result: Completed MultiPathPrivacyAmplificationResult.
@@ -512,20 +611,40 @@ def evaluate_pa_keys_randomness(
         MultiPathNISTResult: Master container holding all evaluations.
     """
     cfg = config if config is not None else NISTConfig()
-    evaluations: dict[str, dict[str, KeyRandomnessResult]] = {}
+    evaluations: dict[str, dict[str, ChannelRandomnessResult]] = {}
 
-    for path_name, channels in pa_result.channel_keys.items():
+    for path_name in sorted(pa_result.channel_keys.keys()):
+        channels = pa_result.channel_keys[path_name]
         evaluations[path_name] = {}
         for ch_name, ch_res in channels.items():
-            k_eval = evaluate_key_randomness(
-                bitstream=ch_res.key_bin,
+            pair_name: str | None = None
+            if ch_name in ("Alice", "Bob"):
+                pair_name = "Alice–Bob"
+            elif ch_name == "Eve1-Alice":
+                pair_name = "Alice–Eve1-Alice"
+            elif ch_name == "Eve1-Bob":
+                pair_name = "Bob–Eve1-Bob"
+
+            chunk_evals: list[KeyRandomnessResult] = []
+            for ck in ch_res.chunk_keys:
+                k_eval = evaluate_key_randomness(
+                    bitstream=ck.key_bin,
+                    path_name=path_name,
+                    channel_name=ch_name,
+                    channel_role=ch_res.channel_role,
+                    key_hex=ck.key_hex,
+                    chunk_index=ck.chunk_index,
+                    pair_name=pair_name,
+                    config=cfg,
+                )
+                chunk_evals.append(k_eval)
+
+            evaluations[path_name][ch_name] = ChannelRandomnessResult(
                 path_name=path_name,
                 channel_name=ch_name,
                 channel_role=ch_res.channel_role,
-                key_hex=ch_res.key_hex,
-                config=cfg,
+                chunk_evaluations=chunk_evals,
             )
-            evaluations[path_name][ch_name] = k_eval
 
     return MultiPathNISTResult(
         config=cfg,
@@ -545,7 +664,7 @@ def export_nist_metrics_csv(
     """Export detailed NIST test statistics, p-values, applicability, and pass/fail to CSV.
 
     Columns:
-        path, channel, channel_role, key_length, key_hex,
+        path, channel, channel_role, chunk_index, pair, key_length, key_hex,
         monobit_stat, monobit_p_value, monobit_applicable, monobit_passed,
         runs_stat, runs_p_value, runs_applicable, runs_passed, runs_reason,
         apen_stat, apen_p_value, apen_applicable, apen_passed, apen_reason,
@@ -558,6 +677,8 @@ def export_nist_metrics_csv(
         "path",
         "channel",
         "channel_role",
+        "chunk_index",
+        "pair",
         "key_length",
         "key_hex",
         "monobit_stat",
@@ -586,6 +707,8 @@ def export_nist_metrics_csv(
                     "path": res.path_name,
                     "channel": res.channel_name,
                     "channel_role": res.channel_role,
+                    "chunk_index": res.chunk_index,
+                    "pair": res.pair_name or "",
                     "key_length": res.key_length,
                     "key_hex": res.key_hex,
                     "monobit_stat": round(res.monobit.statistic, 6),
@@ -624,6 +747,8 @@ def export_nist_config_json(
                 "path": res.path_name,
                 "channel": res.channel_name,
                 "channel_role": res.channel_role,
+                "chunk_index": res.chunk_index,
+                "pair": res.pair_name,
                 "overall_accepted": res.overall_accepted,
                 "tests": {
                     "monobit": {
@@ -651,9 +776,23 @@ def export_nist_config_json(
             }
         )
 
+    path_summary: dict[str, dict[str, Any]] = {}
+    for p_name, chs in nist_result.channel_evaluations.items():
+        path_summary[p_name] = {}
+        for c_name, ch_obj in chs.items():
+            path_summary[p_name][c_name] = {
+                "total_chunks": ch_obj.num_chunks,
+                "accepted_chunks": ch_obj.accepted_chunks_count,
+                "acceptance_rate_percent": round(
+                    ch_obj.accepted_chunks_count / ch_obj.num_chunks * 100.0 if ch_obj.num_chunks > 0 else 0.0, 2
+                ),
+                "overall_accepted": ch_obj.overall_accepted,
+            }
+
     meta = {
         "scientific_disclaimer": nist_result.config.disclaimer,
         "nist_config": nist_result.config.to_metadata_dict(),
+        "path_summary": path_summary,
         "summary": summary,
     }
     if extra_metadata:
@@ -661,4 +800,5 @@ def export_nist_config_json(
 
     with open(out, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
+    return out
     return out

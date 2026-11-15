@@ -169,7 +169,7 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
     - Direct unpadded bitstream equality: $\text{exact\_recovery} = (A == \hat{A}_{\text{unpadded}})$.
     - Privacy Amplification (`PA.pdf` Section 3.2.6) is fully implemented via bit-level SHA-256 compression yielding 256-bit secret keys across both supported reconciled paths.
   - **Four-Path BCH Configuration Architecture (`DEFAULT_BCH_CODE_2BIT = (511, 1, 198, d=397)`, `DEFAULT_BCH_CODE_4BIT = (255, 9, 62, d=125)`)**:
-    - **Experimental Milestone Status**: Reached an **Experimental Reconciliation Milestone with Demonstrated Public-Helper Recovery on Tested Dummy Data**. Downstream stages (Privacy Amplification using bit-level SHA-256, NIST SP 800-22 Rev. 1a statistical testing, and Key Generation Rate) remain intentionally paused.
+    - **Milestone Status**: Reached a **Four-Path Pipeline Evaluation with Demonstrated Public-Helper Recovery on Tested Dummy Data**. Downstream stages (Privacy Amplification using 100-bit chunked SHA-256, NIST SP 800-22 Rev. 1a statistical testing, and Key Generation Rate) are fully integrated and evaluated across all four paths (`quant_2bit`, `quant_4bit`, `prbs_2bit`, `prbs_4bit`).
     - **Current Configuration Error Verification ($N=500$, `dummy`)**:
       * quant_2bit (=1000$ bits, =511, k=1, t=198, d=397$): 2 blocks, 22 pad bits, Alice–Bob max error per block = **111** ($\le t=198$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 58.20% $\to$ 58.20% ($\Delta = +0.00\text{ pp}$, 0/2/0). Bob–Eve1-Bob: 55.40% $\to$ 55.40% ($\Delta = +0.00\text{ pp}$, 0/2/0).\n      * prbs_2bit (=4000$ bits, =511, k=1, t=198, d=397$): 8 blocks, 88 pad bits, Alice–Bob max error per block = **198** ($\le t=198$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 56.10% $\to$ 69.42% ($\Delta = +13.32\text{ pp}$, 3/5/0). Bob–Eve1-Bob: 56.38% $\to$ 60.92% ($\Delta = +4.54\text{ pp}$, 1/7/0).\n      * quant_4bit (=2000$ bits, =255, k=9, t=62, d=125$): 8 blocks, 40 pad bits, Alice–Bob max error per block = **42** ($\le t=62$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 79.10% $\to$ 89.60% ($\Delta = +10.50\text{ pp}$, 5/3/0). Bob–Eve1-Bob: 77.70% $\to$ 89.50% ($\Delta = +11.80\text{ pp}$, 5/3/0).\n      * prbs_4bit (=4000$ bits, =255, k=9, t=62, d=125$): 16 blocks, 80 pad bits, Alice–Bob max error per block = **62** ($\le t=62$). Exact Bob recovery: **TRUE** (100.00% post-KAR). Eve1-Alice: 73.25% $\to$ 81.85% ($\Delta = +8.60\text{ pp}$, 7/9/0). Bob–Eve1-Bob: 72.45% $\to$ 81.58% ($\Delta = +9.13\text{ pp}$, 7/9/0).\n    - **Candidate Search Rationale**:
       * Evaluated primitive block lengths $n \in \{31, 63, 127, 255, 511, 1023\}$.
@@ -261,8 +261,8 @@ col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical 
       * Leaks $n - k = 126$ parity bits per block (99.2% parity leakage).
       * Because $t=62$ is oversized for 4-bit paths (<18% BER), passive eavesdroppers also decode `quant_4bit` and `prbs_4bit` completely.
       * Per-path alternative codes (e.g. $\text{BCH}(127, 43, 14)$ for `quant_4bit` and $\text{BCH}(127, 29, 21)$ for `prbs_4bit`) are documented as scientific alternatives to restore code rate and prevent Eve decoding.
-    - **Paused Downstream Evaluation**:
-      * Downstream pipeline execution (Privacy Amplification, NIST statistical randomness testing, and Key Generation Rate) is explicitly paused for the 8-bit PRBS / 4-path revision pending 4-path key derivation architecture. Historical PA/NIST/KGR benchmarks reflect the previous 2-bit baseline.
+    - **Downstream Evaluation Completed**:
+      * Downstream pipeline execution (Privacy Amplification, NIST statistical randomness testing, and Key Generation Rate) has been fully implemented across all four paths using the 100-bit chunked key derivation architecture. Earlier single-key PA/NIST/KGR benchmarks reflect superseded exploratory baselines.
 - **Privacy Amplification Stage (Bit-Level SHA-256, `src/rssi_skg/privacy_amplification.py`)**:
   - Implements bit-level SHA-256 Privacy Amplification strictly following **`PA.pdf` Section 3.2.6 (Equations 3.37–3.53, FIPS PUB 180-4)**.
   - **Bit-Level Padding (`pad_bitstream`)**:
@@ -335,43 +335,50 @@ col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical 
 
 ## 5. Verification Records
 - **Clean Environment**: Project installed in isolated local `.venv` via `pip install -e ".[dev]"`.
-- **Test Suite & Independence**: 119 automated tests pass (`pytest -v` exited 0 with 119/119 passing across 10 test modules).
+- **Test Suite & Independence**: 122 automated tests pass (`pytest -v` exited 0 with 122/122 passing across 10 test modules).
   - *Threat Model Verification*: Added regression tests `test_eavesdropper_threat_model_helper_data_reuse_and_isolation` and `test_eavesdropper_threat_model_pa_keys_and_reference_comparison` proving Alice helper data reuse, passive receiver isolation, common Alice reference comparison, and absence of extraneous Bob-source keys.
   - *Test Independence Audit*: Identified that `test_plot_prbs_kar_comparison_figure_from_csv` previously relied on pre-existing `outputs/dummy_rssi_prbs_metrics.csv`. Fixed by generating isolated synthetic CSV data within pytest's `tmp_path`. Verified by executing the full test suite with `outputs/` completely unavailable (`outputs_backup`); all tests passed cleanly with zero cross-test or disk dependencies.
   - *Decoding Rigor*: Distinction between detected failures and miscorrections is mathematically enforced. The decoder operates solely on syndromes and does not have access to the true channel error count; channel errors exceeding $t$ produce either detected failure or miscorrection.
 - **CLI Execution**: Executed raw-only, filtering-only, quantization, PRBS, global BCH reconciliation, bit-level SHA-256 Privacy Amplification, NIST SP 800-22 randomness testing, and KGR measurement pipelines against the dummy workbook.
 
-### Two-Path NIST SP 800-22 Randomness Results (Alpha=0.01, ApEn m=2, n=256 bits)
-- **Path `quant_2bit`**:
-  - `Alice`: Monobit $s_{\text{obs}}=1.1250$ ($p=0.2606$ PASS), Runs $V_n=122$ ($p=0.5002$ PASS), ApEn $\chi^2=2.1328$ ($p=0.7122$ PASS) $\implies$ **ACCEPTED**.
-  - `Bob`: Monobit $s_{\text{obs}}=1.1250$ ($p=0.2606$ PASS), Runs $V_n=122$ ($p=0.5002$ PASS), ApEn $\chi^2=2.1328$ ($p=0.7122$ PASS) $\implies$ **ACCEPTED**.
-  - `Eve1-Alice`: Monobit $s_{\text{obs}}=2.0000$ ($p=0.0455$ PASS), Runs $V_n=125$ ($p=0.8990$ PASS), ApEn $\chi^2=6.7058$ ($p=0.1523$ PASS) $\implies$ **ACCEPTED**.
-  - `Eve1-Bob`: Monobit $s_{\text{obs}}=1.1250$ ($p=0.2606$ PASS), Runs $V_n=125$ ($p=0.7662$ PASS), ApEn $\chi^2=2.1245$ ($p=0.7132$ PASS) $\implies$ **ACCEPTED**.
-- **Path `prbs_2bit`**:
-  - `Alice`: Monobit $s_{\text{obs}}=0.2500$ ($p=0.8026$ PASS), Runs $V_n=123$ ($p=0.5344$ PASS), ApEn $\chi^2=2.5539$ ($p=0.6356$ PASS) $\implies$ **ACCEPTED**.
-  - `Bob`: Monobit $s_{\text{obs}}=0.2500$ ($p=0.8026$ PASS), Runs $V_n=123$ ($p=0.5344$ PASS), ApEn $\chi^2=2.5539$ ($p=0.6356$ PASS) $\implies$ **ACCEPTED**.
-  - `Eve1-Alice`: Monobit $s_{\text{obs}}=0.7500$ ($p=0.4533$ PASS), Runs $V_n=127$ ($p=0.9283$ PASS), ApEn $\chi^2=0.6775$ ($p=0.9533$ PASS) $\implies$ **ACCEPTED**.
-  - `Eve1-Bob`: Monobit $s_{\text{obs}}=0.5000$ ($p=0.6171$ PASS), Runs $V_n=125$ ($p=0.7191$ PASS), ApEn $\chi^2=2.0837$ ($p=0.7212$ PASS) $\implies$ **ACCEPTED**.
+### Four-Path NIST SP 800-22 Randomness Results (Alpha=0.01, ApEn m=2, n=256 bits, 440 Keys Total)
+Evaluated independently across all 4 channels (`Alice`, `Bob`, `Eve1-Alice`, `Eve1-Bob`) and 4 paths:
+- **`quant_2bit` (10 keys per channel, 40 keys total)**:
+  - `Alice`: 9 / 10 accepted (90.0%). Chunk 1 failed Monobit ($s_{\text{obs}}=2.7500, p=0.0060 < 0.01$). Runs: 10/10 pass, ApEn: 10/10 pass.
+  - `Bob`: 9 / 10 accepted (90.0%). Identical to Alice (100.00% post-PA match).
+  - `Eve1-Alice`: 10 / 10 accepted (100.0%).
+  - `Eve1-Bob`: 10 / 10 accepted (100.0%).
+- **`quant_4bit` (20 keys per channel, 80 keys total)**:
+  - `Alice`: 20 / 20 accepted (**100.0%**). Monobit: 20/20, Runs: 20/20, ApEn: 20/20 pass.
+  - `Bob`: 20 / 20 accepted (**100.0%**). Identical to Alice (100.00% post-PA match).
+  - `Eve1-Alice`: 20 / 20 accepted (100.0%).
+  - `Eve1-Bob`: 20 / 20 accepted (100.0%).
+- **`prbs_2bit` (40 keys per channel, 160 keys total)**:
+  - `Alice`: 39 / 40 accepted (97.5%). Chunk 10 failed ApEn ($\chi^2=13.8494, p=0.0078 < 0.01$). Monobit: 40/40, Runs: 40/40 pass.
+  - `Bob`: 39 / 40 accepted (97.5%). Identical to Alice (100.00% post-PA match).
+  - `Eve1-Alice`: 40 / 40 accepted (100.0%).
+  - `Eve1-Bob`: 40 / 40 accepted (100.0%).
+- **`prbs_4bit` (40 keys per channel, 160 keys total)**:
+  - `Alice`: 39 / 40 accepted (97.5%). Chunk 16 failed Monobit ($s_{\text{obs}}=2.7500, p=0.0060 < 0.01$). Runs: 40/40, ApEn: 40/40 pass.
+  - `Bob`: 39 / 40 accepted (97.5%). Identical to Alice (100.00% post-PA match).
+  - `Eve1-Alice`: 40 / 40 accepted (100.0%).
+  - `Eve1-Bob`: 40 / 40 accepted (100.0%).
 
-### Two-Path Key Generation Rate (KGR) Results (PA.pdf Eq 3.63, Warm BCH Cache)
-- **Timer Scope**: Immediate entry to `filter_rssi_channels` $\to$ completion of `sha256_bitstream` across legitimate Alice–Bob channel pipeline.
-- **Cache Warm-Up**: `warm_up_bch_cache(DEFAULT_BCH_CODE)` pre-executed before starting timer.
-- **Path `quant_2bit`**:
-  - Raw Generated Bits ($N_{\text{raw}}$): 256 bits
-  - NIST Passed: YES (all 3 tests pass)
-  - Accepted Bits ($N_{\text{bit}}$): 256 bits
-  - Elapsed Time ($T$): 34.83 ms (0.034830 s)
-  - Accepted KGR: **7,349.90 bps**
-  - Raw KGR: 7,349.90 bps
-  - Alice–Bob Exact Match: TRUE (100.00% KAR)
-- **Path `prbs_2bit`**:
-  - Raw Generated Bits ($N_{\text{raw}}$): 256 bits
-  - NIST Passed: YES (all 3 tests pass)
-  - Accepted Bits ($N_{\text{bit}}$): 256 bits
-  - Elapsed Time ($T$): 84.19 ms (0.084186 s)
-  - Accepted KGR: **3,040.90 bps**
-  - Raw KGR: 3,040.90 bps
-  - Alice–Bob Exact Match: TRUE (100.00% KAR)
+*(Historical Note: Earlier exploratory single-digest runs tested only a single 256-bit key per channel across two paths and reported 100% acceptance. That exploratory architecture is superseded by this 100-bit chunked multi-key evaluation).*
+
+### Four-Path Key Generation Rate (KGR) Results (PA.pdf Eq 3.63, Warm Dual BCH Cache)
+- **Timer Scope**: Monotonic `time.perf_counter()` from immediate entry to `filter_rssi_channels` $\to$ completion of `sha256_bitstream` across legitimate Alice–Bob pipeline. PRBS expansion timed on `prbs_2bit` and `prbs_4bit` only. Excludes file I/O, Eve evaluation, plotting, exports, and post-hoc NIST testing.
+- **Cache Warm-Up**: `warm_up_bch_cache()` pre-warms both `(511, 1, 198)` and `(255, 9, 62)` Numba JIT kernels.
+- **Bit Accounting**: Single Alice accounting per Eq. 3.63 ($N_{\text{raw}} = 256 \times M_{\text{Alice}}$, $N_{\text{bit}} = 256 \times M_{\text{Alice\_accepted}}$). Bob and Eve keys are never double-counted.
+
+| Path | Total Chunks | Accepted Chunks | Raw Bits ($N_{\text{raw}}$) | Accepted Bits ($N_{\text{bit}}$) | Elapsed Time ($T$) | Raw KGR (bps) | Accepted KGR (bps) | Alice–Bob Matches | Alice–Bob KAR |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `quant_2bit` | 10 | 9 | 2,560 | 2,304 | 49.78 ms | 51,425.35 bps | **46,282.81 bps** | 10 / 10 | 100.00% |
+| `quant_4bit` | 20 | 20 | 5,120 | 5,120 | 86.94 ms | 58,889.77 bps | **58,889.77 bps** | 20 / 20 | 100.00% |
+| `prbs_2bit` | 40 | 39 | 10,240 | 9,984 | 217.72 ms | 47,032.63 bps | **45,856.81 bps** | 40 / 40 | 100.00% |
+| `prbs_4bit` | 40 | 39 | 10,240 | 9,984 | 338.26 ms | 30,272.39 bps | **29,515.58 bps** | 40 / 40 | 100.00% |
+
+*(Historical Note: Earlier single-key exploratory runs on 2-bit paths produced 256 bits in 34.83 ms (7,349.90 bps) and 84.19 ms (3,040.90 bps); those timings are superseded by this 100-bit chunked multi-key evaluation).*
 
 ### Four-Path BCH Reconciliation Results (2-bit: BCH(511,1,198,d=397), 4-bit: BCH(255,9,62,d=125), Interleaving OFF)
 - **Parameters**:
@@ -394,10 +401,6 @@ col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical 
   - Alice–Bob: Pre-KAR 86.20% $\to$ Post-KAR **100.00%** ($\Delta = +13.80\text{ pp}$), Exact: **TRUE**, Blocks (S/F/M): 16/0/0.
   - Alice–Eve1-Alice (Stream 1): Pre-KAR 73.25% $\to$ Post-KAR 81.85% ($\Delta = +8.60\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 7/9/0.
   - Bob–Eve1-Bob (Stream 2): Pre-KAR 72.45% $\to$ Post-KAR 81.58% ($\Delta = +9.13\text{ pp}$), Exact: **FALSE**, Blocks (S/F/M): 7/9/0.
-
-> [!IMPORTANT]
-> **Paused Downstream Stages Notice**:
-> Downstream stages (**Privacy Amplification via SHA-256**, **NIST SP 800-22 Rev. 1a statistical randomness testing**, and **Key Generation Rate**) have **not been recalculated or re-evaluated** following this BCH measurement comparison pairing correction (Bob–Eve1-Bob with independent Bob helper data). All downstream components remain strictly paused until explicitly requested. Historical downstream metrics and files reflect earlier exploratory runs.
 
 ### Four-Path Segmented Privacy Amplification Results (100-Bit Segmentation, SHA-256 FIPS 180-4)
 - **Mathematical Specification**: 100-bit non-overlapping segmentation followed by bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53). Padding $S'_c = S_c \parallel 1 \parallel 0^{347} \parallel [100]_{64}$, yielding independent 256-bit secret keys per segment.
@@ -429,13 +432,13 @@ col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical 
     - Alice–Eve1-Alice: Pre-PA KAR 81.85% $\to$ Post-PA Mean KAR **69.75%** ($\Delta = -12.10\text{ pp}$), Exact Match: **16/40 (40.0%)**, All Match: **FALSE**.
     - Bob–Eve1-Bob: Pre-PA KAR 81.58% $\to$ Post-PA Mean KAR **53.52%** ($\Delta = -28.06\text{ pp}$), Exact Match: **3/40 (7.5%)**, All Match: **FALSE**.
 
-*(Historical Note: Earlier exploratory single-digest PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 100-bit segmented four-path architecture aligned with the bidirectional transmission observation model. NIST SP 800-22 and KGR remain explicitly paused).*
+*(Historical Note: Earlier exploratory single-digest PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 100-bit segmented four-path architecture aligned with the bidirectional transmission observation model).*
 
 ## 6. Windows PowerShell Reproduction Commands
 > The primary execution guide with output locations is maintained in [README.md](../README.md#petunjuk-penyiapan-lingkungan--eksekusi).
 
 ```powershell
-# 1. Run automated test suite (119 tests)
+# 1. Run automated test suite (122 tests)
 .\.venv\Scripts\python.exe -m pytest -v
 
 # 2. Run default correlation analysis (raw only)
@@ -522,11 +525,11 @@ col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical 
   --pa `
   --nist `
   --kgr `
-  --nist-metrics-output "outputs/nist_metrics.csv" `
-  --nist-config-output "outputs/nist_config.json" `
-  --kgr-metrics-output "outputs/kgr_metrics.csv" `
-  --kgr-config-output "outputs/kgr_config.json" `
-  --evaluation-xlsx-output "outputs/evaluation_summary.xlsx"
+  --nist-metrics-output "outputs/dummy_rssi_nist_metrics.csv" `
+  --nist-config-output "outputs/dummy_rssi_nist_config.json" `
+  --kgr-metrics-output "outputs/dummy_rssi_kgr_metrics.csv" `
+  --kgr-config-output "outputs/dummy_rssi_kgr_config.json" `
+  --evaluation-xlsx-output "outputs/dummy_rssi_evaluation.xlsx"
 ```
 
 ## 7. Current Git State & Verification
@@ -552,8 +555,8 @@ col=2) and extending the y-axis ceiling to ylim(0, 132) (providing 32% vertical 
   2. *Completed*: Implemented Modified Adaptive Dual-Threshold Quantization (MADQ) stage (`PA.pdf` Section 3.2.3, Equations 3.21–3.23) and KAR evaluation (Equation 3.64).
   3. *Completed*: Implemented Bit Expansion with Galois XOR-LFSR PRBS generator (`PA.pdf` Section 3.2.4 as background) and before/after KAR evaluation.
   4. *Completed*: Implemented BCH Codeword-based Information Reconciliation (`PA.pdf` Section 3.2.5, Equations 3.32–3.36).
-  5. *Completed*: Unified global BCH configuration architecture (`DEFAULT_BCH_CODE = (1023, 46, 200)` with derived $d=401$, Interleaving OFF), eliminated legacy mode branching, and rejected obsolete flags.
-  6. *Completed*: Implemented bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53), yielding 256-bit secret keys across both reconciled 2-bit paths, verified 100% Alice-Bob match and ~50% Eve decorrelation (avalanche effect).
-  7. *Completed*: Implemented NIST SP 800-22 statistical test suite (`monobit_test`, `runs_test`, `approximate_entropy_test`) per `PA.pdf` Section 3.2.8.d (Equations 3.65–3.73), verified against official NIST reference test vectors, explicit Runs prerequisite enforcement, and CSV/JSON exporters.
-  8. *Completed*: Implemented Key Generation Rate (KGR) measurement per `PA.pdf` Section 3.2.8.b (Equation 3.63) with high-resolution monotonic timer, single Alice key accounting, BCH cache pre-warming, and companion multi-sheet Excel workbook export.
+  5. *Completed*: Implemented Four-Path BCH configuration architecture (`DEFAULT_BCH_CODE_2BIT = (511, 1, 198)`, `DEFAULT_BCH_CODE_4BIT = (255, 9, 62)`, Interleaving OFF) with demonstrated exact Alice–Bob recovery across all 4 paths.
+  6. *Completed*: Implemented bit-level SHA-256 Privacy Amplification (`PA.pdf` Section 3.2.6, Equations 3.37–3.53) with 100-bit non-overlapping segmentation across all 4 paths (`quant_2bit`: 10 keys, `quant_4bit`: 20 keys, `prbs_2bit`: 40 keys, `prbs_4bit`: 40 keys).
+  7. *Completed*: Implemented NIST SP 800-22 statistical test suite (`monobit_test`, `runs_test`, `approximate_entropy_test`) per `PA.pdf` Section 3.2.8.d (Equations 3.65–3.73), evaluated independently across all 440 keys across 4 channels and 4 paths, verified with official NIST reference vectors and CSV/JSON exporters.
+  8. *Completed*: Implemented Key Generation Rate (KGR) measurement per `PA.pdf` Section 3.2.8.b (Equation 3.63) across all 4 paths with single Alice bit accounting, dual BCH cache pre-warming, and companion multi-sheet Excel workbook export.
   9. *Proposal*: Implement physical channel probing with real wireless hardware and evaluate empirical entropy.

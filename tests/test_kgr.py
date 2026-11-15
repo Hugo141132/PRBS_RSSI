@@ -66,13 +66,12 @@ class MockTimer:
 
 
 def test_kgr_controlled_mock_clock() -> None:
-    """Verify KGR calculation using controlled mock timer."""
+    """Verify KGR calculation using controlled mock timer across all 4 paths."""
     # Step = 0.5 seconds => Duration T = 0.5 s
-    # 256 bits / 0.5 s = 512.0 bps
     mock_timer = MockTimer(step=0.5)
     raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
 
-    # Pre-build NIST result where Alice passes
+    # Pre-build NIST result
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
     prbs = expand_channels_prbs(quant, PRBSConfig())
@@ -87,13 +86,20 @@ def test_kgr_controlled_mock_clock() -> None:
         timer=mock_timer,
     )
 
-    for path_name in ["quant_2bit", "prbs_2bit"]:
+    expected_chunks = {"quant_2bit": 10, "quant_4bit": 20, "prbs_2bit": 40, "prbs_4bit": 40}
+    expected_accepted = {"quant_2bit": 9, "quant_4bit": 20, "prbs_2bit": 39, "prbs_4bit": 39}
+
+    for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
         path_kgr = res.paths[path_name]
-        assert path_kgr.raw_generated_bits == 256
-        assert path_kgr.accepted_bits == 256
+        raw_b = 256 * expected_chunks[path_name]
+        acc_b = 256 * expected_accepted[path_name]
+        assert path_kgr.raw_generated_bits == raw_b
+        assert path_kgr.accepted_bits == acc_b
+        assert path_kgr.total_chunks == expected_chunks[path_name]
+        assert path_kgr.accepted_chunks == expected_accepted[path_name]
         assert path_kgr.duration_seconds == pytest.approx(0.5, abs=1e-5)
-        assert path_kgr.raw_kgr_bps == pytest.approx(512.0, abs=1e-3)
-        assert path_kgr.accepted_kgr_bps == pytest.approx(512.0, abs=1e-3)
+        assert path_kgr.raw_kgr_bps == pytest.approx(raw_b / 0.5, abs=1e-3)
+        assert path_kgr.accepted_kgr_bps == pytest.approx(acc_b / 0.5, abs=1e-3)
 
 
 # ==============================================================================
@@ -102,7 +108,7 @@ def test_kgr_controlled_mock_clock() -> None:
 
 
 def test_kgr_single_alice_accounting() -> None:
-    """Verify that only Alice's key is counted (256 bits) and Bob is not duplicate-counted."""
+    """Verify that only Alice's key is counted (no Bob duplicate-counting)."""
     raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
@@ -117,11 +123,14 @@ def test_kgr_single_alice_accounting() -> None:
         config=KGRConfig(pre_warm_bch=True),
     )
 
-    for path_name in ["quant_2bit", "prbs_2bit"]:
+    expected_chunks = {"quant_2bit": 10, "quant_4bit": 20, "prbs_2bit": 40, "prbs_4bit": 40}
+    for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
         path_kgr = res.paths[path_name]
-        # Must be exactly 256, NEVER 512
-        assert path_kgr.raw_generated_bits == 256
-        assert path_kgr.accepted_bits == 256
+        raw_b = 256 * expected_chunks[path_name]
+        # Must be exactly raw_b (Alice only), NEVER 2 * raw_b (Bob duplicated)
+        assert path_kgr.raw_generated_bits == raw_b
+        assert path_kgr.raw_generated_bits != 2 * raw_b
+        assert path_kgr.total_chunks == expected_chunks[path_name]
         # Agreement is recorded separately
         assert path_kgr.alice_bob_exact_match is True
 
@@ -132,7 +141,7 @@ def test_kgr_single_alice_accounting() -> None:
 
 
 def test_kgr_statistical_rejection_gating() -> None:
-    """Verify that if NIST acceptance fails, accepted_bits=0 and accepted_kgr_bps=0.0."""
+    """Verify that if NIST acceptance fails for all chunks, accepted_bits=0 and accepted_kgr_bps=0.0."""
     raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
 
     # Create dummy NIST result where Alice fails
@@ -157,24 +166,32 @@ def test_kgr_statistical_rejection_gating() -> None:
         reason=None,
     )
 
-    alice_failing_key = KeyRandomnessResult(
-        path_name="quant_2bit",
-        channel_name="Alice",
-        channel_role="Legitimate transmitter",
-        key_length=256,
-        key_hex="0" * 64,
-        key_bin="0" * 256,
-        monobit=failing_test,
-        runs=passing_test,
-        approximate_entropy=passing_test,
-        overall_accepted=False,
-    )
+    def _make_failing_chunks(path_name: str, count: int) -> list[KeyRandomnessResult]:
+        return [
+            KeyRandomnessResult(
+                path_name=path_name,
+                channel_name="Alice",
+                channel_role="Legitimate transmitter",
+                key_length=256,
+                key_hex="0" * 64,
+                key_bin="0" * 256,
+                monobit=failing_test,
+                runs=passing_test,
+                approximate_entropy=passing_test,
+                overall_accepted=False,
+                chunk_index=i,
+                pair_name="Alice–Bob",
+            )
+            for i in range(count)
+        ]
 
     mock_nist_multi = MultiPathNISTResult(
         config=NISTConfig(),
         channel_evaluations={
-            "quant_2bit": {"Alice": alice_failing_key},
-            "prbs_2bit": {"Alice": alice_failing_key},
+            "quant_2bit": {"Alice": _make_failing_chunks("quant_2bit", 10)},
+            "quant_4bit": {"Alice": _make_failing_chunks("quant_4bit", 20)},
+            "prbs_2bit": {"Alice": _make_failing_chunks("prbs_2bit", 40)},
+            "prbs_4bit": {"Alice": _make_failing_chunks("prbs_4bit", 40)},
         },
     )
 
@@ -186,12 +203,14 @@ def test_kgr_statistical_rejection_gating() -> None:
         timer=mock_timer,
     )
 
-    path_kgr = res.paths["quant_2bit"]
-    assert path_kgr.nist_overall_passed is False
-    assert path_kgr.raw_generated_bits == 256
-    assert path_kgr.accepted_bits == 0
-    assert path_kgr.raw_kgr_bps == pytest.approx(1024.0, abs=1e-3)
-    assert path_kgr.accepted_kgr_bps == 0.0
+    for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
+        path_kgr = res.paths[path_name]
+        assert path_kgr.nist_overall_passed is False
+        assert path_kgr.accepted_chunks == 0
+        assert path_kgr.accepted_bits == 0
+        assert path_kgr.accepted_kgr_bps == 0.0
+        assert path_kgr.raw_generated_bits > 0
+        assert path_kgr.raw_kgr_bps > 0.0
 
 
 # ==============================================================================
@@ -210,7 +229,7 @@ def test_warm_up_bch_cache_execution() -> None:
 
 
 def test_measure_multipath_kgr_dummy_data() -> None:
-    """Verify realistic measurement on actual dummy dataset."""
+    """Verify realistic measurement on actual dummy dataset across all 4 paths."""
     raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
@@ -226,13 +245,16 @@ def test_measure_multipath_kgr_dummy_data() -> None:
     )
 
     assert isinstance(res, MultiPathKGRResult)
-    assert "quant_2bit" in res.paths
-    assert "prbs_2bit" in res.paths
+    expected_chunks = {"quant_2bit": 10, "quant_4bit": 20, "prbs_2bit": 40, "prbs_4bit": 40}
+    expected_accepted = {"quant_2bit": 9, "quant_4bit": 20, "prbs_2bit": 39, "prbs_4bit": 39}
 
-    for path_name, path_res in res.paths.items():
-        assert path_res.raw_generated_bits == 256
-        assert path_res.accepted_bits == 256
-        assert path_res.nist_overall_passed is True
+    for path_name, n_chunks in expected_chunks.items():
+        assert path_name in res.paths
+        path_res = res.paths[path_name]
+        assert path_res.total_chunks == n_chunks
+        assert path_res.accepted_chunks == expected_accepted[path_name]
+        assert path_res.raw_generated_bits == 256 * n_chunks
+        assert path_res.accepted_bits == 256 * expected_accepted[path_name]
         assert path_res.alice_bob_exact_match is True
         assert path_res.duration_seconds > 0.0
         assert path_res.raw_kgr_bps > 0.0
@@ -248,7 +270,7 @@ def test_measure_multipath_kgr_dummy_data() -> None:
 
 
 def test_kgr_exporters(tmp_path: Path) -> None:
-    """Verify CSV, JSON, and XLSX export functions for KGR metrics."""
+    """Verify CSV, JSON, and XLSX export functions for KGR metrics across 4 paths."""
     raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
@@ -274,10 +296,9 @@ def test_kgr_exporters(tmp_path: Path) -> None:
     with open(csv_out, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    assert len(rows) == 2
+    assert len(rows) == 4
     paths = [r["path"] for r in rows]
-    assert "quant_2bit" in paths
-    assert "prbs_2bit" in paths
+    assert set(paths) == {"quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"}
 
     # Check JSON
     with open(json_out, "r", encoding="utf-8") as f:
@@ -285,8 +306,7 @@ def test_kgr_exporters(tmp_path: Path) -> None:
     assert kgr_json["scientific_disclaimer"] == RESEARCH_DISCLAIMER_KGR
     assert "summary" in kgr_json
     summary_paths = [item["path"] for item in kgr_json["summary"]]
-    assert "quant_2bit" in summary_paths
-    assert "prbs_2bit" in summary_paths
+    assert set(summary_paths) == {"quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"}
 
     # Check XLSX workbook and sheets
     wb = openpyxl.load_workbook(xlsx_out)
@@ -295,9 +315,15 @@ def test_kgr_exporters(tmp_path: Path) -> None:
     assert "NIST Randomness" in sheet_names
     assert "Config & Disclaimers" in sheet_names
 
-    # Check that text format is preserved
+    # Check Sheet 1 (4 paths + header = 5 rows)
+    ws_kgr = wb["KGR Metrics"]
+    assert ws_kgr.max_row == 5
+
+    # Check Sheet 2 (440 keys + header = 441 rows)
     ws_nist = wb["NIST Randomness"]
-    assert ws_nist.cell(row=2, column=5).number_format == "@"
+    assert ws_nist.max_row == 441
+    # Check that text format is preserved for Key Hex Digest (column 7)
+    assert ws_nist.cell(row=2, column=7).number_format == "@"
 
 
 # ==============================================================================

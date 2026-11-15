@@ -68,7 +68,7 @@ PRBS_RSSI/
   - `kgr.py`: Key Generation Rate (KGR) measurement, high-resolution monotonic timer, BCH cache warm-up, and multi-sheet evaluation Excel workbook (`PA.pdf` Section 3.2.8.b, Equation 3.63).
   - `plotting.py`: Aggregate bubble scatter visualization, pre-/post-filtering comparison plots, KAR comparison charts, 4-panel reconciliation analysis figures, and 2×2 privacy amplification KAR comparison figures.
   - `cli.py`: Unified CLI supporting pure correlation mode (default), optional filtering, quantization, PRBS expansion, BCH reconciliation, Privacy Amplification, NIST statistical randomness testing, and Key Generation Rate (KGR) measurement.
-- `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, PRBS maximal periods, BCH error correction, receiver isolation, canonical hashing, NIST reference vector validation, mock clock KGR measurement, eavesdropper threat model regression, and full pipeline testing (119 tests).
+- `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, PRBS maximal periods, BCH error correction, receiver isolation, canonical hashing, NIST reference vector validation, mock clock KGR measurement, eavesdropper threat model regression, and full pipeline testing (122 tests).
 - `data/raw/dummy/`: Dummy dataset for software validation. Contains `Dummy RSSI (data Indoor).xlsx` and local `README.md`.
 - `data/raw/measured/`: Reserved folder for real wireless channel measurement data (empirical physical channel probing).
 - `outputs/`: Stores calculation outputs, visual artifacts, and reports. Excluded from Git tracking except for `.gitkeep`.
@@ -495,8 +495,8 @@ A bounded, cached candidate search over valid narrow-sense primitive binary BCH 
 #### Four-Path Reconciliation Results ($N=500$, `data_kind=dummy`)
 
 > [!NOTE]
-> **Milestone Status**: **Experimental Reconciliation Milestone with Demonstrated Public-Helper Recovery on Tested Dummy Data**.
-> Downstream stages (Privacy Amplification using bit-level SHA-256, NIST SP 800-22 Rev. 1a statistical testing, and Key Generation Rate) remain intentionally paused.
+> **Milestone Status**: **Four-Path Pipeline Evaluation with Demonstrated Public-Helper Recovery on Tested Dummy Data**.
+> Downstream stages (Privacy Amplification using 100-bit chunked SHA-256, NIST SP 800-22 Rev. 1a statistical testing, and Key Generation Rate) are fully integrated and evaluated across all four paths (`quant_2bit`, `quant_4bit`, `prbs_2bit`, `prbs_4bit`).
 
 Information reconciliation routes parameters per path family via ReconciliationConfig:
 - **2-bit paths (quant_2bit, prbs_2bit)**: $\text{BCH}(511, 1, 198)$ with designed distance  = 397$.
@@ -547,10 +547,6 @@ We explicitly separate **ordinary-decoder performance**, **bit agreement (post-K
 > 3. **Cryptographic Secrecy Finding & Impossibility of Restoration via Hashing**:
 >    Neither small dimension $k$ nor ordinary-decoder failure establishes cryptographic secrecy. Where Eve uniquely reconstructs Alice's entire unpadded bitstream $A$ from public helper data and public constraints alone, **hashing a fully recovered input cannot restore secrecy**.
 >    Whether privacy amplification employs the repository's historical bit-level SHA-256 implementation (PA.pdf Section 3.2.6, Equations 3.37–3.53) or universal hashing with a publicly broadcast seed, evaluating any deterministic public hash function on a known input $A$ produces a digest $K = \text{Hash}(A)$ that Eve computes identically. Secrecy can only be established if physical entropy remains unobserved and helper data leakage does not span the entire input entropy.
-
-> [!IMPORTANT]
-> **Paused Downstream Evaluation Notice**:
-> Downstream stages (**Privacy Amplification via SHA-256**, **NIST SP 800-22 Rev. 1a statistical randomness testing**, and **Key Generation Rate**) have **not been recalculated or re-evaluated** following this BCH measurement comparison pairing correction (Bob–Eve1-Bob with independent Bob helper data). All downstream components remain strictly paused until explicitly requested. Historical PA, NIST, and KGR metrics in documentation reflect earlier exploratory runs.
 
 ### 3. Direct Bitstream Equality and Receiver Isolation
 - **Direct Bitstream Equality**: BCH reconciliation success is defined strictly by bitwise equality between the source unpadded bitstream $A$ and receiver unpadded recovered bitstream $\hat{A}$ (`exact_recovery = bool(source_bits == recovered_bits)`).
@@ -668,6 +664,107 @@ Aggregated summary metrics report the mean post-PA KAR across all chunks, total 
 
 ---
 
+## Statistical Randomness Testing Stage (NIST SP 800-22 Rev. 1a)
+
+Governed by `PA.pdf` **Section 3.2.8.d, Equations (3.65)–(3.73), pages 35–37** and cross-checked against **NIST SP 800-22 Rev. 1a**:
+
+Each generated 256-bit secret key is evaluated independently across all physical channels (`Alice`, `Bob`, `Eve1-Alice`, `Eve1-Bob`) and all four paths (`quant_2bit`, `quant_4bit`, `prbs_2bit`, `prbs_4bit`). Across the 500-sample dummy dataset, this evaluates all **440 generated keys** (110 keys per channel) without silent concatenation or deduplication.
+
+### 1. Test Suite Specifications
+
+1. **Frequency (Monobit) Test (Equations 3.65–3.66, NIST Sec 2.1)**:
+   Tests the proportion of zeros and ones for equal likelihood:
+   ```math
+   S_n = \sum_{i=1}^n (2\varepsilon_i - 1), \qquad s_{\text{obs}} = \frac{|S_n|}{\sqrt{n}}, \qquad P\text{-value} = \text{erfc}\left(\frac{s_{\text{obs}}}{\sqrt{2}}\right)
+   ```
+2. **Runs Test (Equations 3.67–3.69, NIST Sec 2.3)**:
+   Tests whether oscillations between zeros and ones are too fast or too slow:
+   ```math
+   \pi = \frac{1}{n}\sum_{i=1}^n \varepsilon_i, \qquad \tau = \frac{2}{\sqrt{n}}
+   ```
+   - **Prerequisite Check**: If $|\pi - 0.5| \ge \tau$, the sequence is unbalanced; test is marked not applicable, $P\text{-value} = 0.0$, and the explicit reason is recorded.
+   - If satisfied:
+     ```math
+     V_n(\text{obs}) = 1 + \sum_{k=1}^{n-1} (\varepsilon_k \ne \varepsilon_{k+1}), \qquad P\text{-value} = \text{erfc}\left(\frac{|V_n(\text{obs}) - 2n\pi(1-\pi)|}{2\sqrt{2n}\pi(1-\pi)}\right)
+     ```
+3. **Approximate Entropy (ApEn) Test (Equations 3.70–3.73, NIST Sec 2.12)**:
+   Tests the frequency of all overlapping patterns of length $m$ and $m+1$ with circular block wrapping:
+   ```math
+   C_i^{(k)} = \frac{\#i^{(k)}}{n}, \qquad \phi(k) = \sum_{i=0}^{2^k - 1} C_i^{(k)} \ln C_i^{(k)} \qquad (\text{with convention } 0 \ln 0 = 0)
+   ```
+   ```math
+   \text{ApEn}(m) = \phi(m) - \phi(m+1), \qquad \chi^2 = \max(0.0, 2n[\ln 2 - \text{ApEn}(m)])
+   ```
+   ```math
+   P\text{-value} = Q\left(2^{m-1}, \frac{\chi^2}{2}\right) = \text{gammaincc}\left(2^{m-1}, \frac{\chi^2}{2}\right)
+   ```
+   Constraint recommendation per NIST Sec 2.12.7: $m < \lfloor \log_2 n \rfloor - 5$. For 256-bit keys ($n=256$), $\lfloor \log_2 256 \rfloor - 5 = 3$, so default $m=2$ satisfies $m < 3$.
+
+### 2. Decision Rule & Overall Acceptance
+- Significance level $\alpha = 0.01$.
+- A key is **Accepted** if and only if all three tests are applicable and pass ($P\text{-value} \ge 0.01$). If any test fails or is not applicable, the key is rejected.
+- Each key records test statistics, p-values, applicability, failure reasons, and acceptance status.
+
+### 3. Four-Path NIST Randomness Results on Dummy Dataset ($N=500$)
+Across all 440 keys evaluated (110 keys per channel):
+
+| Path | Channel | Chunks Evaluated | Applicable Chunks | Monobit Pass | Runs Pass | ApEn Pass | Accepted Chunks | Acceptance Rate |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `quant_2bit` | Alice | 10 | 10 | 9 / 10 | 10 / 10 | 10 / 10 | **9 / 10** | **90.0%** |
+| `quant_2bit` | Bob | 10 | 10 | 9 / 10 | 10 / 10 | 10 / 10 | **9 / 10** | **90.0%** |
+| `quant_2bit` | Eve1-Alice | 10 | 10 | 10 / 10 | 10 / 10 | 10 / 10 | 10 / 10 | 100.0% |
+| `quant_2bit` | Eve1-Bob | 10 | 10 | 10 / 10 | 10 / 10 | 10 / 10 | 10 / 10 | 100.0% |
+| `quant_4bit` | Alice | 20 | 20 | 20 / 20 | 20 / 20 | 20 / 20 | **20 / 20** | **100.0%** |
+| `quant_4bit` | Bob | 20 | 20 | 20 / 20 | 20 / 20 | 20 / 20 | **20 / 20** | **100.0%** |
+| `quant_4bit` | Eve1-Alice | 20 | 20 | 20 / 20 | 20 / 20 | 20 / 20 | 20 / 20 | 100.0% |
+| `quant_4bit` | Eve1-Bob | 20 | 20 | 20 / 20 | 20 / 20 | 20 / 20 | 20 / 20 | 100.0% |
+| `prbs_2bit` | Alice | 40 | 40 | 40 / 40 | 40 / 40 | 39 / 40 | **39 / 40** | **97.5%** |
+| `prbs_2bit` | Bob | 40 | 40 | 40 / 40 | 40 / 40 | 39 / 40 | **39 / 40** | **97.5%** |
+| `prbs_2bit` | Eve1-Alice | 40 | 40 | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 | 100.0% |
+| `prbs_2bit` | Eve1-Bob | 40 | 40 | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 | 100.0% |
+| `prbs_4bit` | Alice | 40 | 40 | 39 / 40 | 40 / 40 | 40 / 40 | **39 / 40** | **97.5%** |
+| `prbs_4bit` | Bob | 40 | 40 | 39 / 40 | 40 / 40 | 40 / 40 | **39 / 40** | **97.5%** |
+| `prbs_4bit` | Eve1-Alice | 40 | 40 | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 | 100.0% |
+| `prbs_4bit` | Eve1-Bob | 40 | 40 | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 | 100.0% |
+
+*(Note on Superseded Exploratory Runs: Earlier single-digest runs tested only a single 256-bit hash of the entire bitstream. The current authoritative architecture segments bitstreams into 100-bit chunks and evaluates every resulting 256-bit key independently).*
+
+---
+
+## Key Generation Rate (KGR) Measurement Stage
+
+Governed by `PA.pdf` **Section 3.2.8.b, Equation (3.63), page 34**:
+
+```math
+\text{KGR} = \frac{N_{\text{bit}}}{T} \qquad (\text{bps}) \qquad (3.63)
+```
+
+### 1. Bit Accounting & Secrecy Principles
+- **Sole Source Reference (Alice Accounting)**: Only Alice's generated keys are counted in $N_{\text{raw}}$ and $N_{\text{bit}}$. Bob is the legitimate receiver reconciling to Alice; matching keys produced by Bob are **never double-counted** to artificially inflate throughput. Eavesdropper keys are never included in KGR.
+- **Raw vs. Accepted Bits**:
+  - Raw Generated Bits: $N_{\text{raw}} = 256 \times M_{\text{Alice\_chunks}}$.
+  - Accepted Bits: $N_{\text{bit}} = 256 \times M_{\text{Alice\_chunks\_accepted}}$ (where a chunk key passes all three NIST tests). If all keys on a path fail NIST, $N_{\text{bit}} = 0$ and Accepted KGR is $0.0\text{ bps}$.
+- **Key Agreement Reported Separately**: Alice–Bob key agreement is tracked separately (`exact_matches` and `kar_percent`). Statistical acceptance under NIST alone does not establish key agreement or cryptographic secrecy.
+
+### 2. Timing Boundary & Cache Warm-Up
+- **Measurement Span**: Timed using Python's monotonic high-resolution timer (`time.perf_counter()`).
+- **Included Scope**: Legitimate Alice and Bob pipeline processing from scalar MSHKF filtering through BCH reconciliation and 100-bit chunked SHA-256 privacy amplification (PRBS expansion is executed and timed on `prbs_2bit` and `prbs_4bit` only).
+- **Excluded Scope**: Dataset loading, Eve channel execution, plotting, file exports, and post-hoc NIST testing are strictly excluded from timer $T$.
+- **Dual BCH Cache Pre-Warming**: Prior to starting the timer, `warm_up_bch_cache()` pre-compiles and warms both 2-bit `BCH(511, 1, 198)` and 4-bit `BCH(255, 9, 62)` Numba JIT compilation kernels, preventing cold-start timing bias across paths.
+
+### 3. Four-Path Empirical KGR Results on Dummy Dataset ($N=500$)
+
+| Path | Total Chunks | Accepted Chunks | Raw Bits ($N_{\text{raw}}$) | Accepted Bits ($N_{\text{bit}}$) | Elapsed Time ($T$) | Raw KGR (bps) | Accepted KGR (bps) | Alice–Bob Matches | Alice–Bob KAR |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `quant_2bit` | 10 | 9 | 2,560 | 2,304 | 49.78 ms | 51,425.35 bps | **46,282.81 bps** | 10 / 10 | 100.00% |
+| `quant_4bit` | 20 | 20 | 5,120 | 5,120 | 86.94 ms | 58,889.77 bps | **58,889.77 bps** | 20 / 20 | 100.00% |
+| `prbs_2bit` | 40 | 39 | 10,240 | 9,984 | 217.72 ms | 47,032.63 bps | **45,856.81 bps** | 40 / 40 | 100.00% |
+| `prbs_4bit` | 40 | 39 | 10,240 | 9,984 | 338.26 ms | 30,272.39 bps | **29,515.58 bps** | 40 / 40 | 100.00% |
+
+*(Note: Timing reflects software processing on the host CPU with pre-warmed JIT caches. It does not measure physical over-the-air communication latency or empirical channel probing rate).*
+
+---
+
 <a id="petunjuk-penyiapan-lingkungan--eksekusi"></a>
 ## Environment Setup & Execution Instructions
 
@@ -686,10 +783,10 @@ python -m venv .venv
 ```
 
 ### 2. Running Unit Tests
-The test suite comprises 119 automated unit and integration tests across 10 test modules:
+The test suite comprises 122 automated unit and integration tests across 10 test modules:
 
 ```powershell
-# Run all unit tests (119 tests)
+# Run all unit tests (122 tests)
 .\.venv\Scripts\python.exe -m pytest -v
 ```
 
@@ -785,6 +882,25 @@ Run the CLI with `--privacy-amplify` (or `--pa`), which automatically executes a
   --pa-figure-prefix "outputs/dummy_rssi_pa_comparison"
 ```
 
+#### G. Full Execution through NIST SP 800-22 Randomness Testing & Key Generation Rate (KGR) Measurement
+Run the CLI with `--nist` and `--kgr` (which automatically execute all prerequisite stages from filtering through privacy amplification) to evaluate statistical randomness on every derived 256-bit key across all four paths and compute software pipeline KGR:
+```powershell
+.\.venv\Scripts\python.exe -m rssi_skg `
+  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  --filter `
+  --quantize `
+  --prbs `
+  --reconcile `
+  --pa `
+  --nist `
+  --kgr `
+  --nist-metrics-output "outputs/dummy_rssi_nist_metrics.csv" `
+  --nist-config-output "outputs/dummy_rssi_nist_config.json" `
+  --kgr-metrics-output "outputs/dummy_rssi_kgr_metrics.csv" `
+  --kgr-config-output "outputs/dummy_rssi_kgr_config.json" `
+  --evaluation-xlsx-output "outputs/dummy_rssi_evaluation.xlsx"
+```
+
 > [!IMPORTANT]
 > **Unified Pipeline Architecture & Candidate Key Flags**:
 > - **Prerequisite Chaining**: `--privacy-amplify` automatically enables `--reconcile`, `--prbs`, `--quantize`, and `--filter`.
@@ -868,11 +984,11 @@ All generated artifacts are stored in the `outputs/` directory (ignored by Git v
 - `outputs/dummy_rssi_pa_config.json`: Privacy amplification configuration metadata, FIPS 180-4 references, and pair summary results.
 - `outputs/dummy_rssi_pa.xlsx`: Companion multi-sheet Excel workbook (`PA Metrics`, `Channel Keys`, `Config & Disclaimers`) with explicit Text formatting `@`.
 - `outputs/dummy_rssi_pa_comparison.png` & `.pdf`: High-resolution (300 dpi) and vector PDF 2×2 Privacy Amplification KAR comparison figures.
-- `outputs/nist_metrics.csv`: NIST SP 800-22 test statistics, p-values, applicability, and pass/fail for all derived 256-bit keys across both paths.
-- `outputs/nist_config.json`: NIST configuration metadata, significance level $\alpha=0.01$, and ApEn block length $m=2$.
-- `outputs/kgr_metrics.csv`: Key Generation Rate metrics table reporting raw bits, accepted bits, elapsed software duration ($T$), raw KGR (bps), accepted KGR (bps), and Alice–Bob key agreement.
-- `outputs/kgr_config.json`: KGR configuration metadata, monotonic timer boundaries, and cold-start BCH JIT cache policy.
-- `outputs/evaluation_summary.xlsx`: Companion multi-sheet Excel workbook (`KGR Metrics`, `NIST Randomness`, `Config & Disclaimers`) with explicit Text formatting `@` for 256-bit hex digests.
+- `outputs/dummy_rssi_nist_metrics.csv` (or `outputs/nist_metrics.csv`): NIST SP 800-22 test statistics, p-values, applicability, and pass/fail for all derived 256-bit keys across all four paths (440 keys total).
+- `outputs/dummy_rssi_nist_config.json` (or `outputs/nist_config.json`): NIST configuration metadata, significance level $\alpha=0.01$, and ApEn block length $m=2$.
+- `outputs/dummy_rssi_kgr_metrics.csv` (or `outputs/kgr_metrics.csv`): Key Generation Rate metrics table reporting raw bits, accepted bits, elapsed software duration ($T$), raw KGR (bps), accepted KGR (bps), and Alice–Bob key agreement across all four paths.
+- `outputs/dummy_rssi_kgr_config.json` (or `outputs/kgr_config.json`): KGR configuration metadata, monotonic timer boundaries, and dual BCH JIT cache warm-up policy.
+- `outputs/dummy_rssi_evaluation.xlsx` (or `outputs/evaluation_summary.xlsx`): Companion multi-sheet Excel workbook (`KGR Metrics`, `NIST Randomness`, `Config & Disclaimers`) with explicit Text formatting `@` for 256-bit hex digests across all 440 keys.
 - *(Historical artifacts preserved)*: `outputs/dummy_rssi_reconcile_*` and `outputs/dummy_rssi_shared_bch_*` remain in `outputs/` for historical auditability.
 
 ---

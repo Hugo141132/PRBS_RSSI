@@ -355,7 +355,7 @@ def test_evaluate_key_randomness_acceptance() -> None:
 
 
 def test_evaluate_pa_keys_randomness_dummy_data() -> None:
-    """Verify evaluation of actual privacy-amplified keys on dummy dataset."""
+    """Verify evaluation of actual privacy-amplified keys on dummy dataset across all 4 paths."""
     raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
@@ -366,26 +366,32 @@ def test_evaluate_pa_keys_randomness_dummy_data() -> None:
     nist_res = evaluate_pa_keys_randomness(pa, NISTConfig(alpha=0.01, approximate_entropy_m=2))
 
     assert isinstance(nist_res, MultiPathNISTResult)
-    assert "quant_2bit" in nist_res.paths
-    assert "prbs_2bit" in nist_res.paths
-
-    for path_name in ["quant_2bit", "prbs_2bit"]:
+    expected_chunks = {
+        "quant_2bit": 10,
+        "quant_4bit": 20,
+        "prbs_2bit": 40,
+        "prbs_4bit": 40,
+    }
+    for path_name, n_chunks in expected_chunks.items():
+        assert path_name in nist_res.paths
         path_nist = nist_res.paths[path_name]
         # Check channels
-        assert "Alice" in path_nist
-        assert "Bob" in path_nist
-        assert "Eve1-Alice" in path_nist
-        assert "Eve1-Bob" in path_nist
+        for ch in ["Alice", "Bob", "Eve1-Alice", "Eve1-Bob"]:
+            assert ch in path_nist
+            ch_res = path_nist[ch]
+            assert len(ch_res.chunks) == n_chunks
+            for ck in ch_res.chunks:
+                assert ck.key_length == 256
+                assert len(ck.key_hex) == 64
+                assert ck.monobit.applicable is True
+                assert ck.runs.applicable is True
+                assert ck.approximate_entropy.applicable is True
 
-        # Alice must be evaluated and accepted
+        # Alice chunk acceptance
         alice_res = path_nist["Alice"]
-        assert alice_res.monobit.applicable is True
-        assert alice_res.monobit.passed is True
-        assert alice_res.runs.applicable is True
-        assert alice_res.runs.passed is True
-        assert alice_res.approximate_entropy.applicable is True
-        assert alice_res.approximate_entropy.passed is True
-        assert alice_res.overall_accepted is True
+        assert alice_res.accepted_chunks_count > 0
+
+    assert len(nist_res.all_results) == 440
 
 
 # ==============================================================================
@@ -394,7 +400,7 @@ def test_evaluate_pa_keys_randomness_dummy_data() -> None:
 
 
 def test_nist_exporters(tmp_path: Path) -> None:
-    """Verify CSV and JSON export functions for NIST metrics."""
+    """Verify CSV and JSON export functions for NIST metrics across 4 paths."""
     raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
@@ -417,12 +423,14 @@ def test_nist_exporters(tmp_path: Path) -> None:
         reader = csv.DictReader(f)
         rows = list(reader)
 
-    # 2 paths * 4 channels = 8 rows (wide format per key)
-    assert len(rows) == 8
+    # 4 paths * 4 channels with 10/20/40/40 chunks = 440 rows
+    assert len(rows) == 440
     expected_fields = {
         "path",
+        "pair",
         "channel",
         "channel_role",
+        "chunk_index",
         "key_length",
         "key_hex",
         "monobit_stat",
@@ -449,5 +457,4 @@ def test_nist_exporters(tmp_path: Path) -> None:
     assert data["run"] == "unit_test"
     assert "summary" in data
     paths = {item["path"] for item in data["summary"]}
-    assert "quant_2bit" in paths
-    assert "prbs_2bit" in paths
+    assert {"quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"}.issubset(paths)
