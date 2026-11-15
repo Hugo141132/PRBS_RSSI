@@ -635,8 +635,10 @@ $$
 Tests the frequency of all overlapping patterns of length $m$ and $m+1$ with circular block wrapping:
 
 $$
-C_i^{(k)} = \frac{\#i^{(k)}}{n}, \qquad \phi(k) = \sum_{i=0}^{2^k - 1} C_i^{(k)} \ln C_i^{(k)} \qquad (\text{with convention } 0 \ln 0 = 0)
+C_i^{(k)} = \frac{N_i^{(k)}}{n}, \qquad \phi(k) = \sum_{i=0}^{2^k - 1} C_i^{(k)} \ln C_i^{(k)} \qquad (\text{with convention } 0 \ln 0 = 0)
 $$
+
+where $N_i^{(k)}$ is the occurrence count of pattern $i$ among the $n$ circular overlapping $k$-bit blocks.
 
 $$
 \text{ApEn}(m) = \phi(m) - \phi(m+1), \qquad \chi^2 = \max(0.0, 2n[\ln 2 - \text{ApEn}(m)])
