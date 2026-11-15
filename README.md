@@ -613,40 +613,40 @@ Each generated 256-bit secret key is evaluated independently across all physical
 #### 1. Frequency (Monobit) Test (Equations 3.65–3.66, NIST Sec 2.1)
 Tests the proportion of zeros and ones for equal likelihood:
 
-`math
+$$
 S_n = \sum_{i=1}^n (2\varepsilon_i - 1), \qquad s_{\text{obs}} = \frac{|S_n|}{\sqrt{n}}, \qquad P\text{-value} = \text{erfc}\left(\frac{s_{\text{obs}}}{\sqrt{2}}\right)
-`
+$$
 
 #### 2. Runs Test (Equations 3.67–3.69, NIST Sec 2.3)
 Tests whether oscillations between zeros and ones are too fast or too slow:
 
-`math
+$$
 \pi = \frac{1}{n}\sum_{i=1}^n \varepsilon_i, \qquad \tau = \frac{2}{\sqrt{n}}
-`
+$$
 
 - **Prerequisite Check**: If $|\pi - 0.5| \ge \tau$, the sequence is unbalanced; test is marked not applicable, $P\text{-value} = 0.0$, and the explicit reason is recorded.
 - **If Satisfied**:
 
-`math
+$$
 V_n(\text{obs}) = 1 + \sum_{k=1}^{n-1} (\varepsilon_k \ne \varepsilon_{k+1}), \qquad P\text{-value} = \text{erfc}\left(\frac{|V_n(\text{obs}) - 2n\pi(1-\pi)|}{2\sqrt{2n}\pi(1-\pi)}\right)
-`
+$$
 
 #### 3. Approximate Entropy (ApEn) Test (Equations 3.70–3.73, NIST Sec 2.12)
-Tests the frequency of all overlapping patterns of length $ and +1$ with circular block wrapping:
+Tests the frequency of all overlapping patterns of length $m$ and $m+1$ with circular block wrapping:
 
-`math
+$$
 C_i^{(k)} = \frac{\#i^{(k)}}{n}, \qquad \phi(k) = \sum_{i=0}^{2^k - 1} C_i^{(k)} \ln C_i^{(k)} \qquad (\text{with convention } 0 \ln 0 = 0)
-`
+$$
 
-`math
+$$
 \text{ApEn}(m) = \phi(m) - \phi(m+1), \qquad \chi^2 = \max(0.0, 2n[\ln 2 - \text{ApEn}(m)])
-`
+$$
 
-`math
+$$
 P\text{-value} = Q\left(2^{m-1}, \frac{\chi^2}{2}\right) = \text{gammaincc}\left(2^{m-1}, \frac{\chi^2}{2}\right)
-`
+$$
 
-Constraint recommendation per NIST Sec 2.12.7:  < \lfloor \log_2 n \rfloor - 5$. For 256-bit keys (=256$), $\lfloor \log_2 256 \rfloor - 5 = 3$, so default =2$ satisfies  < 3$.
+Constraint recommendation per NIST Sec 2.12.7: $m < \lfloor \log_2 n \rfloor - 5$. For 256-bit keys ($n=256$), $\lfloor \log_2 256 \rfloor - 5 = 3$, so default $m=2$ satisfies $m < 3$.
 
 ### 2. Decision Rule & Overall Acceptance
 - Significance level $\alpha = 0.01$.
