@@ -469,7 +469,7 @@ A bounded, cached candidate search over valid narrow-sense primitive binary BCH 
 | **Candidate B** | $\text{BCH}(511, 19, 116, 233)$ | 0.03718 | 4 blks / 44b | 8 blks / 88b | 2044b / 4088b | TRUE / TRUE | FAILED / FAILED | Larger block size, marginal rate gain |
 | **Candidate C** | $\text{BCH}(1023, 36, 222, 445)$ | 0.03519 | 2 blks / 46b | 4 blks / 92b | 2046b / 4092b | TRUE / TRUE | EXACT / FAILED | Leaks `quant_4bit` to Eve |
 
-**Selection Rationale for Candidate A ($\text{BCH}(255, 9, 63)$)**:
+**Selection Rationale for Candidate A (BCH(255, 9, 63))**:
 1. **Minimal Block Size for $k > 1$**: $n=255$ is the smallest block length achieving $k > 1$ ($k=9$) while guaranteeing correction of all channel errors ($t=63 \ge 62$).
 2. **Exact Bob Recovery**: Achieves 100% KAR and `exact_recovery = True` across both `quant_4bit` (8 blocks) and `prbs_4bit` (16 blocks).
 3. **Eve Ordinary Decoding Outcomes**: In contrast to the $k=1$ baseline where Eve achieved 100% exact bitstream recovery under ordinary decoding, $\text{BCH}(255, 9, 63)$ results in ordinary-decoder failure (`Exact Recovery = False`) across both 4-bit paths due to detected syndrome decoding failures (`quant_4bit`: 3 failure blocks on Eve1, 1 on Eve2; `prbs_4bit`: 9 failure blocks on both Eve streams).
@@ -487,7 +487,7 @@ Information reconciliation routes parameters per path family via ReconciliationC
 Max observed per-block error counts on dummy data are derived from actual code execution ($t=198$ for $n=511$, $t=62$ for $n=255$):
 
 | Path | Payload Bits | Configured Code ($n, k, t, d$) | Code Rate ($k/n$) | Blocks | Pad Bits | Max Error / Block ($\le t$) | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) | Independent Parity Constraints |
-| :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **quant_2bit** | 1,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 2 | 22 | **111** ($\le 198$) | 80.40% | **100.00%** | **TRUE** | 2 / 0 / 0 | 510 constraints ($n-k=510$) |
 | **quant_4bit** | 2,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 8 | 40 | **42** ($\le 62$) | 90.20% | **100.00%** | **TRUE** | 8 / 0 / 0 | 246 constraints ($n-k=246$) |
 | **prbs_2bit** | 4,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 8 | 88 | **198** ($\le 198$) | 75.85% | **100.00%** | **TRUE** | 8 / 0 / 0 | 510 constraints ($n-k=510$) |
@@ -610,33 +610,43 @@ Each generated 256-bit secret key is evaluated independently across all physical
 
 ### 1. Test Suite Specifications
 
-1. **Frequency (Monobit) Test (Equations 3.65–3.66, NIST Sec 2.1)**:
-   Tests the proportion of zeros and ones for equal likelihood:
-   ```math
-   S_n = \sum_{i=1}^n (2\varepsilon_i - 1), \qquad s_{\text{obs}} = \frac{|S_n|}{\sqrt{n}}, \qquad P\text{-value} = \text{erfc}\left(\frac{s_{\text{obs}}}{\sqrt{2}}\right)
-   ```
-2. **Runs Test (Equations 3.67–3.69, NIST Sec 2.3)**:
-   Tests whether oscillations between zeros and ones are too fast or too slow:
-   ```math
-   \pi = \frac{1}{n}\sum_{i=1}^n \varepsilon_i, \qquad \tau = \frac{2}{\sqrt{n}}
-   ```
-   - **Prerequisite Check**: If $|\pi - 0.5| \ge \tau$, the sequence is unbalanced; test is marked not applicable, $P\text{-value} = 0.0$, and the explicit reason is recorded.
-   - If satisfied:
-     ```math
-     V_n(\text{obs}) = 1 + \sum_{k=1}^{n-1} (\varepsilon_k \ne \varepsilon_{k+1}), \qquad P\text{-value} = \text{erfc}\left(\frac{|V_n(\text{obs}) - 2n\pi(1-\pi)|}{2\sqrt{2n}\pi(1-\pi)}\right)
-     ```
-3. **Approximate Entropy (ApEn) Test (Equations 3.70–3.73, NIST Sec 2.12)**:
-   Tests the frequency of all overlapping patterns of length $m$ and $m+1$ with circular block wrapping:
-   ```math
-   C_i^{(k)} = \frac{\#i^{(k)}}{n}, \qquad \phi(k) = \sum_{i=0}^{2^k - 1} C_i^{(k)} \ln C_i^{(k)} \qquad (\text{with convention } 0 \ln 0 = 0)
-   ```
-   ```math
-   \text{ApEn}(m) = \phi(m) - \phi(m+1), \qquad \chi^2 = \max(0.0, 2n[\ln 2 - \text{ApEn}(m)])
-   ```
-   ```math
-   P\text{-value} = Q\left(2^{m-1}, \frac{\chi^2}{2}\right) = \text{gammaincc}\left(2^{m-1}, \frac{\chi^2}{2}\right)
-   ```
-   Constraint recommendation per NIST Sec 2.12.7: $m < \lfloor \log_2 n \rfloor - 5$. For 256-bit keys ($n=256$), $\lfloor \log_2 256 \rfloor - 5 = 3$, so default $m=2$ satisfies $m < 3$.
+#### 1. Frequency (Monobit) Test (Equations 3.65–3.66, NIST Sec 2.1)
+Tests the proportion of zeros and ones for equal likelihood:
+
+`math
+S_n = \sum_{i=1}^n (2\varepsilon_i - 1), \qquad s_{\text{obs}} = \frac{|S_n|}{\sqrt{n}}, \qquad P\text{-value} = \text{erfc}\left(\frac{s_{\text{obs}}}{\sqrt{2}}\right)
+`
+
+#### 2. Runs Test (Equations 3.67–3.69, NIST Sec 2.3)
+Tests whether oscillations between zeros and ones are too fast or too slow:
+
+`math
+\pi = \frac{1}{n}\sum_{i=1}^n \varepsilon_i, \qquad \tau = \frac{2}{\sqrt{n}}
+`
+
+- **Prerequisite Check**: If $|\pi - 0.5| \ge \tau$, the sequence is unbalanced; test is marked not applicable, $P\text{-value} = 0.0$, and the explicit reason is recorded.
+- **If Satisfied**:
+
+`math
+V_n(\text{obs}) = 1 + \sum_{k=1}^{n-1} (\varepsilon_k \ne \varepsilon_{k+1}), \qquad P\text{-value} = \text{erfc}\left(\frac{|V_n(\text{obs}) - 2n\pi(1-\pi)|}{2\sqrt{2n}\pi(1-\pi)}\right)
+`
+
+#### 3. Approximate Entropy (ApEn) Test (Equations 3.70–3.73, NIST Sec 2.12)
+Tests the frequency of all overlapping patterns of length $ and +1$ with circular block wrapping:
+
+`math
+C_i^{(k)} = \frac{\#i^{(k)}}{n}, \qquad \phi(k) = \sum_{i=0}^{2^k - 1} C_i^{(k)} \ln C_i^{(k)} \qquad (\text{with convention } 0 \ln 0 = 0)
+`
+
+`math
+\text{ApEn}(m) = \phi(m) - \phi(m+1), \qquad \chi^2 = \max(0.0, 2n[\ln 2 - \text{ApEn}(m)])
+`
+
+`math
+P\text{-value} = Q\left(2^{m-1}, \frac{\chi^2}{2}\right) = \text{gammaincc}\left(2^{m-1}, \frac{\chi^2}{2}\right)
+`
+
+Constraint recommendation per NIST Sec 2.12.7:  < \lfloor \log_2 n \rfloor - 5$. For 256-bit keys (=256$), $\lfloor \log_2 256 \rfloor - 5 = 3$, so default =2$ satisfies  < 3$.
 
 ### 2. Decision Rule & Overall Acceptance
 - Significance level $\alpha = 0.01$.
@@ -680,8 +690,8 @@ Governed by `PA.pdf` **Section 3.2.8.b, Equation (3.63), page 34**:
 ### 1. Bit Accounting & Secrecy Principles
 - **Sole Source Reference (Alice Accounting)**: Only Alice's generated keys are counted in $N_{\text{raw}}$ and $N_{\text{bit}}$. Bob is the legitimate receiver reconciling to Alice; matching keys produced by Bob are **never double-counted** to artificially inflate throughput. Eavesdropper keys are never included in KGR.
 - **Raw vs. Accepted Bits**:
-  - Raw Generated Bits: $N_{\text{raw}} = 256 \times M_{\text{Alice\_chunks}}$.
-  - Accepted Bits: $N_{\text{bit}} = 256 \times M_{\text{Alice\_chunks\_accepted}}$ (where a chunk key passes all three NIST tests). If all keys on a path fail NIST, $N_{\text{bit}} = 0$ and Accepted KGR is $0.0\text{ bps}$.
+  - Raw Generated Bits: $N_{\text{raw}} = 256 \times M_{\text{Alice chunks}}$.
+  - Accepted Bits: $N_{\text{bit}} = 256 \times M_{\text{Alice chunks accepted}}$ (where a chunk key passes all three NIST tests). If all keys on a path fail NIST, $N_{\text{bit}} = 0$ and Accepted KGR is $0.0\text{ bps}$.
 - **Key Agreement Reported Separately**: Alice–Bob key agreement is tracked separately (`exact_matches` and `kar_percent`). Statistical acceptance under NIST alone does not establish key agreement or cryptographic secrecy.
 
 ### 2. Timing Boundary & Cache Warm-Up
