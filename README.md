@@ -518,8 +518,8 @@ where $N_{\text{mismatch}, c} = \sum_{j=0}^{255} (K_{\text{source}, c}[j] \ne K_
 
 Aggregated summary metrics report the mean post-PA KAR across all chunks, total matching chunk count, and overall exact match status.
 
-### 5. Four-Path Segmented Privacy Amplification Results (Dummy Dataset, N = 500) (historical baseline)
-- **Supported Paths**: `quant_2bit` (10 keys), `quant_4bit` (20 keys), `prbs_2bit` (40 keys), `prbs_4bit` (40 keys).
+### 5. Four-Path Segmented Privacy Amplification Results (Dummy Dataset, N = 500) (125-bit segments, BCH(1023, 46, 201))
+- **Supported Paths**: `quant_2bit` (8 keys), `quant_4bit` (16 keys), `prbs_2bit` (17 keys), `prbs_4bit` (25 keys).
 - **All 4 Channels Independently Processed with Channel Isolation**: Alice, Bob, Eve1-Alice, Eve1-Bob.
 - **Bidirectional Transmission Observation Model**:
   1. `Alice–Bob`: Legitimate communication pair (Alice reference vs Bob receiver, using Alice helper data).
@@ -528,20 +528,18 @@ Aggregated summary metrics report the mean post-PA KAR across all chunks, total 
 
 | Path | Evaluation Pair | Reference / Source | Receiver | Chunks | Pre-PA KAR | Post-PA Mean KAR | Δ (pp) | Exact Matches | Match Rate | All Match |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `quant_2bit` | **Alice–Bob** | Alice | Bob | 10 | 100.00% | **100.00%** | +0.00 pp | **10 / 10** | **100.0%** | **TRUE (MATCH)** |
-| `quant_2bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 10 | 58.20% | 50.47% | -7.73 pp | 0 / 10 | 0.0% | FALSE (MISMATCH) |
-| `quant_2bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 10 | 55.40% | 49.18% | -6.22 pp | 0 / 10 | 0.0% | FALSE (MISMATCH) |
-| `quant_4bit` | **Alice–Bob** | Alice | Bob | 20 | 100.00% | **100.00%** | +0.00 pp | **20 / 20** | **100.0%** | **TRUE (MATCH)** |
-| `quant_4bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 20 | 89.60% | 80.43% | -9.17 pp | 12 / 20 | 60.0% | FALSE (MISMATCH) |
-| `quant_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 20 | 89.50% | 50.16% | -39.34 pp | 0 / 20 | 0.0% | FALSE (MISMATCH) |
-| `prbs_2bit` | **Alice–Bob** | Alice | Bob | 40 | 100.00% | **100.00%** | +0.00 pp | **40 / 40** | **100.0%** | **TRUE (MATCH)** |
-| `prbs_2bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 40 | 69.42% | 68.59% | -0.83 pp | 15 / 40 | 37.5% | FALSE (MISMATCH) |
-| `prbs_2bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 40 | 60.92% | 51.98% | -8.94 pp | 2 / 40 | 5.0% | FALSE (MISMATCH) |
-| `prbs_4bit` | **Alice–Bob** | Alice | Bob | 40 | 100.00% | **100.00%** | +0.00 pp | **40 / 40** | **100.0%** | **TRUE (MATCH)** |
-| `prbs_4bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 40 | 81.85% | 69.75% | -12.10 pp | 16 / 40 | 40.0% | FALSE (MISMATCH) |
-| `prbs_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 40 | 81.58% | 53.52% | -28.06 pp | 3 / 40 | 7.5% | FALSE (MISMATCH) |
-
-*(Historical note: Earlier exploratory single-digest 2-bit PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 125-bit segmented multi-key architecture aligned with bidirectional transmission observation).*
+| `quant_2bit` | **Alice–Bob** | Alice | Bob | 8 | 100.00% | **100.00%** | +0.00 pp | **8 / 8** | **100.0%** | **TRUE (MATCH)** |
+| `quant_2bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 8 | 58.20% | 48.44% | -9.76 pp | 0 / 8 | 0.0% | FALSE (MISMATCH) |
+| `quant_2bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 8 | 55.40% | 50.00% | -5.40 pp | 0 / 8 | 0.0% | FALSE (MISMATCH) |
+| `quant_4bit` | **Alice–Bob** | Alice | Bob | 16 | 100.00% | **100.00%** | +0.00 pp | **16 / 16** | **100.0%** | **TRUE (MATCH)** |
+| `quant_4bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 16 | 79.10% | 50.00% | -29.10 pp | 0 / 16 | 0.0% | FALSE (MISMATCH) |
+| `quant_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 16 | 77.70% | 50.15% | -27.55 pp | 0 / 16 | 0.0% | FALSE (MISMATCH) |
+| `prbs_2bit` | **Alice–Bob** | Alice | Bob | 17 | 100.00% | **100.00%** | +0.00 pp | **17 / 17** | **100.0%** | **TRUE (MATCH)** |
+| `prbs_2bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 17 | 59.24% | 49.31% | -9.93 pp | 0 / 17 | 0.0% | FALSE (MISMATCH) |
+| `prbs_2bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 17 | 58.16% | 50.87% | -7.29 pp | 0 / 17 | 0.0% | FALSE (MISMATCH) |
+| `prbs_4bit` | **Alice–Bob** | Alice | Bob | 25 | 100.00% | **100.00%** | +0.00 pp | **25 / 25** | **100.0%** | **TRUE (MATCH)** |
+| `prbs_4bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 25 | 72.40% | 49.27% | -23.14 pp | 0 / 25 | 0.0% | FALSE (MISMATCH) |
+| `prbs_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 25 | 73.28% | 49.81% | -23.47 pp | 0 / 25 | 0.0% | FALSE (MISMATCH) |
 
 ---
 
