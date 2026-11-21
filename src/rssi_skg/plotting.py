@@ -1752,7 +1752,7 @@ def plot_privacy_amplification_figure(
 
     fig.suptitle(
         "Segmented Privacy Amplification (SHA-256) Key Agreement Rate (KAR) Comparison\n"
-        "[PA.pdf Section 3.2.6 & Eq. 3.64 | 100-bit Segments -> 256-bit Final Keys | 4 Supported Paths | Synthetic Data]",
+        f"[PA.pdf Section 3.2.6 & Eq. 3.64 | {pa_result.config.segment_size_bits}-bit Segments -> 256-bit Final Keys | 4 Supported Paths | Synthetic Data]",
         fontsize=13,
         fontweight="bold",
         y=0.965,
@@ -1823,7 +1823,7 @@ def plot_privacy_amplification_figure(
     ax_a.set_ylim(0, 118)
     ax_a.set_ylabel("Key Agreement Rate (KAR) (%)", fontsize=10.5, fontweight="bold")
     ax_a.set_title(
-        "(a) Quantization Paths: Pre-PA vs Post-PA Mean KAR\n(quant_2bit: 1,000b -> 10 keys | quant_4bit: 2,000b -> 20 keys)",
+        "(a) Quantization Paths: Pre-PA vs Post-PA Mean KAR",
         fontsize=10.5,
         fontweight="bold",
         pad=8,
@@ -1907,7 +1907,7 @@ def plot_privacy_amplification_figure(
     ax_b.set_ylim(0, 118)
     ax_b.set_ylabel("Key Agreement Rate (KAR) (%)", fontsize=10.5, fontweight="bold")
     ax_b.set_title(
-        "(b) PRBS Paths: Pre-PA vs Post-PA Mean KAR\n(prbs_2bit: 4,000b -> 40 keys | prbs_4bit: 4,000b -> 40 keys)",
+        "(b) PRBS Paths: Pre-PA vs Post-PA Mean KAR",
         fontsize=10.5,
         fontweight="bold",
         pad=8,
@@ -1949,7 +1949,7 @@ def plot_privacy_amplification_figure(
     ax_c.set_ylim(0, 118)
     ax_c.set_ylabel("Exact Key Match Rate (%)", fontsize=10.5, fontweight="bold")
     ax_c.set_title(
-        "(c) Exact Key Match Rate across All 4 Paths\n(Legitimate: 100% Match | Eavesdropper: Residual Errors Prevent 100% Match)",
+        "(c) Exact Key Match Rate across All 4 Paths",
         fontsize=10.5,
         fontweight="bold",
         pad=8,
@@ -2021,7 +2021,7 @@ def plot_privacy_amplification_figure(
                 else:
                     cell.set_text_props(color=c_eve1, fontweight="bold")
 
-    ax_d_tbl.set_title("(d) Quantitative Summary: 100-bit Segmented PA Across 4 Paths", fontsize=10.0, fontweight="bold", pad=12)
+    ax_d_tbl.set_title(f"(d) Quantitative Summary: {pa_result.config.segment_size_bits}-bit Segmented PA Across 4 Paths", fontsize=10.0, fontweight="bold", pad=12)
 
     # Sub-panel 2: Scientific Disclaimer Box
     ax_d_notes = fig.add_subplot(sub_gs_d[1])
@@ -2029,10 +2029,9 @@ def plot_privacy_amplification_figure(
 
     notes_text = (
         "Methodological Notes & Scientific Disclaimer:\n"
-        "• 100-Bit Segmented SHA-256 Privacy Amplification (PA.pdf Section 3.2.6, Eqs. 3.37–3.53):\n"
-        "  Each bitstream is divided into non-overlapping 100-bit segments (preserving temporal order).\n"
-        "  Each segment yields one 256-bit SHA-256 digest: quant_2bit -> 10 keys, quant_4bit -> 20 keys,\n"
-        "  prbs_2bit -> 40 keys, prbs_4bit -> 40 keys. Incomplete segments are strictly rejected.\n"
+        f"• {pa_result.config.segment_size_bits}-Bit Segmented SHA-256 Privacy Amplification (PA.pdf Section 3.2.6, Eqs. 3.37–3.53):\n"
+        f"  Each bitstream is divided into segments of up to {pa_result.config.segment_size_bits} bits (preserving temporal order).\n"
+        "  The last segment retains its actual length. Every segment yields one 256-bit digest.\n"
         "• Avalanche Effect & Channel Isolation: For Alice–Bob, error-free segments yield 100% match.\n"
         "  Residual errors in eavesdropper segments trigger diffusion, driving segment KAR toward ~50%.\n"
         "• Scientific Secrecy Disclaimer: Synthetic software validation only; 256-bit SHA-256 output\n"

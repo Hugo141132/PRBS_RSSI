@@ -1,4 +1,4 @@
-"""Privacy Amplification module using bit-level SHA-256 with 100-bit segmentation.
+"""Privacy Amplification module using bit-level SHA-256 with 125-bit segmentation.
 
 Governing Specification:
     PA.pdf Section 3.2.6, Equations (3.37)–(3.53), pages 30–33 (Privacy Amplification using SHA-256).
@@ -6,19 +6,18 @@ Governing Specification:
     FIPS PUB 180-4: Secure Hash Standard (SHS) for SHA-256 specification.
 
 Mathematical Formulation & Segmentation Architecture:
-    1. 100-Bit Consecutive Non-Overlapping Segmentation:
+    1. 125-Bit Consecutive Non-Overlapping Segmentation:
        Given an unpadded reconciled bitstream M in {0, 1}^L:
-           - Incomplete segments are strictly rejected (L must be a multiple of SEGMENT_SIZE_BITS=100).
-           - The bitstream is partitioned into M_chunks = L // 100 segments:
-                 S_c = M[c * 100 : (c + 1) * 100],  c in {0, ..., M_chunks - 1}
+           - Keep the final segment at its actual bit length.
+           - The bitstream is partitioned into M_chunks = ceil(L / 125) segments:
+                 S_c = M[c * 125 : (c + 1) * 125],  c in {0, ..., M_chunks - 1}
            - Temporal ordering of segments is strictly preserved.
            - No padding or truncation of the source/reconciled stream is applied during chunking.
 
     2. Bit-level SHA-256 Hash Compression per Segment (PA.pdf Section 3.2.6, Equations 3.37–3.39):
-       Each 100-bit segment S_c (L_c = 100) is independently padded per FIPS 180-4:
-           S'_c = S_c || 1 || 0^p || [100]_64
-       where p = (448 - 1 - 100) mod 512 = 347 bits, and [100]_64 is the 64-bit big-endian
-       representation of integer 100. Total padded length |S'_c| = 100 + 1 + 347 + 64 = 512 bits (1 block).
+       Each segment S_c of length L_c is independently padded per FIPS 180-4:
+           S'_c = S_c || 1 || 0^p || [L_c]_64
+       where p = (448 - 1 - L_c) mod 512.
 
     3. Message Scheduling & 64-Round Compression Loop (Equations 3.40–3.53):
        Each 512-bit block is parsed into sixteen 32-bit big-endian words W_0 .. W_15,
@@ -27,10 +26,10 @@ Mathematical Formulation & Segmentation Architecture:
            K_c = H_0 || H_1 || ... || H_7 in {0, 1}^256 (64 hex characters).
 
     4. Supported Paths & Chunk Counts:
-       - quant_2bit: 1,000 bits -> 10 keys
-       - quant_4bit: 2,000 bits -> 20 keys
-       - prbs_2bit:  4,000 bits -> 40 keys
-       - prbs_4bit:  4,000 bits -> 40 keys
+       - quant_2bit: 1,000 bits -> 8 keys
+       - quant_4bit: 2,000 bits -> 16 keys
+       - prbs_2bit:  2,046 bits -> 17 keys
+       - prbs_4bit:  3,069 bits -> 25 keys
 
     5. Key Agreement Rate (KAR) per Segment & Summary Aggregation (PA.pdf Section 3.2.8.c, Eq 3.64):
        For each chunk c between source digest K_s^(c) and receiver digest K_r^(c):
@@ -65,7 +64,7 @@ from rssi_skg.reconciliation import (
 
 # Supported 4-path architecture
 PA_PATHS: tuple[str, ...] = ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
-SEGMENT_SIZE_BITS: int = 100
+SEGMENT_SIZE_BITS: int = 125
 
 # Canonical PA evaluation pairs under bidirectional transmission observation model:
 #   1. Alice–Bob: Legitimate communication pair (Alice reference, Bob receiver)
@@ -265,22 +264,7 @@ def segment_bitstream(
     bitstream: str | Sequence[int],
     segment_size: int = SEGMENT_SIZE_BITS,
 ) -> list[str]:
-    """Divide bitstream into consecutive, non-overlapping segments of segment_size bits.
-
-    Validates bitstream length and rejects incomplete segments explicitly;
-    never silently truncates or pads. Preserves temporal order.
-
-    Args:
-        bitstream: Input bitstream string or int sequence.
-        segment_size: Bit length of each segment (default: 100).
-
-    Returns:
-        list[str]: Consecutive non-overlapping segments of length segment_size.
-
-    Raises:
-        ValueError: If input length is empty, contains non-binary characters,
-                    or is not an exact positive integer multiple of segment_size.
-    """
+    """Split in order, keeping the final segment at its actual bit length."""
     if isinstance(bitstream, str):
         bits = bitstream.strip()
         if any(c not in ("0", "1") for c in bits):
@@ -297,16 +281,7 @@ def segment_bitstream(
     if segment_size <= 0:
         raise ValueError(f"segment_size must be a positive integer, got {segment_size}.")
 
-    remainder = total_len % segment_size
-    if remainder != 0:
-        raise ValueError(
-            f"Bitstream length ({total_len} bits) is not an exact multiple of segment size "
-            f"({segment_size} bits); incomplete segment of {remainder} bits would remain. "
-            "Silent truncation and padding are prohibited."
-        )
-
-    num_segments = total_len // segment_size
-    return [bits[i * segment_size : (i + 1) * segment_size] for i in range(num_segments)]
+    return [bits[start:start + segment_size] for start in range(0, total_len, segment_size)]
 
 
 def verify_against_hashlib(bitstream: str) -> bool:
@@ -352,12 +327,7 @@ class PrivacyAmplificationConfig:
             "key_length_bits": self.key_length_bits,
             "segment_size_bits": self.segment_size_bits,
             "supported_paths": list(self.supported_paths),
-            "path_key_counts": {
-                "quant_2bit": 10,
-                "quant_4bit": 20,
-                "prbs_2bit": 40,
-                "prbs_4bit": 40,
-            },
+            "final_segment_policy": "hash_at_actual_length",
             "governing_specification": {
                 "privacy_amplification": "PA.pdf Section 3.2.6, Equations (3.37)–(3.53), pages 30–33",
                 "key_agreement_rate": "PA.pdf Section 3.2.8.c, Equation (3.64), page 35",
@@ -525,7 +495,7 @@ def evaluate_chunk_pair_keys(
         pre_kar: Reconciled bitstream KAR before privacy amplification (in percent).
         source_chunk_keys: List of ChunkKeyResult for source.
         receiver_chunk_keys: List of ChunkKeyResult for receiver.
-        chunk_size_bits: Size of segment in bits (default: 100).
+        chunk_size_bits: Size of segment in bits (default: 125).
 
     Returns:
         PairPrivacyAmplificationResult: Aggregated pair metrics across all chunks.
@@ -598,13 +568,13 @@ def amplify_privacy_all_paths(
     reconcile_result: MultiPathReconciliationResult,
     config: PrivacyAmplificationConfig | None = None,
 ) -> MultiPathPrivacyAmplificationResult:
-    """Execute Stage 6 Privacy Amplification across all four reconciled paths with 100-bit segmentation.
+    """Execute Stage 6 Privacy Amplification across all four reconciled paths with 125-bit segmentation.
 
     Supported paths and chunk counts:
-        - quant_2bit: 1,000 bits -> 10 keys (10 chunks of 100 bits)
-        - quant_4bit: 2,000 bits -> 20 keys (20 chunks of 100 bits)
-        - prbs_2bit:  4,000 bits -> 40 keys (40 chunks of 100 bits)
-        - prbs_4bit:  4,000 bits -> 40 keys (40 chunks of 100 bits)
+        - quant_2bit: 1,000 bits -> 8 keys
+        - quant_4bit: 2,000 bits -> 16 keys
+        - prbs_2bit:  2,046 bits -> 17 keys
+        - prbs_4bit:  3,069 bits -> 25 keys
 
     Evaluates the 4 channels independently with strict isolation:
         - Alice (source / reference key generator for Alice–Bob & Alice–Eve1-Alice)
@@ -645,20 +615,16 @@ def amplify_privacy_all_paths(
         ea_stream = res_ea.recovered_unpadded
         eb_stream = res_eb.recovered_unpadded
 
-        # Segment each channel's bitstream into 100-bit non-overlapping chunks
+        if len({len(stream) for stream in (alice_stream, bob_stream, ea_stream, eb_stream)}) != 1:
+            raise ValueError(f"Reconciled stream lengths differ across channels in path '{path_name}'.")
+
+        # Segment each channel's bitstream into 125-bit non-overlapping chunks
         alice_segments = segment_bitstream(alice_stream, segment_size=seg_size)
         bob_segments = segment_bitstream(bob_stream, segment_size=seg_size)
         ea_segments = segment_bitstream(ea_stream, segment_size=seg_size)
         eb_segments = segment_bitstream(eb_stream, segment_size=seg_size)
 
         num_chunks = len(alice_segments)
-        if not (len(bob_segments) == len(ea_segments) == len(eb_segments) == num_chunks):
-            raise ValueError(
-                f"Segment counts mismatch across channels in path '{path_name}': "
-                f"Alice={len(alice_segments)}, Bob={len(bob_segments)}, "
-                f"Eve1-Alice={len(ea_segments)}, Eve1-Bob={len(eb_segments)}."
-            )
-
         # Compute SHA-256 digests for each channel's segments independently
         def hash_segments(segments: list[str]) -> list[ChunkKeyResult]:
             chunk_keys: list[ChunkKeyResult] = []
@@ -899,6 +865,7 @@ def export_pa_config_json(
     out.parent.mkdir(parents=True, exist_ok=True)
 
     meta = pa_result.config.to_metadata_dict()
+    meta["path_key_counts"] = {path: channels["Alice"].num_chunks for path, channels in pa_result.channel_keys.items()}
     if extra_metadata is not None:
         meta["execution_context"] = extra_metadata
 
@@ -1048,7 +1015,7 @@ def export_pa_workbook_xlsx(
                     p_res.path_name,
                     p_res.pair_name,
                     ck_res.chunk_index,
-                    p_res.chunk_size_bits,
+                    len(pa_result.channel_keys[p_res.path_name][p_res.source_name].chunk_keys[ck_res.chunk_index].input_segment_bits),
                     256,
                     round(ck_res.post_pa_kar, 4),
                     "TRUE" if ck_res.exact_key_match else "FALSE",
@@ -1127,10 +1094,10 @@ def export_pa_workbook_xlsx(
     cfg_rows = [
         ("Algorithm", "Segmented Bit-Level SHA-256 Privacy Amplification"),
         ("Standard Specification", "FIPS PUB 180-4 (Secure Hash Standard) / PA.pdf Section 3.2.6"),
-        ("Segmentation Size", f"{SEGMENT_SIZE_BITS} bits (consecutive non-overlapping chunks)"),
+        ("Segmentation Size", f"Up to {pa_result.config.segment_size_bits} bits per chunk"),
         ("Key Agreement Rate Metric", "PA.pdf Section 3.2.8.c, Equation (3.64)"),
         ("Digest Output Length", "256 bits per segment (32 bytes / 64 hexadecimal characters)"),
-        ("Supported Paths & Key Counts", "quant_2bit: 10 keys; quant_4bit: 20 keys; prbs_2bit: 40 keys; prbs_4bit: 40 keys"),
+        ("Supported Paths & Key Counts", ", ".join(f"{p}: {ch['Alice'].num_chunks}" for p, ch in pa_result.channel_keys.items())),
         ("Evaluated Channels", "Alice, Bob, Eve1-Alice, Eve1-Bob"),
         ("Evaluated Pairs", "Alice–Bob (legitimate: Alice vs Bob), Alice–Eve1-Alice (eavesdropper stream 1: Alice vs Eve1-Alice), Bob–Eve1-Bob (eavesdropper stream 2: Bob vs Eve1-Bob)"),
         ("Scientific Disclaimer", pa_result.config.scientific_disclaimer),

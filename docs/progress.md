@@ -1,5 +1,31 @@
 # Project Progress & Handoff: RSSI-based Secret Key Generation (SKG)
 
+## Current BCH reconciliation release
+
+The standard reconciliation command is:
+
+```bash
+python -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" --reconcile
+```
+
+All four paths use BCH(1023, 46, 201), designed distance 403, interleaving off. Bob retains blocks with a nonnegative decoder correction count. Both Eve comparisons use exactly those indices, including a receiver's fallback bits when its own decoding fails. Pre/post KAR and exact recovery use retained payload bits after padding removal. A detected failure at Bob discards the block for all pairs. A silent miscorrection remains in the evaluation. With no retained bits, KAR is undefined and exact recovery is false. Block outcomes and helper overhead still cover all attempted blocks.
+
+| Path | Retained / attempted blocks | Retained / original bits | Alice–Bob KAR | Alice–Eve1-Alice KAR | Bob–Eve1-Bob KAR |
+|---|---:|---:|---:|---:|---:|
+| quant_2bit | 1/1 | 1000/1000 | 100% | 58.20% | 55.40% |
+| quant_4bit | 2/2 | 2000/2000 | 100% | 79.10% | 77.70% |
+| prbs_2bit | 2/4 | 2046/4000 | 100% | 59.24% | 58.16% |
+| prbs_4bit | 3/4 | 3069/4000 | 100% | 72.40% | 73.28% |
+
+These results are for the supplied synthetic indoor workbook. The ordinary decoder metrics do not establish secrecy. The historical public-helper findings in the handoff concern earlier parameter sets.
+
+Privacy amplification hashes each retained segment at its actual length, using a maximum of 125 bits. The synthetic workbook yields 8, 16, 17 and 25 digests on the four paths, with final segments of 125, 125, 46 and 69 bits respectively. Both Eve streams have zero exact matches on this workbook. Historical NIST and KGR figures refer to earlier runs.
+
+## Historical handoff before the shared BCH update
+
+The sections below preserve earlier configurations, historical test counts and experiment outcomes.
+
+
 ## 1. Project Purpose & Methodological Reference
 This research project develops a physical-layer Secret Key Generation (SKG) pipeline based on Received Signal Strength Indicator (RSSI) measurements.
 

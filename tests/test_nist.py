@@ -367,10 +367,10 @@ def test_evaluate_pa_keys_randomness_dummy_data() -> None:
 
     assert isinstance(nist_res, MultiPathNISTResult)
     expected_chunks = {
-        "quant_2bit": 10,
-        "quant_4bit": 20,
-        "prbs_2bit": 40,
-        "prbs_4bit": 40,
+        "quant_2bit": 8,
+        "quant_4bit": 16,
+        "prbs_2bit": 17,
+        "prbs_4bit": 25,
     }
     for path_name, n_chunks in expected_chunks.items():
         assert path_name in nist_res.paths
@@ -391,7 +391,7 @@ def test_evaluate_pa_keys_randomness_dummy_data() -> None:
         alice_res = path_nist["Alice"]
         assert alice_res.accepted_chunks_count > 0
 
-    assert len(nist_res.all_results) == 440
+    assert len(nist_res.all_results) == 264
 
 
 # ==============================================================================
@@ -423,8 +423,8 @@ def test_nist_exporters(tmp_path: Path) -> None:
         reader = csv.DictReader(f)
         rows = list(reader)
 
-    # 4 paths * 4 channels with 10/20/40/40 chunks = 440 rows
-    assert len(rows) == 440
+    # 4 paths * 4 channels with 8/16/17/25 chunks = 264 rows
+    assert len(rows) == 264
     expected_fields = {
         "path",
         "pair",

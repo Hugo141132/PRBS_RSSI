@@ -53,8 +53,8 @@ from rssi_skg.quantization import ChannelQuantizationResult, EXCEL_MAX_CELL_CHAR
 # Global & Default BCH Configuration Sources
 # ==============================================================================
 # Default BCH configurations per path family:
-#   - 2-bit paths (quant_2bit, prbs_2bit): BCH(511, 1, 198), designed_d=397
-#   - 4-bit paths (quant_4bit, prbs_4bit): BCH(255, 9, 62), designed_d=125
+#   - 2-bit paths (quant_2bit, prbs_2bit): BCH(1023, 46, 201), designed_d=403
+#   - 4-bit paths (quant_4bit, prbs_4bit): BCH(1023, 46, 201), designed_d=403
 #
 # Rules for editing parameters:
 #   1. n must be a valid primitive BCH block length: n = 2^m - 1 (e.g. 15, 31, 63, 127, 255, 511, 1023).
@@ -62,9 +62,9 @@ from rssi_skg.quantization import ChannelQuantizationResult, EXCEL_MAX_CELL_CHAR
 #   3. designed_d is derived automatically as designed_d = 2 * t + 1.
 #   4. k is the message dimension returned by galois.BCH(n, d=designed_d).
 #   5. The tuple (n, k, t) must be strictly consistent with Galois; inconsistent values raise ValueError.
-DEFAULT_BCH_CODE_2BIT: tuple[int, int, int] = (511, 1, 198)
-DEFAULT_BCH_CODE_4BIT: tuple[int, int, int] = (255, 9, 62)
-DEFAULT_BCH_CODE: tuple[int, int, int] = DEFAULT_BCH_CODE_2BIT
+DEFAULT_BCH_CODE: tuple[int, int, int] = (1023, 46, 201)
+DEFAULT_BCH_CODE_2BIT = DEFAULT_BCH_CODE
+DEFAULT_BCH_CODE_4BIT = DEFAULT_BCH_CODE
 GLOBAL_BCH_CODE: tuple[int, int, int] = DEFAULT_BCH_CODE
 INTERLEAVING_STATUS: str = "OFF"
 
@@ -136,15 +136,15 @@ class ReconciliationConfig:
 
     Supports 2-bit paths (quant_2bit, prbs_2bit) and 4-bit paths (quant_4bit, prbs_4bit).
     By default:
-        - 2-bit paths use DEFAULT_BCH_CODE_2BIT: (511, 1, 198), designed_d=397
-        - 4-bit paths use DEFAULT_BCH_CODE_4BIT: (255, 9, 62), designed_d=125
+        - 2-bit paths use DEFAULT_BCH_CODE_2BIT: (1023, 46, 201), designed_d=403
+        - 4-bit paths use DEFAULT_BCH_CODE_4BIT: (1023, 46, 201), designed_d=403
     An explicit global `code=(n, k, t)` configures all four paths uniformly.
     Alternatively, `code_2bit` and `code_4bit` can be configured independently.
 
     Attributes:
-        code: (n, k, t) tuple for the BCH code (default: (511, 1, 198) or shared override).
-        code_2bit: (n, k, t) tuple for 2-bit paths (default: (511, 1, 198)).
-        code_4bit: (n, k, t) tuple for 4-bit paths (default: (255, 9, 62)).
+        code: (n, k, t) tuple for the BCH code (default: (1023, 46, 201) or shared override).
+        code_2bit: (n, k, t) tuple for 2-bit paths (default: (1023, 46, 201)).
+        code_4bit: (n, k, t) tuple for 4-bit paths (default: (1023, 46, 201)).
         random_seed: Optional integer seed for reproducible random codeword generation.
         seed: Optional alias for random_seed.
         interleaving: Interleaving status (strictly 'OFF').
@@ -298,6 +298,7 @@ class ReconciliationConfig:
                 "rate": rate,
                 "paths": paths_meta,
                 "random_seed": self.random_seed,
+                "block_selection": "Bob decoder corrected_errors >= 0, shared by all pairs",
             },
             "methodology_and_security_notes": {
                 "entropy_warning": (
@@ -306,11 +307,11 @@ class ReconciliationConfig:
                 ),
                 "evaluation_boundary": (
                     "Software validation on synthetic dummy indoor data; physical channel probing postponed. "
-                    "Dummy-data comparison; configuration has reported public-information leakage. "
+                    "Prior configurations have reported public-information leakage. "
                     "KAR does not establish secrecy."
                 ),
                 "leakage_mechanism": (
-                    "Without interleaving, known padding reveals the final PRBS block; the reported full-stream "
+                    "In the historical low-dimension experiment, known padding exposed the final PRBS block; the reported "
                     "attack additionally uses per-sample PRBS parity constraints."
                 ),
             },
@@ -487,6 +488,12 @@ class PairReconciliationResult:
     designed_d: int = 0
     interleaving: str = "OFF"
 
+    retained_block_indices: tuple[int, ...] = ()
+
+    @property
+    def retained_length(self) -> int:
+        return len(self.source_unpadded)
+
     @property
     def pre_reconcile_ber(self) -> float:
         """Pre-reconciliation Bit Error Rate (100 - KAR)."""
@@ -560,6 +567,7 @@ def evaluate_reconciliation_pair(
     padding_count: int,
     designed_d: int = 0,
     interleaving: str = "OFF",
+    retained_block_indices: tuple[int, ...] | None = None,
 ) -> PairReconciliationResult:
     """Perform ground-truth evaluation of reconciliation and candidate-key extraction for a pair.
 
@@ -639,16 +647,22 @@ def evaluate_reconciliation_pair(
             )
         )
 
-    exact_recovery = bool(np.array_equal(recovered_arr, src_arr))
+    if retained_block_indices is None:
+        if not is_legitimate:
+            raise ValueError("Eve evaluation requires the retained block indices from Bob.")
+        retained_block_indices = tuple(
+            i for i, corrected in enumerate(corrections_list) if corrected >= 0
+        )
 
-    # Pre- and post-reconciliation KAR
-    pre_mismatches = int(np.sum(src_arr != rcv_arr))
-    post_mismatches = int(np.sum(src_arr != recovered_arr))
-
-    pre_kar = ((original_length - pre_mismatches) / original_length) * 100.0
-    post_kar = ((original_length - post_mismatches) / original_length) * 100.0
-
-    recovered_str = "".join(str(b) for b in recovered_arr)
+    keep = np.zeros(num_blocks, dtype=bool)
+    keep[list(retained_block_indices)] = True
+    valid_bits = np.repeat(keep, n)[:original_length]
+    src_arr = src_arr[valid_bits]
+    rcv_arr = rcv_arr[valid_bits]
+    recovered_arr = recovered_arr[valid_bits]
+    exact_recovery = bool(src_arr.size and np.array_equal(recovered_arr, src_arr))
+    pre_kar = float(100 * np.mean(src_arr == rcv_arr)) if src_arr.size else math.nan
+    post_kar = float(100 * np.mean(src_arr == recovered_arr)) if src_arr.size else math.nan
 
     return PairReconciliationResult(
         path_name=path_name,
@@ -662,9 +676,10 @@ def evaluate_reconciliation_pair(
         num_blocks=num_blocks,
         padding_count=padding_count,
         helper_data_bits=num_blocks * n,
-        source_unpadded=source_bits,
-        receiver_raw_unpadded=receiver_bits[:original_length],
-        recovered_unpadded=recovered_str,
+        source_unpadded="".join(map(str, src_arr)),
+        receiver_raw_unpadded="".join(map(str, rcv_arr)),
+        recovered_unpadded="".join(map(str, recovered_arr)),
+        retained_block_indices=retained_block_indices,
         exact_recovery=exact_recovery,
         pre_reconcile_kar=pre_kar,
         post_reconcile_kar=post_kar,
@@ -807,6 +822,7 @@ def reconcile_all_paths(
             source_name="Alice",
             receiver_name="Eve1-Alice",
             is_legitimate=False,
+            retained_block_indices=res_ab.retained_block_indices,
             padding_count=alice_pad,
             designed_d=d_val,
             interleaving=cfg.interleaving,
@@ -826,6 +842,7 @@ def reconcile_all_paths(
             source_name="Bob",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
+            retained_block_indices=res_ab.retained_block_indices,
             padding_count=bob_pad,
             designed_d=d_val,
             interleaving=cfg.interleaving,
@@ -868,6 +885,8 @@ def export_reconciliation_metrics_csv(
         "padding_bits",
         "helper_data_bits",
         "helper_overhead_ratio",
+        "retained_length",
+        "retained_blocks",
         "pre_reconcile_kar_percent",
         "post_reconcile_kar_percent",
         "kar_delta_pp",
@@ -897,6 +916,8 @@ def export_reconciliation_metrics_csv(
                         "interleaving": res.interleaving,
                         "code_rate": f"{res.k / res.n:.6f}",
                         "original_length": res.original_length,
+                        "retained_length": res.retained_length,
+                        "retained_blocks": len(res.retained_block_indices),
                         "num_blocks": res.num_blocks,
                         "padding_bits": res.padding_count,
                         "helper_data_bits": res.helper_data_bits,
@@ -932,6 +953,7 @@ def export_reconciliation_blocks_csv(
         "designed_d",
         "interleaving",
         "actual_errors",
+        "retained_by_bob",
         "corrected_errors",
         "status",
     ]
@@ -954,6 +976,7 @@ def export_reconciliation_blocks_csv(
                             "interleaving": res.interleaving,
                             "actual_errors": blk.actual_errors,
                             "corrected_errors": blk.corrected_errors,
+                            "retained_by_bob": blk.block_index in res.retained_block_indices,
                             "status": blk.status,
                         }
                     )
@@ -984,11 +1007,13 @@ def export_reconciliation_config_json(
                 "designed_d": res.designed_d,
                 "interleaving": res.interleaving,
                 "original_length": res.original_length,
+                "retained_length": res.retained_length,
+                "retained_blocks": len(res.retained_block_indices),
                 "num_blocks": res.num_blocks,
                 "padding_bits": res.padding_count,
                 "exact_recovery": res.exact_recovery,
-                "pre_kar": round(res.pre_reconcile_kar, 4),
-                "post_kar": round(res.post_reconcile_kar, 4),
+                "pre_kar": round(res.pre_reconcile_kar, 4) if res.retained_length else None,
+                "post_kar": round(res.post_reconcile_kar, 4) if res.retained_length else None,
                 "success_blocks": res.success_blocks,
                 "failed_blocks": res.detected_failure_blocks,
                 "miscorrected_blocks": res.miscorrected_blocks,
@@ -1047,6 +1072,8 @@ def export_reconciliation_workbook_xlsx(
         "Success Blks",
         "Failed Blks",
         "Miscorr Blks",
+        "Retained Bits",
+        "Retained Blocks",
     ]
     ws1.append(headers1)
     for col_idx in range(1, len(headers1) + 1):
@@ -1069,13 +1096,15 @@ def export_reconciliation_workbook_xlsx(
                 res.original_length,
                 res.num_blocks,
                 res.padding_count,
-                round(res.pre_reconcile_kar, 4),
-                round(res.post_reconcile_kar, 4),
+                round(res.pre_reconcile_kar, 4) if res.retained_length else None,
+                round(res.post_reconcile_kar, 4) if res.retained_length else None,
                 round(delta, 4),
                 "TRUE" if res.exact_recovery else "FALSE",
                 res.success_blocks,
                 res.detected_failure_blocks,
                 res.miscorrected_blocks,
+                res.retained_length,
+                len(res.retained_block_indices),
             ]
             ws1.append(row_data)
             for c_idx in range(1, len(row_data) + 1):

@@ -443,116 +443,59 @@ Unlike syndrome-only reconciliation, codeword-based reconciliation operates by e
 5. Bob decodes $C'$ using the BCH decoder (`galois.BCH.decode`) to obtain candidate codeword $\hat{C}$ and corrected error count $e$.
 6. Bob reconstructs Alice's bitstream via $\hat{A} = H \oplus \hat{C}$ (`PA.pdf` Eq 3.36).
 7. Receiver decoding strictly accesses only Bob's own bits $B$, public helper data $H$, and public code parameters $(n, k, t)$. No source bits or random messages $u$ are ever exposed to the receiver.
-8. Zero-padding bits are stripped post-reconstruction; original lengths are strictly restored, and padding is excluded from payload metrics and hashing.
+8. Zero-padding bits are stripped post-reconstruction; payload metrics exclude padding and use Bob’s retained blocks.
 
-### 2. BCH Code Parameter Selection & Four-Path Results ($N=500$, `data_kind=dummy`)
+### Shared BCH configuration and retained-block results
 
-#### Baseline Error Verification ($n=127$, Sequential Layout)
-Recomputing per-block errors on the revised $N=500$ dummy dataset under sequential splitting with zero-padding reveals:
-- **`quant_4bit`** ($L=2000$ bits, 16 blocks of length 127, 32 pad bits):
-  - Alice–Bob errors per block: $\min = 3$, $\text{avg} = 12.25$, $\max = \mathbf{23}$ (18.1% max block BER).
-- **`prbs_4bit`** ($L=4000$ bits, 32 blocks of length 127, 64 pad bits):
-  - Alice–Bob errors per block: $\min = 0$, $\text{avg} = 17.25$, $\max = \mathbf{36}$ (28.3% max block BER).
-- *Obsolete Recommendation Removal*: Under this block layout, previous hypothetical suggestions of $t=14$ (for `quant_4bit`) and $t=21$ (for `prbs_4bit`) cannot correct the observed maximum errors ($23 > 14$ and $36 > 21$) and fail exact Bob reconstruction. They have been removed as unsupported.
+The standard reconciliation command is:
 
-#### Candidate Search & Comparison for Shared 4-Bit BCH ($k > 1$)
-A bounded, cached candidate search over valid narrow-sense primitive binary BCH codes in Galois ($n \in \{31, 63, 127, 255, 511, 1023\}$) was executed, requiring $t$ to cover every observed Alice–Bob block error across both 4-bit paths while excluding $k=1$ from recommended configurations:
-- For $n \le 127$: The maximum error on `prbs_4bit` at $n=127$ is 36. Any binary BCH code with $n=127$ and $t \ge 32$ forces $k=1$. No code with $k > 1$ exists for $n \le 127$ that corrects 36 errors.
-- For $n=255$: Block error counts are $\max = 42$ (16.5%) on `quant_4bit` and $\max = 62$ (24.3%) on `prbs_4bit`. The minimal candidate satisfying $t \ge 62$ with $k > 1$ is **$\text{BCH}(255, 9, 63)$** with designed distance $d = 127$.
-- For $n=511$: Block error counts are $\max = 81$ on `quant_4bit` and $\max = 116$ on `prbs_4bit`. The code is $\text{BCH}(511, 19, 116, d=233)$.
-- For $n=1023$: Block error counts are $\max = 111$ on `quant_4bit` and $\max = 222$ on `prbs_4bit`. The code is $\text{BCH}(1023, 36, 222, d=445)$.
+```bash
+python -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" --reconcile
+```
 
-| Candidate | Code ($n, k, t, d$) | Code Rate ($k/n$) | `quant_4bit` (Blks/Pad) | `prbs_4bit` (Blks/Pad) | Public Helper (4b/PRBS) | Bob Exact Recovery | Eve Recovery (`q_4b` / `p_4b`) | Selection Status |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Baseline ($k=1$)** | $\text{BCH}(127, 1, 62, 125)$ | 0.00787 | 16 blks / 32b | 32 blks / 64b | 2032b / 4064b | TRUE / TRUE | **100% / 100% (EXACT)** | Baseline only ($k=1$, 99.2% leakage) |
-| **Candidate A** | **$\text{BCH}(255, 9, 63, 127)$** | **0.03529** | **8 blks / 40b** | **16 blks / 80b** | **2040b / 4080b** | **TRUE / TRUE** | **FAILED / FAILED** | **SELECTED (Shared 4-bit)** |
-| **Candidate B** | $\text{BCH}(511, 19, 116, 233)$ | 0.03718 | 4 blks / 44b | 8 blks / 88b | 2044b / 4088b | TRUE / TRUE | FAILED / FAILED | Larger block size, marginal rate gain |
-| **Candidate C** | $\text{BCH}(1023, 36, 222, 445)$ | 0.03519 | 2 blks / 46b | 4 blks / 92b | 2046b / 4092b | TRUE / TRUE | EXACT / FAILED | Leaks `quant_4bit` to Eve |
+All four paths use BCH(1023, 46, 201), designed distance 403, interleaving off. Bob retains blocks with a nonnegative decoder correction count. Both Eve comparisons use exactly those indices, including a receiver's fallback bits when its own decoding fails. Pre/post KAR and exact recovery use retained payload bits after padding removal. A detected failure at Bob discards the block for all pairs. A silent miscorrection remains in the evaluation. With no retained bits, KAR is undefined and exact recovery is false. Block outcomes and helper overhead still cover all attempted blocks.
 
-**Selection Rationale for Candidate A (BCH(255, 9, 63))**:
-1. **Minimal Block Size for $k > 1$**: $n=255$ is the smallest block length achieving $k > 1$ ($k=9$) while guaranteeing correction of all channel errors ($t=63 \ge 62$).
-2. **Exact Bob Recovery**: Achieves 100% KAR and `exact_recovery = True` across both `quant_4bit` (8 blocks) and `prbs_4bit` (16 blocks).
-3. **Eve Ordinary Decoding Outcomes**: In contrast to the $k=1$ baseline where Eve achieved 100% exact bitstream recovery under ordinary decoding, $\text{BCH}(255, 9, 63)$ results in ordinary-decoder failure (`Exact Recovery = False`) across both 4-bit paths due to detected syndrome decoding failures (`quant_4bit`: 3 failure blocks on Eve1, 1 on Eve2; `prbs_4bit`: 9 failure blocks on both Eve streams).
-4. **Improved Code Rate**: Code rate $k/n = 9/255 \approx 0.03529$ represents a $4.5\times$ increase over $k=1$ ($1/127 \approx 0.00787$).
-5. **Compact Helper Data & Padding**: Minimal padding overhead (40 bits for `quant_4bit`, 80 bits for `prbs_4bit`).
+| Path | Retained / attempted blocks | Retained / original bits | Alice–Bob KAR | Alice–Eve1-Alice KAR | Bob–Eve1-Bob KAR |
+|---|---:|---:|---:|---:|---:|
+| quant_2bit | 1/1 | 1000/1000 | 100% | 58.20% | 55.40% |
+| quant_4bit | 2/2 | 2000/2000 | 100% | 79.10% | 77.70% |
+| prbs_2bit | 2/4 | 2046/4000 | 100% | 59.24% | 58.16% |
+| prbs_4bit | 3/4 | 3069/4000 | 100% | 72.40% | 73.28% |
 
-#### Four-Path Reconciliation Results ($N=500$, `data_kind=dummy`)
+These results are for the supplied synthetic indoor workbook. The ordinary decoder metrics do not establish secrecy. The historical public-helper findings in the handoff concern earlier parameter sets.
 
-Information reconciliation routes parameters per path family via ReconciliationConfig:
-- **2-bit paths (quant_2bit, prbs_2bit)**: $\text{BCH}(511, 1, 198)$ with designed distance $d = 397$.
-- **4-bit paths (quant_4bit, prbs_4bit)**: $\text{BCH}(255, 9, 62)$ with designed distance $d = 125$.
-- **Interleaving**: Strictly OFF (sequential blocks, trailing zero-padding).
-
-##### Legitimate Channel Reconciliation (Alice–Bob)
-Max observed per-block error counts on dummy data are derived from actual code execution ($t=198$ for $n=511$, $t=62$ for $n=255$):
-
-| Path | Payload Bits | Configured Code ($n, k, t, d$) | Code Rate ($k/n$) | Blocks | Pad Bits | Max Error / Block ($\le t$) | Pre-KAR | Post-KAR | Exact Recovery | Blocks (S/F/M) | Independent Parity Constraints |
-| :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **quant_2bit** | 1,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 2 | 22 | **111** ($\le 198$) | 80.40% | **100.00%** | **TRUE** | 2 / 0 / 0 | 510 constraints ($n-k=510$) |
-| **quant_4bit** | 2,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 8 | 40 | **42** ($\le 62$) | 90.20% | **100.00%** | **TRUE** | 8 / 0 / 0 | 246 constraints ($n-k=246$) |
-| **prbs_2bit** | 4,000 | **BCH(511, 1, 198, d=397)** | 0.00196 | 8 | 88 | **198** ($\le 198$) | 75.85% | **100.00%** | **TRUE** | 8 / 0 / 0 | 510 constraints ($n-k=510$) |
-| **prbs_4bit** | 4,000 | **BCH(255, 9, 62, d=125)** | 0.03529 | 16 | 80 | **62** ($\le 62$) | 86.20% | **100.00%** | **TRUE** | 16 / 0 / 0 | 246 constraints ($n-k=246$) |
-
-*(Note on Error Coverage: Under the calibrated multi-path architecture, BCH(511, 1, 198) handles error counts up to 111 on quant_2bit (2 blocks, 22 pad bits) and up to 198 on prbs_2bit (8 blocks, 88 pad bits). For 4-bit paths, BCH(255, 9, 62) handles error counts up to 42 on quant_4bit and up to 62 on prbs_4bit.)*
-
-##### Eavesdropper Performance Under Source-Specific Helper Data (Alice–Eve1-Alice & Bob–Eve1-Bob)
-In accordance with established physical measurement comparisons (correlation, filtering, quantization, and PRBS):
-- **Alice–Bob**: Alice is the source/reference; Bob is the legitimate receiver. Alice generates helper data $H_A = A \oplus C_A$.
-- **Alice–Eve1-Alice**: Alice is the source/reference; Eve1-Alice is the passive observer overhearing Alice's transmission. Eve1-Alice decodes against Alice's public helper data $H_A$.
-- **Bob–Eve1-Bob**: Bob is the source/reference; Eve1-Bob is the passive observer overhearing Bob's transmission. Eve1-Bob decodes against Bob's separate helper data $H_B = B \oplus C_B$ generated independently from Bob's bitstream.
-
-*(Note: Bob being the reference for Bob–Eve1-Bob does NOT imply an interactive Bob–Eve communication session; Eve remains a passive eavesdropper in an offline measurement comparison).*
-
-We explicitly separate **ordinary-decoder performance**, **bit agreement (post-KAR)**, and **public-helper enumeration recovery**:
-
-| Path | Eavesdropper Pair | Reference / Source | Configured Code | Pre-KAR | Ordinary Post-KAR | Ordinary Decoder Exact Recovery | Blocks (S/F/M) | Public-Helper Enumeration Recovery |
-| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| quant_2bit | Alice–Eve1-Alice | Alice | BCH(511, 1, 198, d=397) | 58.20% | **58.20%** | **FALSE** | 0 / 2 / 0 | Unverified |
-| quant_2bit | Bob–Eve1-Bob | Bob | BCH(511, 1, 198, d=397) | 55.40% | **55.40%** | **FALSE** | 0 / 2 / 0 | Unverified |
-| quant_4bit | Alice–Eve1-Alice | Alice | BCH(255, 9, 62, d=125) | 79.10% | **89.60%** | **FALSE** | 5 / 3 / 0 | **100% (0 ambiguity)** |
-| quant_4bit | Bob–Eve1-Bob | Bob | BCH(255, 9, 62, d=125) | 77.70% | **89.50%** | **FALSE** | 5 / 3 / 0 | **100% (0 ambiguity)** |
-| prbs_2bit | Alice–Eve1-Alice | Alice | BCH(511, 1, 198, d=397) | 56.10% | **69.42%** | **FALSE** | 3 / 5 / 0 | Unverified |
-| prbs_2bit | Bob–Eve1-Bob | Bob | BCH(511, 1, 198, d=397) | 56.38% | **60.92%** | **FALSE** | 1 / 7 / 0 | Unverified |
-| prbs_4bit | Alice–Eve1-Alice | Alice | BCH(255, 9, 62, d=125) | 73.25% | **81.85%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
-| prbs_4bit | Bob–Eve1-Bob | Bob | BCH(255, 9, 62, d=125) | 72.45% | **81.58%** | **FALSE** | 7 / 9 / 0 | **100% (0 ambiguity)** |
-
-### 3. Direct Bitstream Equality and Receiver Isolation
-- **Direct Bitstream Equality**: BCH reconciliation success is defined strictly by bitwise equality between the source unpadded bitstream $A$ and receiver unpadded recovered bitstream $\hat{A}$ (`exact_recovery = bool(source_bits == recovered_bits)`).
-- **Strict Receiver Isolation**: The receiver decoding pipeline accesses only the receiver's own observed bits $B$, the public helper data $H$, and code parameters $(n, k, t)$. Alice's source bits are never accessible during decoding.
-- **Failed-Block Fallback Convention**: When a detected decoding failure occurs (syndrome equations cannot be solved within error-correction radius $t$), unchanged raw receiver bits are retained as fallback (never discarded or zeroed). When any block fails or is miscorrected, unpadded bitstream recovery is incomplete (`exact_recovery = False`). Channel errors beyond $t$ result in either a detected decoding failure or a miscorrection (the decoder does not have access to the true channel error count).
-
----
+Privacy amplification hashes each retained segment at its actual length, using a maximum of 125 bits. The synthetic workbook yields 8, 16, 17 and 25 digests on the four paths, with final segments of 125, 125, 46 and 69 bits respectively. Both Eve streams have zero exact matches on this workbook. Historical NIST and KGR figures refer to earlier runs.
 
 ## Privacy Amplification Stage (PA.pdf Section 3.2.6, Equations 3.37–3.53)
 
 Governed by `PA.pdf` **Section 3.2.6, Equations (3.37)–(3.53), pages 30–33** and **FIPS PUB 180-4**:
 
-Privacy Amplification compresses consecutive, non-overlapping 100-bit segments of the unpadded reconciled bitstream into 256-bit secret keys via the cryptographic hash function SHA-256. While SHA-256 expands residual bit errors under ordinary decoding across the key space via cryptographic diffusion (the avalanche effect), it does not increase physical min-entropy or prevent an algebraic attacker from computing the identical key if the source bitstream is solved from public helper data.
+Privacy Amplification maps consecutive, non-overlapping segments of up to 125 bits of the unpadded reconciled bitstream to 256-bit digests via the cryptographic hash function SHA-256. While SHA-256 expands residual bit errors under ordinary decoding across the key space via cryptographic diffusion (the avalanche effect), it does not increase physical min-entropy or prevent an algebraic attacker from computing the identical key if the source bitstream is solved from public helper data.
 
-### 1. 100-Bit Consecutive Non-Overlapping Segmentation
-Unpadded reconciled bitstreams from BCH reconciliation are divided into consecutive, non-overlapping segments of $L_{\text{chunk}} = 100$ bits, preserving temporal order:
+### 1. 125-Bit Consecutive Non-Overlapping Segmentation
+Unpadded reconciled bitstreams from BCH reconciliation are divided into consecutive, non-overlapping segments of $L_{\text{chunk}} \le 125$ bits, preserving temporal order:
 ```math
-S_c = M[100c : 100(c + 1)], \qquad c \in \{0, \dots, M_{\text{chunks}} - 1\}
+S_c = M[125c : 125(c + 1)], \qquad c \in \{0, \dots, M_{\text{chunks}} - 1\}
 ```
-- **Dynamic Chunk Count Derivation**: $M_{\text{chunks}} = L_{\text{total}} / 100$.
-- **Explicit Incomplete Segment Rejection**: Bitstream length must be an exact positive multiple of 100 bits. Incomplete trailing segments are strictly rejected (never silently truncated or padded).
+- **Dynamic Chunk Count Derivation**: $M_{\text{chunks}} = \lceil L_{\text{total}} / 125 \rceil$.
+- **Short final segment**: Hash its actual bits with the bit-level SHA-256 routine.
 - **Four Supported Paths and Derived Key Counts**:
-  - `quant_2bit`: 1,000 bits $\to$ **10 keys** of 256 bits each.
-  - `quant_4bit`: 2,000 bits $\to$ **20 keys** of 256 bits each.
-  - `prbs_2bit`: 4,000 bits $\to$ **40 keys** of 256 bits each.
-  - `prbs_4bit`: 4,000 bits $\to$ **40 keys** of 256 bits each.
+  - `quant_2bit`: 1,000 bits $\to$ **8 keys** of 256 bits each.
+  - `quant_4bit`: 2,000 bits $\to$ **16 keys** of 256 bits each.
+  - `prbs_2bit`: 2,046 bits $\to$ **17 keys** of 256 bits each.
+  - `prbs_4bit`: 3,069 bits $\to$ **25 keys** of 256 bits each.
 
 ### 2. Bit-Level SHA-256 Padding per Segment (Equations 3.37–3.39)
-Unlike conventional byte-oriented hash interfaces, the mathematical specification operates directly at the bit level on arbitrary bit lengths. Each 100-bit segment ($L = 100$) is independently padded:
+Unlike conventional byte-oriented hash interfaces, the mathematical specification operates directly at the bit level on arbitrary bit lengths. Each segment is independently padded at its actual length. The following example uses a full segment ($L = 125$):
 
 ```math
-S'_c = S_c \parallel 1 \parallel 0^p \parallel [100]_{64}
+S'_c = S_c \parallel 1 \parallel 0^p \parallel [125]_{64}
 ```
 where $p$ is the smallest non-negative integer satisfying:
 ```math
-100 + 1 + p \equiv 448 \pmod{512} \implies p = (448 - 1 - 100) \bmod 512 = 347 \text{ bits}
+125 + 1 + p \equiv 448 \pmod{512} \implies p = (448 - 1 - 125) \bmod 512 = 322 \text{ bits}
 ```
-and $[100]_{64}$ is the 64-bit big-endian representation of integer 100. The total padded length $|S'_c| = 100 + 1 + 347 + 64 = 512$ bits (exactly 1 block of 512 bits).
+and $[125]_{64}$ is the 64-bit big-endian representation of integer 125. The total padded length $|S'_c| = 125 + 1 + 322 + 64 = 512$ bits (exactly 1 block of 512 bits).
 
 ### 3. Message Scheduling & 64-Round Compression (Equations 3.40–3.53)
 Each 512-bit block $M^{(i)}$ is partitioned into 16 32-bit words $W_0 \dots W_{15}$. Words $W_{16} \dots W_{63}$ are expanded via:
@@ -561,7 +504,7 @@ W_t = \sigma_1(W_{t-2}) + W_{t-7} + \sigma_0(W_{t-15}) + W_{t-16} \pmod{2^{32}}
 ```
 where $\sigma_0(x) = \text{ROTR}^7(x) \oplus \text{ROTR}^{18}(x) \oplus \text{SHR}^3(x)$ and $\sigma_1(x) = \text{ROTR}^{17}(x) \oplus \text{ROTR}^{19}(x) \oplus \text{SHR}^{10}(x)$.
 
-The 64-round compression updates eight 32-bit state registers $(a, b, c, d, e, f, g, h)$ from the initial hash values $H^{(0)}$ using the non-linear functions $\text{Ch}(e, f, g)$, $\text{Maj}(a, b, c)$, and the rotation sums $\Sigma_0(a)$ and $\Sigma_1(e)$. Each 100-bit segment independently yields one 256-bit secret key digest:
+The 64-round compression updates eight 32-bit state registers $(a, b, c, d, e, f, g, h)$ from the initial hash values $H^{(0)}$ using the non-linear functions $\text{Ch}(e, f, g)$, $\text{Maj}(a, b, c)$, and the rotation sums $\Sigma_0(a)$ and $\Sigma_1(e)$. Each 125-bit segment independently yields one 256-bit secret key digest:
 ```math
 K_c = H_0 \parallel H_1 \parallel \dots \parallel H_7 \in \{0, 1\}^{256}
 ```
@@ -575,7 +518,7 @@ where $N_{\text{mismatch}, c} = \sum_{j=0}^{255} (K_{\text{source}, c}[j] \ne K_
 
 Aggregated summary metrics report the mean post-PA KAR across all chunks, total matching chunk count, and overall exact match status.
 
-### 5. Four-Path Segmented Privacy Amplification Results (Dummy Dataset, N = 500)
+### 5. Four-Path Segmented Privacy Amplification Results (Dummy Dataset, N = 500) (historical baseline)
 - **Supported Paths**: `quant_2bit` (10 keys), `quant_4bit` (20 keys), `prbs_2bit` (40 keys), `prbs_4bit` (40 keys).
 - **All 4 Channels Independently Processed with Channel Isolation**: Alice, Bob, Eve1-Alice, Eve1-Bob.
 - **Bidirectional Transmission Observation Model**:
@@ -598,7 +541,7 @@ Aggregated summary metrics report the mean post-PA KAR across all chunks, total 
 | `prbs_4bit` | Alice–Eve1-Alice | Alice | Eve1-Alice | 40 | 81.85% | 69.75% | -12.10 pp | 16 / 40 | 40.0% | FALSE (MISMATCH) |
 | `prbs_4bit` | Bob–Eve1-Bob | Bob | Eve1-Bob | 40 | 81.58% | 53.52% | -28.06 pp | 3 / 40 | 7.5% | FALSE (MISMATCH) |
 
-*(Historical note: Earlier exploratory single-digest 2-bit PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 100-bit segmented multi-key architecture aligned with bidirectional transmission observation).*
+*(Historical note: Earlier exploratory single-digest 2-bit PA runs without segmentation and superseded single-Alice-reference descriptions for Bob–Eve1-Bob are replaced by this 125-bit segmented multi-key architecture aligned with bidirectional transmission observation).*
 
 ---
 
@@ -655,7 +598,7 @@ Constraint recommendation per NIST Sec 2.12.7: $m < \lfloor \log_2 n \rfloor - 5
 - A key is **Accepted** if and only if all three tests are applicable and pass ($P\text{-value} \ge 0.01$). If any test fails or is not applicable, the key is rejected.
 - Each key records test statistics, p-values, applicability, failure reasons, and acceptance status.
 
-### 3. Four-Path NIST Randomness Results on Dummy Dataset ($N=500$)
+### 3. Four-Path NIST Randomness Results on Dummy Dataset ($N=500$) (historical baseline)
 Across all 440 keys evaluated (110 keys per channel):
 
 | Path | Channel | Chunks Evaluated | Applicable Chunks | Monobit Pass | Runs Pass | ApEn Pass | Accepted Chunks | Acceptance Rate |
@@ -677,7 +620,7 @@ Across all 440 keys evaluated (110 keys per channel):
 | `prbs_4bit` | Eve1-Alice | 40 | 40 | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 | 100.0% |
 | `prbs_4bit` | Eve1-Bob | 40 | 40 | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 | 100.0% |
 
-*(Note on Superseded Exploratory Runs: Earlier single-digest runs tested only a single 256-bit hash of the entire bitstream. The current authoritative architecture segments bitstreams into 100-bit chunks and evaluates every resulting 256-bit key independently).*
+*(Note on Superseded Exploratory Runs: Earlier single-digest runs tested only a single 256-bit hash of the entire bitstream. The current authoritative architecture segments bitstreams into 125-bit chunks and evaluates every resulting 256-bit key independently).*
 
 ---
 
@@ -698,11 +641,11 @@ Governed by `PA.pdf` **Section 3.2.8.b, Equation (3.63), page 34**:
 
 ### 2. Timing Boundary & Cache Warm-Up
 - **Measurement Span**: Timed using Python's monotonic high-resolution timer (`time.perf_counter()`).
-- **Included Scope**: Legitimate Alice and Bob pipeline processing from scalar MSHKF filtering through BCH reconciliation and 100-bit chunked SHA-256 privacy amplification (PRBS expansion is executed and timed on `prbs_2bit` and `prbs_4bit` only).
+- **Included Scope**: Legitimate Alice and Bob pipeline processing from scalar MSHKF filtering through BCH reconciliation and 125-bit chunked SHA-256 privacy amplification (PRBS expansion is executed and timed on `prbs_2bit` and `prbs_4bit` only).
 - **Excluded Scope**: Dataset loading, Eve channel execution, plotting, file exports, and post-hoc NIST testing are strictly excluded from timer $T$.
-- **Dual BCH Cache Pre-Warming**: Prior to starting the timer, `warm_up_bch_cache()` pre-compiles and warms both 2-bit `BCH(511, 1, 198)` and 4-bit `BCH(255, 9, 62)` Numba JIT compilation kernels, preventing cold-start timing bias across paths.
+- The timing run warms the configured BCH decoder before starting the timer.
 
-### 3. Four-Path Empirical KGR Results on Dummy Dataset ($N=500$)
+### 3. Four-Path Empirical KGR Results on Dummy Dataset ($N=500$) (historical baseline)
 
 | Path | Total Chunks | Accepted Chunks | Raw Bits ($N_{\text{raw}}$) | Accepted Bits ($N_{\text{bit}}$) | Elapsed Time ($T$) | Raw KGR (bps) | Accepted KGR (bps) | Alice–Bob Matches | Alice–Bob KAR |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -857,7 +800,10 @@ Run the CLI with `--nist` and `--kgr` (which automatically execute all prerequis
 > - **Candidate Key Outputs**: Candidate keys can be exported using `--pa-keys-output` (or `--reconcile-keys-output` when reconciliation / privacy amplification is active).
 > - **Obsolete Flags Rejected**: Passing `--reconcile-shared` or `--reconcile-mode` will raise an actionable error directing users to standard execution.
 
-##### Two-Path Experimental Results (Dummy Dataset, N = 500):
+##### Historical two-path experimental results
+
+The following measurements and failure conventions belong to the earlier two-path experiment. See the shared BCH section above for the active four-path implementation.
+
 | Path | Evaluation Pair | Pre-BCH KAR | Post-BCH KAR | Δ (pp) | Blocks (Succ/Fail/Mis) | Block Success Rate | Exact Recovery |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | `quant_2bit` | Alice–Bob (Legitimate) | 80.40% | 100.00% | +19.60 pp | 1 / 0 / 0 | 100.0% | **TRUE** |
@@ -891,7 +837,7 @@ Run the CLI with `--nist` and `--kgr` (which automatically execute all prerequis
   - **Panel (c)**: `prbs_2bit` Pre-BCH vs Post-BCH KAR across all three evaluation pairs.
   - **Panel (d)**: `prbs_4bit` Pre-BCH vs Post-BCH KAR across all three evaluation pairs.
   - **Panel (e)**: Exact block recovery rates (decoder success %) across all four paths for legitimate and eavesdropper channels.
-  - **Panel (f)**: Quantitative summary table (Failures, Miscorrections, Exact Recovery) and scientific constraint notes box. All parameters dynamically reflect 2-bit $\text{BCH}(127,1,62)$ and 4-bit $\text{BCH}(255,9,63)$.
+  - Panel (f) summarizes block outcomes and exact recovery.
 - `outputs/dummy_rssi_pa_comparison.png` (300-dpi raster) & `outputs/dummy_rssi_pa_comparison.pdf` (vector):
   - **Panel (a)**: `quant_2bit` Pre-PA vs Post-PA KAR across Alice–Bob, Alice–Eve1-Alice, Alice–Eve1-Bob.
   - **Panel (b)**: `prbs_2bit` Pre-PA vs Post-PA KAR across Alice–Bob, Alice–Eve1-Alice, Alice–Eve1-Bob.

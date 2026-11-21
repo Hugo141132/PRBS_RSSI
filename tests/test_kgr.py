@@ -86,8 +86,8 @@ def test_kgr_controlled_mock_clock() -> None:
         timer=mock_timer,
     )
 
-    expected_chunks = {"quant_2bit": 10, "quant_4bit": 20, "prbs_2bit": 40, "prbs_4bit": 40}
-    expected_accepted = {"quant_2bit": 9, "quant_4bit": 20, "prbs_2bit": 39, "prbs_4bit": 39}
+    expected_chunks = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 25}
+    expected_accepted = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 23}
 
     for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
         path_kgr = res.paths[path_name]
@@ -123,7 +123,7 @@ def test_kgr_single_alice_accounting() -> None:
         config=KGRConfig(pre_warm_bch=True),
     )
 
-    expected_chunks = {"quant_2bit": 10, "quant_4bit": 20, "prbs_2bit": 40, "prbs_4bit": 40}
+    expected_chunks = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 25}
     for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
         path_kgr = res.paths[path_name]
         raw_b = 256 * expected_chunks[path_name]
@@ -188,10 +188,10 @@ def test_kgr_statistical_rejection_gating() -> None:
     mock_nist_multi = MultiPathNISTResult(
         config=NISTConfig(),
         channel_evaluations={
-            "quant_2bit": {"Alice": _make_failing_chunks("quant_2bit", 10)},
-            "quant_4bit": {"Alice": _make_failing_chunks("quant_4bit", 20)},
-            "prbs_2bit": {"Alice": _make_failing_chunks("prbs_2bit", 40)},
-            "prbs_4bit": {"Alice": _make_failing_chunks("prbs_4bit", 40)},
+            "quant_2bit": {"Alice": _make_failing_chunks("quant_2bit", 8)},
+            "quant_4bit": {"Alice": _make_failing_chunks("quant_4bit", 16)},
+            "prbs_2bit": {"Alice": _make_failing_chunks("prbs_2bit", 17)},
+            "prbs_4bit": {"Alice": _make_failing_chunks("prbs_4bit", 25)},
         },
     )
 
@@ -245,8 +245,8 @@ def test_measure_multipath_kgr_dummy_data() -> None:
     )
 
     assert isinstance(res, MultiPathKGRResult)
-    expected_chunks = {"quant_2bit": 10, "quant_4bit": 20, "prbs_2bit": 40, "prbs_4bit": 40}
-    expected_accepted = {"quant_2bit": 9, "quant_4bit": 20, "prbs_2bit": 39, "prbs_4bit": 39}
+    expected_chunks = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 25}
+    expected_accepted = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 23}
 
     for path_name, n_chunks in expected_chunks.items():
         assert path_name in res.paths
@@ -319,9 +319,9 @@ def test_kgr_exporters(tmp_path: Path) -> None:
     ws_kgr = wb["KGR Metrics"]
     assert ws_kgr.max_row == 5
 
-    # Check Sheet 2 (440 keys + header = 441 rows)
+    # Check Sheet 2 (264 keys + header = 265 rows)
     ws_nist = wb["NIST Randomness"]
-    assert ws_nist.max_row == 441
+    assert ws_nist.max_row == 265
     # Check that text format is preserved for Key Hex Digest (column 7)
     assert ws_nist.cell(row=2, column=7).number_format == "@"
 

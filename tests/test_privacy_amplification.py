@@ -1,12 +1,12 @@
 """Unit tests for Stage 6 — Privacy Amplification (PA.pdf Section 3.2.6).
 
 Verifies:
-1. 100-bit non-overlapping segmentation and dynamic chunk count derivation across all 4 paths:
-   - quant_2bit: 1,000 bits -> 10 keys
-   - quant_4bit: 2,000 bits -> 20 keys
-   - prbs_2bit:  4,000 bits -> 40 keys
-   - prbs_4bit:  4,000 bits -> 40 keys
-2. Explicit rejection of incomplete segments, empty bitstreams, and non-binary inputs.
+1. 125-bit non-overlapping segmentation and dynamic chunk count derivation across all 4 paths:
+   - quant_2bit: 1,000 bits -> 8 keys
+   - quant_4bit: 2,000 bits -> 16 keys
+   - prbs_2bit:  2,046 bits -> 17 keys
+   - prbs_4bit:  3,069 bits -> 25 keys
+2. Explicit rejection of empty bitstreams, and non-binary inputs.
 3. FIPS PUB 180-4 bit-level padding correctness for arbitrary bit lengths (L=100, L=1000, L=4000).
 4. Standard NIST SHA-256 test vectors (empty string, 'abc', 448-bit message).
 5. Parity checks against hashlib.sha256 for byte-aligned bitstreams.
@@ -60,29 +60,30 @@ from rssi_skg.reconciliation import ReconciliationConfig, reconcile_all_paths
 
 
 # ==============================================================================
-# 1. 100-Bit Segmentation & Incomplete Segment Rejection
+# 1. 125-Bit Segmentation & Short Final Segments
 # ==============================================================================
 
 
 def test_segment_bitstream_valid_lengths() -> None:
-    """Verify consecutive non-overlapping 100-bit segmentation across all 4 path lengths."""
-    for total_bits, expected_chunks in [(1000, 10), (2000, 20), (4000, 40)]:
+    """Verify consecutive non-overlapping 125-bit segmentation across all 4 path lengths."""
+    for total_bits, expected_chunks in [(1250, 10), (2500, 20), (5000, 40)]:
         raw_bits = "10" * (total_bits // 2)
-        segments = segment_bitstream(raw_bits, segment_size=100)
+        segments = segment_bitstream(raw_bits, segment_size=125)
         assert len(segments) == expected_chunks
         # Verify temporal order and exact length
         assert "".join(segments) == raw_bits
         for idx, seg in enumerate(segments):
-            assert len(seg) == 100
-            assert seg == raw_bits[idx * 100 : (idx + 1) * 100]
+            assert len(seg) == 125
+            assert seg == raw_bits[idx * 125 : (idx + 1) * 125]
 
 
-def test_segment_bitstream_rejects_incomplete_segments() -> None:
-    """Verify that incomplete segments are rejected explicitly (never silently truncated or padded)."""
-    for invalid_len in [1, 50, 99, 101, 150, 999, 1001, 1999, 2001, 3999, 4001]:
-        raw_bits = "1" * invalid_len
-        with pytest.raises(ValueError, match="not an exact multiple of segment size"):
-            segment_bitstream(raw_bits, segment_size=100)
+def test_segment_bitstream_keeps_short_tail() -> None:
+    for length in (1, 99, 101, 2046, 3069):
+        bits = ("110" * length)[:length]
+        segments = segment_bitstream(bits, segment_size=100)
+        assert "".join(segments) == bits
+        assert len(segments[-1]) == length % 100
+        assert all(len(segment) == 100 for segment in segments[:-1])
 
 
 def test_segment_bitstream_rejects_invalid_inputs() -> None:
@@ -136,7 +137,7 @@ def test_sha256_padding_arbitrary_lengths() -> None:
 
 
 def test_sha256_padding_segment_100_bits() -> None:
-    """Verify exact bit-level padding for a 100-bit segment (PA stage building block)."""
+    """Verify exact bit-level padding for a 100-bit example segment."""
     raw_100 = "10" * 50
     assert len(raw_100) == 100
     padded = pad_bitstream(raw_100)
@@ -256,7 +257,7 @@ def test_channel_isolation() -> None:
 
 
 def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
-    """Verify 100-bit segmented PA across all four supported paths on the dummy dataset."""
+    """Verify 125-bit segmented PA across all four supported paths on the dummy dataset."""
     input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
     raw_data = load_rssi_workbook(input_file)
     filtered = filter_rssi_channels(raw_data, FilterConfig())
@@ -269,14 +270,14 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
 
     assert cfg.hash_algorithm == "SHA-256"
     assert cfg.key_length_bits == 256
-    assert cfg.segment_size_bits == 100
+    assert cfg.segment_size_bits == 125
     assert cfg.supported_paths == ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
 
     expected_path_specs = {
-        "quant_2bit": {"bits": 1000, "chunks": 10},
-        "quant_4bit": {"bits": 2000, "chunks": 20},
-        "prbs_2bit": {"bits": 4000, "chunks": 40},
-        "prbs_4bit": {"bits": 4000, "chunks": 40},
+        "quant_2bit": {"bits": 1000, "chunks": 8},
+        "quant_4bit": {"bits": 2000, "chunks": 16},
+        "prbs_2bit": {"bits": 2046, "chunks": 17},
+        "prbs_4bit": {"bits": 3069, "chunks": 25},
     }
 
     for path_name, spec in expected_path_specs.items():
@@ -287,7 +288,7 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
         ab = p_pairs["Alice–Bob"]
         assert ab.input_bit_length == spec["bits"]
         assert ab.num_chunks == spec["chunks"]
-        assert ab.chunk_size_bits == 100
+        assert ab.chunk_size_bits == 125
         assert ab.pre_pa_kar == pytest.approx(100.00, abs=0.01)
         assert ab.post_pa_kar == pytest.approx(100.00, abs=0.01)
         assert ab.exact_key_match is True
@@ -314,18 +315,19 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
         assert eb.source_name == "Bob"
         assert eb.receiver_name == "Eve1-Bob"
         assert eb.exact_key_match is False
+        assert ea.exact_match_count == eb.exact_match_count == 0
 
         # Channel keys verification
         ch_dict = pa_res.channel_keys[path_name]
         assert set(ch_dict.keys()) == {"Alice", "Bob", "Eve1-Alice", "Eve1-Bob"}
         for ch_name, ch_res in ch_dict.items():
             assert ch_res.num_chunks == spec["chunks"]
-            assert ch_res.chunk_size_bits == 100
+            assert ch_res.chunk_size_bits == 125
             assert len(ch_res.chunk_keys) == spec["chunks"]
             for ck in ch_res.chunk_keys:
                 assert len(ck.key_bin) == 256
                 assert len(ck.key_hex) == 64
-                assert len(ck.input_segment_bits) == 100
+                assert len(ck.input_segment_bits) == min(125, spec["bits"] - ck.chunk_index * 125)
 
 
 # ==============================================================================
@@ -428,21 +430,21 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
         for r in reader:
             assert r["path"] in PA_PATHS
             assert r["key_bits"] == "256"
-            assert r["chunk_size_bits"] == "100"
+            assert r["chunk_size_bits"] == "125"
             assert "pre_pa_kar_percent" in r
             assert "post_pa_kar_percent" in r
             assert "exact_match_count" in r
             assert "exact_match_rate_percent" in r
 
-    # 2. Keys CSV: (10 + 20 + 40 + 40) chunks * 4 channels = 110 * 4 = 440 rows
+    # 2. Keys CSV: (8 + 16 + 17 + 25) chunks * 4 channels = 66 * 4 = 264 rows
     assert csv_keys.exists()
     with open(csv_keys, "r", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        assert len(reader) == 440
+        assert len(reader) == 264
         for r in reader:
             assert len(r["key_bin"]) == 256
             assert len(r["key_hex"]) == 64
-            assert len(r["input_segment_bits"]) == 100
+            assert len(r["input_segment_bits"]) in (46, 69, 125)
 
     # 3. JSON Config
     assert json_config.exists()
@@ -450,7 +452,7 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
         data = json.load(f)
         assert data["hash_algorithm"] == "SHA-256"
         assert data["key_length_bits"] == 256
-        assert data["segment_size_bits"] == 100
+        assert data["segment_size_bits"] == 125
         for p in PA_PATHS:
             assert p in data["privacy_amplification_summary"]
 
@@ -532,4 +534,4 @@ def test_cli_pa_candidate_keys_alias(tmp_path: Path) -> None:
     assert keys_csv.exists()
     with open(keys_csv, "r", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        assert len(reader) == 440
+        assert len(reader) == 264

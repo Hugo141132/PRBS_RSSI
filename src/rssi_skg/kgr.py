@@ -79,6 +79,7 @@ from rssi_skg.nist import (
 )
 from rssi_skg.prbs import PRBSConfig, expand_channels_prbs
 from rssi_skg.privacy_amplification import (
+    SEGMENT_SIZE_BITS,
     ChannelPrivacyAmplificationResult,
     ChunkKeyResult,
     PairPrivacyAmplificationResult,
@@ -102,7 +103,7 @@ from rssi_skg.reconciliation import (
 
 # Downstream Evaluation Status:
 # Fully integrated across all 4 paths (quant_2bit, quant_4bit, prbs_2bit, prbs_4bit)
-# with dynamic 100-bit chunking and dual BCH cache pre-warming.
+# with dynamic variable-length chunking and dual BCH cache pre-warming.
 KGR_PATHS: tuple[str, ...] = ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
 KGR_DOWNSTREAM_STATUS: str = "COMPLETED"
 
@@ -116,8 +117,7 @@ RESEARCH_DISCLAIMER_KGR: str = (
 TIMER_START_BOUNDARY: str = "Immediate entry to legitimate Alice–Bob filter_rssi_channels (scalar MSHKF filtering)"
 TIMER_END_BOUNDARY: str = "Completion of sha256_bitstream for legitimate Alice and Bob chunk keys"
 BCH_CACHE_POLICY_DESC: str = (
-    "Pre-warmed galois.BCH instances and JIT decode kernels for both 2-bit BCH(511, 1, 198) "
-    "and 4-bit BCH(255, 9, 62) before timing to eliminate multi-second Numba compilation order bias."
+    "When enabled, BCH cache warm-up runs before timing for each distinct configured code."
 )
 
 
@@ -154,7 +154,7 @@ class KGRConfig:
 
     paths: tuple[str, ...] = KGR_PATHS
     key_length_bits: int = 256
-    segment_size_bits: int = 100
+    segment_size_bits: int = SEGMENT_SIZE_BITS
     pre_warm_bch: bool = True
     disclaimer: str = RESEARCH_DISCLAIMER_KGR
 
@@ -333,7 +333,7 @@ def execute_timed_path_pipeline(
         interleaving=r_cfg.interleaving,
     )
 
-    # 5. Bit-level SHA-256 Privacy Amplification (Legitimate Alice & Bob only, 100-bit chunks)
+    # 5. Bit-level SHA-256 Privacy Amplification (Legitimate Alice & Bob only, variable-length chunks)
     alice_segments = segment_bitstream(res_ab.source_unpadded, segment_size=seg_size)
     bob_segments = segment_bitstream(res_ab.recovered_unpadded, segment_size=seg_size)
 
@@ -450,6 +450,7 @@ def execute_timed_path_pipeline(
             source_name="Alice",
             receiver_name="Eve1-Alice",
             is_legitimate=False,
+            retained_block_indices=res_ab.retained_block_indices,
             padding_count=alice_pad,
             designed_d=d_val,
             interleaving=r_cfg.interleaving,
@@ -470,6 +471,7 @@ def execute_timed_path_pipeline(
             source_name="Bob",
             receiver_name="Eve1-Bob",
             is_legitimate=False,
+            retained_block_indices=res_ab.retained_block_indices,
             padding_count=bob_pad,
             designed_d=d_val,
             interleaving=r_cfg.interleaving,
@@ -631,7 +633,9 @@ def measure_multipath_kgr(
 
     # Pre-warm BCH cache to eliminate JIT compilation timing-order bias
     if cfg.pre_warm_bch:
-        warm_up_bch_cache((DEFAULT_BCH_CODE_2BIT, DEFAULT_BCH_CODE_4BIT))
+        active_recon = recon_config if recon_config is not None else ReconciliationConfig()
+        codes = {active_recon.get_code_for_path(path) for path in cfg.paths}
+        warm_up_bch_cache(sorted(codes))
 
     path_results: dict[str, PathKGRResult] = {}
 
