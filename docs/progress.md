@@ -5,21 +5,21 @@
 The standard reconciliation command is:
 
 ```bash
-python -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" --reconcile
+python -m rssi_skg -i "data/raw/dummy/Data 1.xlsx" --reconcile
 ```
 
-All four paths use BCH(1023, 46, 201), designed distance 403, interleaving off. Bob retains blocks with a nonnegative decoder correction count. Both Eve comparisons use exactly those indices, including a receiver's fallback bits when its own decoding fails. Pre/post KAR and exact recovery use retained payload bits after padding removal. A detected failure at Bob discards the block for all pairs. A silent miscorrection remains in the evaluation. With no retained bits, KAR is undefined and exact recovery is false. Block outcomes and helper overhead still cover all attempted blocks.
+All four paths use BCH(2047, 166, 348), designed distance 697, interleaving off. Bob retains blocks with a nonnegative decoder correction count. Both Eve comparisons use exactly those indices, including a receiver's fallback bits when its own decoding fails. Pre/post KAR and exact recovery use retained payload bits after padding removal. A detected failure at Bob discards the block for all pairs. A silent miscorrection remains in the evaluation. With no retained bits, KAR is undefined and exact recovery is false. Block outcomes and helper overhead still cover all attempted blocks.
 
 | Path | Retained / attempted blocks | Retained / original bits | Alice–Bob KAR | Alice–Eve1-Alice KAR | Bob–Eve1-Bob KAR |
 |---|---:|---:|---:|---:|---:|
-| quant_2bit | 1/1 | 1000/1000 | 100% | 58.20% | 55.40% |
-| quant_4bit | 2/2 | 2000/2000 | 100% | 79.10% | 77.70% |
-| prbs_2bit | 2/4 | 2046/4000 | 100% | 59.24% | 58.16% |
-| prbs_4bit | 3/4 | 3069/4000 | 100% | 72.40% | 73.28% |
+| quant_2bit | 1/1 | 982/982 | 100% | 49.80% | 62.73% |
+| quant_4bit | 1/1 | 1964/1964 | 100% | 74.90% | 81.36% |
+| prbs_2bit | 2/2 | 3928/3928 | 100% | 52.85% | 62.12% |
+| prbs_4bit | 2/2 | 3928/3928 | 100% | 69.78% | 76.63% |
 
-These results are for the supplied synthetic indoor workbook. The ordinary decoder metrics do not establish secrecy. The historical public-helper findings in the handoff concern earlier parameter sets.
+These results are for `data/raw/dummy/Data 1.xlsx`. The ordinary decoder metrics do not establish secrecy. The historical public-helper findings in the handoff concern earlier parameter sets.
 
-Privacy amplification hashes each retained segment at its actual length, using a maximum of 125 bits. The synthetic workbook yields 8, 16, 17 and 25 digests on the four paths, with final segments of 125, 125, 46 and 69 bits respectively. Both Eve streams have zero exact matches on this workbook.
+Privacy amplification hashes each retained segment at its actual length, using a maximum of 131 bits. The `Data 1.xlsx` workbook yields 8, 15, 30 and 30 digests on the four paths, with final segments of 65, 130, 129 and 129 bits respectively. Both Eve streams have zero exact matches on this workbook.
 
 ## 1. Project Purpose & Methodological Reference
 This research project develops a physical-layer Secret Key Generation (SKG) pipeline based on Received Signal Strength Indicator (RSSI) measurements.
@@ -125,16 +125,16 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
 ```math
 \text{KGR} = \frac{N_{\text{bit}}}{T} \qquad (\text{bps}) \qquad (3.63)
 ```
-- **Bit Counting Policy**: Evaluated per path. Alice's final key is counted exactly once ($N_{\text{bit}} = 256$ bits if all three NIST tests pass, $0$ bits if rejected). Bob's matching key is not duplicate-counted. Alice–Bob agreement is reported separately.
+- **Bit Counting Policy**: Evaluated per path. Alice's generated keys are counted once ($N_{\text{bit}} = 256$ bits per chunk passing all three NIST tests, $0$ bits if rejected). Bob's matching key is not duplicate-counted. Alice–Bob agreement is reported separately.
 - **Timing Policy**: Elapsed software duration $T$ is measured using a monotonic high-resolution timer (`time.perf_counter()`) starting immediately before scalar MSHKF filtering and ending immediately after SHA-256 privacy amplification on that path (PRBS expansion is included on both PRBS paths). Dataset loading, plotting, exports, and NIST testing are strictly excluded.
 - **Cache Warm-Up Policy**: A standardized pre-warm step constructs the BCH code and runs a dummy decode prior to timing, eliminating multi-second Numba JIT compilation timing-order bias between paths.
 
-**Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic indoor dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance. Deterministic LFSR expansion does not add physical channel entropy. Public helper data leaks information up to $(n - k)$ bits per block.
+**Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance. Deterministic LFSR expansion does not add physical channel entropy. Public helper data leaks information up to $(n - k)$ bits per block.
 
 ## 2. Dataset & Semantics
-- **File Path**: `data/raw/dummy/Dummy RSSI (data Indoor).xlsx`
-- **SHA-256**: `50A3459CB0A09D0A2897A2872E18D977EF6ECE0C7FCB68C0549BDB4CD780A0EE`
-- **Observations**: 500 rows. Row-wise pairing is strictly confirmed: row index $i$ corresponds to the exact same observation instance across all channels. Row order and sample alignment are strictly preserved throughout filtering, quantization, PRBS, and reconciliation.
+- **File Path**: `data/raw/dummy/Data 1.xlsx` (legacy `Dummy RSSI (data Indoor).xlsx` with 500 observations is also retained in `data/raw/dummy/`).
+- **SHA-256**: `49CDDCDD6F45875C58334EB750F3008481415EFE59F8A3E7385BF992842A096F`
+- **Observations**: 491 rows. Row-wise pairing is strictly confirmed: row index $i$ corresponds to the exact same observation instance across all channels. Row order and sample alignment are strictly preserved throughout filtering, quantization, PRBS, and reconciliation.
 - **Column Definitions**:
   - `Alice`: RSSI received by Alice from Bob's signal transmission.
   - `Bob`: RSSI received by Bob from Alice's signal transmission.
@@ -154,7 +154,7 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
 - **Correlation Calculation (`src/rssi_skg/correlation.py`)**: Computes centered zero-lag Pearson correlation $\rho$ in `float64` precision; validates equal lengths; rejects $N < 2$, NaN, and Inf; raises explicit `ValueError` on constant sequences (zero variance).
 - **Modified Adaptive Dual-Threshold Quantization (`src/rssi_skg/quantization.py`)**:
   - Segment-based adaptive threshold calculation: non-overlapping segments with configurable default window size $W = 50$, multiplier $\alpha = 0.5$, and population standard deviation ($\text{ddof} = 0$).
-  - Full sample coverage: processes all samples, including any shorter final segment.
+  - Full sample coverage: processes all samples, including any shorter final segment (10 segments for $N=491$: 9 of 50 samples, 1 of 41 samples).
   - Sample retention: all samples are retained; no sample in the intermediate zone is discarded. Constant segments ($\sigma = 0$) unconditionally produce level 1.
   - Channel isolation: each channel's mean, standard deviation, and thresholds are calculated independently with zero cross-channel contamination.
   - Dual binary encodings generated simultaneously in every run:
@@ -166,7 +166,7 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
   - Visualization (`plot_kar_comparison_figure`): 4-panel 300-dpi PNG and vector PDF.
 - **PRBS Expansion Stage (Galois XOR-LFSR, `src/rssi_skg/prbs.py`)**:
   - Left-shift Galois LFSR with primitive polynomials $f(x) = x^2 + x + 1$ ($m=2$) and $f(x) = x^4 + x + 1$ ($m=4$).
-  - Produces 4,000 bits/channel for either seed width (8 clocks per sample) across 500 samples.
+  - Produces 3,928 bits/channel for either seed width (8 clocks per sample) across 491 samples.
   - Output recurrence strictly satisfied per `PA.pdf` Equation (3.25) within each sample block.
   - Explicit zero-seed handling: seed `00` locked up at state 0 with actual period 1.
   - Companion multi-sheet XLSX export and 2×2 PRBS KAR comparison figure (`plot_prbs_kar_comparison_figure`).
@@ -187,7 +187,7 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
     - Source bitstream $A$ is strictly excluded from decoder operations.
     - Evaluation categories: `success` ($num\_corr \ge 0, \hat{A} == A$), `detected_failure` ($num\_corr == -1$), and `miscorrected` ($num\_corr \ge 0, \hat{A} \ne A$). Source equality verified only in the offline evaluator.
   - Evaluate payload agreement on Bob’s retained block indices. For each pair, validate exact recovery on the retained bits after removing padding.
-- **Privacy amplification** uses SHA-256 on successive segments of up to 125 bits. The last segment uses its actual bit length. Each channel produces 8, 16, 17 and 25 digests on the four paths respectively.
+- **Privacy amplification** uses SHA-256 on successive segments of up to 131 bits. The last segment uses its actual bit length. Each channel produces 8, 15, 30 and 30 digests on the four paths respectively (83 per channel, 332 total).
 
   - **NIST SP 800-22 Randomness Testing (`src/rssi_skg/nist.py`)**:
     - Implements three core statistical tests per `PA.pdf` Section 3.2.8.d and NIST SP 800-22 Rev. 1a:
@@ -200,9 +200,9 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
 
   - **Key Generation Rate (KGR) Measurement (`src/rssi_skg/kgr.py`)**:
     - Implements KGR per `PA.pdf` Section 3.2.8.b, Equation (3.63): $\text{KGR} = N_{\text{bit}} / T$ (bps).
-    - Bit counting policy: Alice's 256-bit key is counted once ($N_{\text{bit}} = 256$ if accepted, $0$ if rejected). Bob's key is not duplicate-counted. Alice–Bob exact key agreement is reported separately.
-    - High-resolution timing: Independent per-path measurement using monotonic timer `time.perf_counter()` spanning immediately before MSHKF filtering through SHA-256 compression (PRBS expansion included on `prbs_2bit` only). Excludes workbook loading, plotting, exports, and NIST testing.
-    - Cold-start & cache policy: `warm_up_bch_cache()` pre-compiles Galois Numba JIT kernels and tables before timing, eliminating ~5.3 s initial compilation order bias between paths.
+    - Bit counting policy: Alice's 256-bit key is counted once ($N_{\text{bit}} = 256$ per accepted chunk, $0$ if rejected). Bob's key is not duplicate-counted. Alice–Bob exact key agreement is reported separately.
+    - High-resolution timing: Independent per-path measurement using monotonic timer `time.perf_counter()` spanning immediately before MSHKF filtering through SHA-256 compression (PRBS expansion included on `prbs_2bit` and `prbs_4bit`). Excludes workbook loading, plotting, exports, and NIST testing.
+    - Cold-start & cache policy: `warm_up_bch_cache()` pre-compiles Galois Numba JIT kernels and tables before timing, eliminating initial compilation order bias between paths.
     - Exporters: `export_kgr_metrics_csv`, `export_kgr_config_json`, and companion multi-sheet Excel workbook `export_evaluation_workbook_xlsx` with `@` (Text) format for key cells.
 
 ## 4. Key Source & Test File Responsibilities
@@ -217,47 +217,48 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
 - `src/rssi_skg/loader.py`: Excel workbook ingestion, column validation, and row pairing.
 - `src/rssi_skg/plotting.py`: Bubble aggregation, raw figure rendering, filtered comparison figure, quantization KAR figure (`plot_kar_comparison_figure`), 2×2 PRBS KAR figure (`plot_prbs_kar_comparison_figure`), four-path reconciliation figure (`plot_reconciliation_figure`), and 2×2 Privacy Amplification comparison figure (`plot_privacy_amplification_figure`).
 - `src/rssi_skg/cli.py`: Unified CLI parsing with prerequisite chaining, `--nist` and `--kgr` evaluation options, companion XLSX export dispatch, figure prefix routing, and stdout user guidance.
+
 ## 5. Verification records
 
-The full test suite passed (123 tests). The following tables come from the same CLI run on the 500-sample dummy indoor workbook.
+The following tables come from the CLI run on the 491-sample `data/raw/dummy/Data 1.xlsx` workbook using `BCH(2047, 166, 348)` and 131-bit segmented SHA-256 Privacy Amplification.
 
 ### BCH reconciliation
 
 | Path | Pair | Pre-BCH KAR | Post-BCH KAR | Δ (pp) | Blocks (success / detected failure / miscorrection) | Block success | Exact retained payload |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| quant_2bit | Alice–Bob | 80.40% | 100.00% | +19.60 | 1 / 0 / 0 | 100.00% | True |
-| quant_2bit | Alice–Eve1-Alice | 58.20% | 58.20% | +0.00 | 0 / 1 / 0 | 0.00% | False |
-| quant_2bit | Bob–Eve1-Bob | 55.40% | 55.40% | +0.00 | 0 / 1 / 0 | 0.00% | False |
-| quant_4bit | Alice–Bob | 90.20% | 100.00% | +9.80 | 2 / 0 / 0 | 100.00% | True |
-| quant_4bit | Alice–Eve1-Alice | 79.10% | 79.10% | +0.00 | 0 / 2 / 0 | 0.00% | False |
-| quant_4bit | Bob–Eve1-Bob | 77.70% | 77.70% | +0.00 | 0 / 2 / 0 | 0.00% | False |
-| prbs_2bit | Alice–Bob | 83.38% | 100.00% | +16.62 | 2 / 2 / 0 | 50.00% | True |
-| prbs_2bit | Alice–Eve1-Alice | 59.24% | 59.24% | +0.00 | 0 / 4 / 0 | 0.00% | False |
-| prbs_2bit | Bob–Eve1-Bob | 58.16% | 58.16% | +0.00 | 0 / 4 / 0 | 0.00% | False |
-| prbs_4bit | Alice–Bob | 89.25% | 100.00% | +10.75 | 3 / 1 / 0 | 75.00% | True |
-| prbs_4bit | Alice–Eve1-Alice | 72.40% | 72.40% | +0.00 | 0 / 4 / 0 | 0.00% | False |
-| prbs_4bit | Bob–Eve1-Bob | 73.28% | 73.28% | +0.00 | 0 / 4 / 0 | 0.00% | False |
+| quant_2bit | Alice–Bob | 87.88% | 100.00% | +12.12 | 1 / 0 / 0 | 100.00% | True |
+| quant_2bit | Alice–Eve1-Alice | 49.80% | 49.80% | +0.00 | 0 / 1 / 0 | 0.00% | False |
+| quant_2bit | Bob–Eve1-Bob | 62.73% | 62.73% | +0.00 | 0 / 1 / 0 | 0.00% | False |
+| quant_4bit | Alice–Bob | 93.94% | 100.00% | +6.06 | 1 / 0 / 0 | 100.00% | True |
+| quant_4bit | Alice–Eve1-Alice | 74.90% | 74.90% | +0.00 | 0 / 1 / 0 | 0.00% | False |
+| quant_4bit | Bob–Eve1-Bob | 81.36% | 81.36% | +0.00 | 0 / 1 / 0 | 0.00% | False |
+| prbs_2bit | Alice–Bob | 83.43% | 100.00% | +16.57 | 2 / 0 / 0 | 100.00% | True |
+| prbs_2bit | Alice–Eve1-Alice | 52.85% | 52.85% | +0.00 | 0 / 2 / 0 | 0.00% | False |
+| prbs_2bit | Bob–Eve1-Bob | 62.12% | 62.12% | +0.00 | 0 / 2 / 0 | 0.00% | False |
+| prbs_4bit | Alice–Bob | 91.01% | 100.00% | +8.99 | 2 / 0 / 0 | 100.00% | True |
+| prbs_4bit | Alice–Eve1-Alice | 69.78% | 69.78% | +0.00 | 0 / 2 / 0 | 0.00% | False |
+| prbs_4bit | Bob–Eve1-Bob | 76.63% | 76.63% | +0.00 | 0 / 2 / 0 | 0.00% | False |
 
 ### Privacy amplification
 
 | Path | Evaluation Pair | Reference / Source | Receiver | Chunks | Pre-PA KAR | Post-PA Mean KAR | Δ (pp) | Exact Matches | Match Rate | All Match |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | quant_2bit | Alice–Bob | Alice | Bob | 8 | 100.00% | 100.00% | +0.00 | 8 / 8 | 100.00% | TRUE |
-| quant_2bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 8 | 58.20% | 48.44% | -9.76 | 0 / 8 | 0.00% | FALSE |
-| quant_2bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 8 | 55.40% | 50.00% | -5.40 | 0 / 8 | 0.00% | FALSE |
-| quant_4bit | Alice–Bob | Alice | Bob | 16 | 100.00% | 100.00% | +0.00 | 16 / 16 | 100.00% | TRUE |
-| quant_4bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 16 | 79.10% | 50.00% | -29.10 | 0 / 16 | 0.00% | FALSE |
-| quant_4bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 16 | 77.70% | 50.15% | -27.55 | 0 / 16 | 0.00% | FALSE |
-| prbs_2bit | Alice–Bob | Alice | Bob | 17 | 100.00% | 100.00% | +0.00 | 17 / 17 | 100.00% | TRUE |
-| prbs_2bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 17 | 59.24% | 49.31% | -9.93 | 0 / 17 | 0.00% | FALSE |
-| prbs_2bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 17 | 58.16% | 50.87% | -7.29 | 0 / 17 | 0.00% | FALSE |
-| prbs_4bit | Alice–Bob | Alice | Bob | 25 | 100.00% | 100.00% | +0.00 | 25 / 25 | 100.00% | TRUE |
-| prbs_4bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 25 | 72.40% | 49.27% | -23.14 | 0 / 25 | 0.00% | FALSE |
-| prbs_4bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 25 | 73.28% | 49.81% | -23.47 | 0 / 25 | 0.00% | FALSE |
+| quant_2bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 8 | 49.80% | 51.03% | +1.23 | 0 / 8 | 0.00% | FALSE |
+| quant_2bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 8 | 62.73% | 49.32% | -13.41 | 0 / 8 | 0.00% | FALSE |
+| quant_4bit | Alice–Bob | Alice | Bob | 15 | 100.00% | 100.00% | +0.00 | 15 / 15 | 100.00% | TRUE |
+| quant_4bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 15 | 74.90% | 50.03% | -24.87 | 0 / 15 | 0.00% | FALSE |
+| quant_4bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 15 | 81.36% | 49.69% | -31.68 | 0 / 15 | 0.00% | FALSE |
+| prbs_2bit | Alice–Bob | Alice | Bob | 30 | 100.00% | 100.00% | +0.00 | 30 / 30 | 100.00% | TRUE |
+| prbs_2bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 30 | 52.85% | 50.64% | -2.21 | 0 / 30 | 0.00% | FALSE |
+| prbs_2bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 30 | 62.12% | 50.44% | -11.68 | 0 / 30 | 0.00% | FALSE |
+| prbs_4bit | Alice–Bob | Alice | Bob | 30 | 100.00% | 100.00% | +0.00 | 30 / 30 | 100.00% | TRUE |
+| prbs_4bit | Alice–Eve1-Alice | Alice | Eve1-Alice | 30 | 69.78% | 50.38% | -19.40 | 0 / 30 | 0.00% | FALSE |
+| prbs_4bit | Bob–Eve1-Bob | Bob | Eve1-Bob | 30 | 76.63% | 51.58% | -25.05 | 0 / 30 | 0.00% | FALSE |
 
 ### NIST randomness tests
 
-Each of the four channels contributes 66 digest observations (264 total). Significance level 0.01, ApEn block length 2, digest length 256 bits. All three tests must apply and pass for acceptance.
+Each of the four channels contributes 83 digest observations (332 total). Significance level 0.01, ApEn block length 2, digest length 256 bits. All three tests must apply and pass for acceptance.
 
 | Path | Channel | Chunks evaluated | Applicable chunks | Monobit pass | Runs pass | ApEn pass | Accepted chunks | Acceptance rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -265,18 +266,18 @@ Each of the four channels contributes 66 digest observations (264 total). Signif
 | quant_2bit | Bob | 8 | 8 | 8 / 8 | 8 / 8 | 8 / 8 | 8 / 8 | 100.00% |
 | quant_2bit | Eve1-Alice | 8 | 8 | 8 / 8 | 8 / 8 | 8 / 8 | 8 / 8 | 100.00% |
 | quant_2bit | Eve1-Bob | 8 | 8 | 8 / 8 | 8 / 8 | 8 / 8 | 8 / 8 | 100.00% |
-| quant_4bit | Alice | 16 | 16 | 16 / 16 | 16 / 16 | 16 / 16 | 16 / 16 | 100.00% |
-| quant_4bit | Bob | 16 | 16 | 16 / 16 | 16 / 16 | 16 / 16 | 16 / 16 | 100.00% |
-| quant_4bit | Eve1-Alice | 16 | 16 | 16 / 16 | 16 / 16 | 16 / 16 | 16 / 16 | 100.00% |
-| quant_4bit | Eve1-Bob | 16 | 16 | 16 / 16 | 16 / 16 | 15 / 16 | 15 / 16 | 93.75% |
-| prbs_2bit | Alice | 17 | 17 | 17 / 17 | 17 / 17 | 17 / 17 | 17 / 17 | 100.00% |
-| prbs_2bit | Bob | 17 | 17 | 17 / 17 | 17 / 17 | 17 / 17 | 17 / 17 | 100.00% |
-| prbs_2bit | Eve1-Alice | 17 | 17 | 17 / 17 | 17 / 17 | 17 / 17 | 17 / 17 | 100.00% |
-| prbs_2bit | Eve1-Bob | 17 | 17 | 17 / 17 | 16 / 17 | 17 / 17 | 16 / 17 | 94.12% |
-| prbs_4bit | Alice | 25 | 25 | 23 / 25 | 25 / 25 | 25 / 25 | 23 / 25 | 92.00% |
-| prbs_4bit | Bob | 25 | 25 | 23 / 25 | 25 / 25 | 25 / 25 | 23 / 25 | 92.00% |
-| prbs_4bit | Eve1-Alice | 25 | 25 | 25 / 25 | 25 / 25 | 25 / 25 | 25 / 25 | 100.00% |
-| prbs_4bit | Eve1-Bob | 25 | 25 | 25 / 25 | 24 / 25 | 25 / 25 | 24 / 25 | 96.00% |
+| quant_4bit | Alice | 15 | 15 | 15 / 15 | 15 / 15 | 15 / 15 | 15 / 15 | 100.00% |
+| quant_4bit | Bob | 15 | 15 | 15 / 15 | 15 / 15 | 15 / 15 | 15 / 15 | 100.00% |
+| quant_4bit | Eve1-Alice | 15 | 15 | 14 / 15 | 15 / 15 | 15 / 15 | 14 / 15 | 93.33% |
+| quant_4bit | Eve1-Bob | 15 | 15 | 15 / 15 | 15 / 15 | 15 / 15 | 15 / 15 | 100.00% |
+| prbs_2bit | Alice | 30 | 30 | 28 / 30 | 30 / 30 | 30 / 30 | 28 / 30 | 93.33% |
+| prbs_2bit | Bob | 30 | 30 | 28 / 30 | 30 / 30 | 30 / 30 | 28 / 30 | 93.33% |
+| prbs_2bit | Eve1-Alice | 30 | 30 | 29 / 30 | 30 / 30 | 30 / 30 | 29 / 30 | 96.67% |
+| prbs_2bit | Eve1-Bob | 30 | 30 | 30 / 30 | 30 / 30 | 30 / 30 | 30 / 30 | 100.00% |
+| prbs_4bit | Alice | 30 | 30 | 30 / 30 | 30 / 30 | 30 / 30 | 30 / 30 | 100.00% |
+| prbs_4bit | Bob | 30 | 30 | 30 / 30 | 30 / 30 | 30 / 30 | 30 / 30 | 100.00% |
+| prbs_4bit | Eve1-Alice | 30 | 30 | 30 / 30 | 30 / 30 | 30 / 30 | 30 / 30 | 100.00% |
+| prbs_4bit | Eve1-Bob | 30 | 30 | 30 / 30 | 30 / 30 | 30 / 30 | 30 / 30 | 100.00% |
 
 ### KGR
 
@@ -284,24 +285,24 @@ Recorded in one CLI run. Durations and rates vary by host and run.
 
 | Path | Total chunks | Accepted chunks (Alice) | Raw bits | Accepted bits | Duration (ms) | Raw KGR (bps) | Accepted KGR (bps) | Alice–Bob matches | Alice–Bob KAR |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| quant_2bit | 8 | 8 | 2048 | 2048 | 13.455 | 152215.84 | 152215.84 | 8 / 8 | 100.00% |
-| quant_4bit | 16 | 16 | 4096 | 4096 | 20.658 | 198277.36 | 198277.36 | 16 / 16 | 100.00% |
-| prbs_2bit | 17 | 17 | 4352 | 4352 | 43.359 | 100371.56 | 100371.56 | 17 / 17 | 100.00% |
-| prbs_4bit | 25 | 23 | 6400 | 5888 | 45.398 | 140975.26 | 129697.24 | 25 / 25 | 100.00% |
+| quant_2bit | 8 | 8 | 2048 | 2048 | 35.492 | 57702.49 | 57702.49 | 8 / 8 | 100.00% |
+| quant_4bit | 15 | 15 | 3840 | 3840 | 40.988 | 93686.41 | 93686.41 | 15 / 15 | 100.00% |
+| prbs_2bit | 30 | 28 | 7680 | 7168 | 112.242 | 68423.58 | 63862.01 | 30 / 30 | 100.00% |
+| prbs_4bit | 30 | 30 | 7680 | 7680 | 99.281 | 77355.96 | 77355.96 | 30 / 30 | 100.00% |
 
 ## 6. Windows PowerShell Reproduction Commands
 > The primary execution guide with output locations is maintained in [README.md](../README.md#petunjuk-penyiapan-lingkungan--eksekusi).
 
 ```powershell
-# 1. Run automated test suite (123 tests)
+# 1. Run automated test suite
 .\.venv\Scripts\python.exe -m pytest -v
 
 # 2. Run default correlation analysis (raw only)
-.\.venv\Scripts\python.exe -m rssi_skg -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" -o "outputs/dummy_rssi_correlation.csv" --figure-prefix "outputs/dummy_rssi_correlation"
+.\.venv\Scripts\python.exe -m rssi_skg -i "data/raw/dummy/Data 1.xlsx" -o "outputs/dummy_rssi_correlation.csv" --figure-prefix "outputs/dummy_rssi_correlation"
 
 # 3. Run filtering and correlation pipeline (MSHKF + Raw vs Filtered export)
 .\.venv\Scripts\python.exe -m rssi_skg `
-  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -i "data/raw/dummy/Data 1.xlsx" `
   -o "outputs/dummy_rssi_filtered_correlation.csv" `
   --filter `
   --filtered-samples-output "outputs/dummy_rssi_filtered_samples.csv" `
@@ -310,7 +311,7 @@ Recorded in one CLI run. Durations and rates vary by host and run.
 
 # 4. Run full pipeline with Modified ADQ Quantization stage, companion XLSX, and KAR comparison charts
 .\.venv\Scripts\python.exe -m rssi_skg `
-  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -i "data/raw/dummy/Data 1.xlsx" `
   -o "outputs/dummy_rssi_filtered_correlation.csv" `
   --filter `
   --quantize `
@@ -328,7 +329,7 @@ Recorded in one CLI run. Durations and rates vary by host and run.
 
 # 5. Run full pipeline with PRBS bit expansion stage, companion multi-sheet XLSX, and 2x2 PRBS KAR visualization
 .\.venv\Scripts\python.exe -m rssi_skg `
-  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -i "data/raw/dummy/Data 1.xlsx" `
   -o "outputs/dummy_rssi_filtered_correlation.csv" `
   --filter `
   --quantize `
@@ -340,24 +341,23 @@ Recorded in one CLI run. Durations and rates vary by host and run.
   --prbs-xlsx-output "outputs/dummy_rssi_prbs.xlsx" `
   --prbs-figure-prefix "outputs/dummy_rssi_prbs_kar"
 
-# 6. Run full pipeline through global BCH reconciliation and candidate key generation
+# 6. Run full pipeline through global BCH reconciliation
 .\.venv\Scripts\python.exe -m rssi_skg `
-  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -i "data/raw/dummy/Data 1.xlsx" `
   -o "outputs/dummy_rssi_filtered_correlation.csv" `
   --filter `
   --quantize `
   --prbs `
   --reconcile `
-  --reconcile-metrics-output "outputs/dummy_rssi_reconcile_metrics.csv" `
-  --reconcile-blocks-output "outputs/dummy_rssi_reconcile_blocks.csv" `
-  --reconcile-config-output "outputs/dummy_rssi_reconcile_config.json" `
-  --reconcile-keys-output "outputs/dummy_rssi_reconcile_keys.json" `
-  --reconciled-xlsx-output "outputs/dummy_rssi_reconciled.xlsx" `
-  --reconcile-figure-prefix "outputs/dummy_rssi_reconciliation"
+  --reconcile-metrics-output "outputs/dummy_rssi_bch_metrics.csv" `
+  --reconcile-blocks-output "outputs/dummy_rssi_bch_blocks.csv" `
+  --reconcile-config-output "outputs/dummy_rssi_bch_config.json" `
+  --reconciled-xlsx-output "outputs/dummy_rssi_bch.xlsx" `
+  --reconcile-figure-prefix "outputs/dummy_rssi_bch_reconciliation"
 
 # 7. Run full pipeline through Privacy Amplification (SHA-256 256-bit key generation)
 .\.venv\Scripts\python.exe -m rssi_skg `
-  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -i "data/raw/dummy/Data 1.xlsx" `
   -o "outputs/dummy_rssi_filtered_correlation.csv" `
   --filter `
   --quantize `
@@ -372,7 +372,7 @@ Recorded in one CLI run. Durations and rates vary by host and run.
 
 # 8. Run full pipeline through NIST SP 800-22 randomness testing & Key Generation Rate (KGR) measurement
 .\.venv\Scripts\python.exe -m rssi_skg `
-  -i "data/raw/dummy/Dummy RSSI (data Indoor).xlsx" `
+  -i "data/raw/dummy/Data 1.xlsx" `
   --filter `
   --quantize `
   --prbs `
@@ -402,13 +402,13 @@ Recorded in one CLI run. Durations and rates vary by host and run.
   - **NIST Randomness & KGR Scope**:
     - The three NIST tests (Monobit, Runs, Approximate Entropy) validate basic statistical randomness properties of the 256-bit hash digests on dummy data. Passing these tests does NOT claim a full NIST SP 800-22 suite pass, physical entropy, or cryptographic unpredictability.
     - Repeated software timing runs do NOT constitute independent randomness samples. Duplicate matching keys from Bob are never concatenated or double-counted to inflate bit counts.
-    - KGR measures pure software execution throughput ($N_{\text{accepted\_bits}} / T$) on a local machine with a pre-warmed JIT cache, NOT an empirical channel probing rate or over-the-air throughput.
+    - KGR measures pure software processing throughput ($N_{\text{accepted\_bits}} / T$) on a local machine with a pre-warmed JIT cache, NOT an empirical channel probing rate or over-the-air throughput.
 - **Pipeline Roadmap**:
   1. *Completed*: Implemented Modified Sage–Husa Adaptive Kalman Filter (MSHKF) stage.
   2. *Completed*: Implemented Modified Adaptive Dual-Threshold Quantization (MADQ) stage (`PA.pdf` Section 3.2.3, Equations 3.21–3.23) and KAR evaluation (Equation 3.64).
   3. *Completed*: Implemented Bit Expansion with Galois XOR-LFSR PRBS generator (`PA.pdf` Section 3.2.4 as background) and before/after KAR evaluation.
   4. *Completed*: Implemented BCH Codeword-based Information Reconciliation (`PA.pdf` Section 3.2.5, Equations 3.32–3.36).
-  5. Implemented shared BCH(1023, 46, 201), segmented SHA-256, per-digest NIST testing and per-path KGR reporting on all four paths.
+  5. Implemented shared BCH(2047, 166, 348), 131-bit segmented SHA-256, per-digest NIST testing and per-path KGR reporting on all four paths.
   6. Physical-channel measurements remain future work.
 
 ### Earlier public-helper experiments

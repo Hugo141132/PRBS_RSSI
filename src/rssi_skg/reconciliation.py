@@ -62,7 +62,7 @@ from rssi_skg.quantization import ChannelQuantizationResult, EXCEL_MAX_CELL_CHAR
 #   3. designed_d is derived automatically as designed_d = 2 * t + 1.
 #   4. k is the message dimension returned by galois.BCH(n, d=designed_d).
 #   5. The tuple (n, k, t) must be strictly consistent with Galois; inconsistent values raise ValueError.
-DEFAULT_BCH_CODE: tuple[int, int, int] = (1023, 46, 201)
+DEFAULT_BCH_CODE: tuple[int, int, int] = (2047, 166, 348)
 DEFAULT_BCH_CODE_2BIT = DEFAULT_BCH_CODE
 DEFAULT_BCH_CODE_4BIT = DEFAULT_BCH_CODE
 GLOBAL_BCH_CODE: tuple[int, int, int] = DEFAULT_BCH_CODE

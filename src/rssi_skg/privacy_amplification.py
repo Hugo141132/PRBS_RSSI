@@ -64,7 +64,7 @@ from rssi_skg.reconciliation import (
 
 # Supported 4-path architecture
 PA_PATHS: tuple[str, ...] = ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
-SEGMENT_SIZE_BITS: int = 125
+SEGMENT_SIZE_BITS: int = 131
 
 # Canonical PA evaluation pairs under bidirectional transmission observation model:
 #   1. Alice–Bob: Legitimate communication pair (Alice reference, Bob receiver)
