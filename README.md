@@ -14,7 +14,6 @@ PRBS_RSSI/
 │   └── raw/
 │       ├── dummy/                    # Dummy datasets for software validation
 │       │   ├── Data 1.xlsx
-│       │   ├── Dummy RSSI (data Indoor).xlsx
 │       │   └── README.md
 │       └── measured/                 # Reserved for empirical physical channel probing measurement data
 │           └── README.md
@@ -70,7 +69,7 @@ PRBS_RSSI/
   - `plotting.py`: Aggregate bubble scatter visualization, pre-/post-filtering comparison plots, KAR comparison charts, 4-panel reconciliation analysis figures, and 2×2 privacy amplification KAR comparison figures.
   - `cli.py`: Unified CLI supporting pure correlation mode (default), optional filtering, quantization, PRBS expansion, BCH reconciliation, Privacy Amplification, NIST statistical randomness testing, and Key Generation Rate (KGR) measurement.
 - `tests/`: Automated unit tests ensuring algorithmic correctness, channel isolation, numerical safeguards, exact boundary conditions, encodings, PRBS maximal periods, BCH error correction, receiver isolation, canonical hashing, NIST reference vector validation, mock clock KGR measurement, eavesdropper threat model regression, and full pipeline testing.
-- `data/raw/dummy/`: Dummy datasets for software validation. Contains `Data 1.xlsx` (491 samples, active validation dataset), `Dummy RSSI (data Indoor).xlsx` (500 samples, legacy dataset), and local `README.md`.
+- `data/raw/dummy/`: Dummy datasets for software validation. Contains `Data 1.xlsx` (491 samples, active validation dataset) and local `README.md`.
 - `data/raw/measured/`: Reserved folder for real wireless channel measurement data (empirical physical channel probing).
 - `outputs/`: Stores calculation outputs, visual artifacts, and reports. Excluded from Git tracking except for `.gitkeep`.
 - `docs/`: Technical documentation, mathematical equation literature references, research decision log (`methodology.md`), and progress handoff summary ([docs/progress.md](docs/progress.md)).
@@ -79,7 +78,7 @@ PRBS_RSSI/
 
 ## Dummy Data Provenance & Definition
 
-- **File Source**: `data/raw/dummy/Data 1.xlsx` (491 sample rows; legacy `Dummy RSSI (data Indoor).xlsx` with 500 sample rows is also retained in `data/raw/dummy/`).
+- **File Source**: `data/raw/dummy/Data 1.xlsx` (491 sample rows).
 - **Column Semantics**:
   - `Alice`: RSSI values received by Alice from Bob's transmission.
   - `Bob`: RSSI values received by Bob from Alice's transmission.

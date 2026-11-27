@@ -3,7 +3,7 @@
 Dataset dummy untuk keperluan validasi perangkat lunak (software validation pipeline).
 
 ## File
-- `Dummy RSSI (data Indoor).xlsx`: 500 sampel pengukuran RSSI indoor sintetis/dummy.
+- `Data 1.xlsx`: 491 sampel pengukuran RSSI indoor sintetis/dummy.
 
 ## Kolom Data
 - `Alice`: Nilai RSSI yang diterima oleh node Alice.

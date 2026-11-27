@@ -55,7 +55,7 @@ def test_bch_code_cache_and_properties() -> None:
     bch_2bit = get_bch_code(*DEFAULT_BCH_CODE_2BIT)
     bch_4bit = get_bch_code(*DEFAULT_BCH_CODE_4BIT)
     assert bch_2bit is bch_4bit
-    assert (bch_2bit.n, bch_2bit.k, bch_2bit.t, bch_2bit.d) == (1023, 46, 201, 403)
+    assert (bch_2bit.n, bch_2bit.k, bch_2bit.t, bch_2bit.d) == (2047, 166, 348, 697)
 
     # Test small valid candidate
     bch15 = get_bch_code(15, 7, 2)
@@ -71,8 +71,8 @@ def test_bch_code_cache_and_properties() -> None:
     assert bch31.d == 31
 
     # Check cache identity
-    assert get_bch_code(1023, 46, 201) is bch_2bit
-    assert get_bch_code(1023, 46, 201) is bch_4bit
+    assert get_bch_code(2047, 166, 348) is bch_2bit
+    assert get_bch_code(2047, 166, 348) is bch_4bit
     assert get_bch_code(15, 7, 2) is bch15
 
     # Inconsistent configurations raise actionable ValueError
@@ -312,7 +312,7 @@ def test_receiver_isolation_and_no_source_leak() -> None:
 @pytest.fixture(scope="module")
 def pipeline_results() -> tuple[dict[str, list[float]], ChannelQuantizationResult, MultiChannelPRBSResult]:
     """Execute stages 1-3 on the dummy dataset to produce inputs for reconciliation tests."""
-    data_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    data_path = Path("data/raw/dummy/Data 1.xlsx")
     raw_data = load_rssi_workbook(data_path)
     filt_data = filter_rssi_channels(raw_data, config=FilterConfig())
     quant_res = quantize_channels(filt_data, config=QuantizationConfig(window_size=50, alpha=0.5))
@@ -337,10 +337,10 @@ def test_reconcile_supported_paths(pipeline_results: tuple) -> None:
     metrics_by_key = {(m.path, m.pair): m for m in rec_result.metrics}
 
     expected = {
-        "quant_2bit": (1, 1, 1000, 582, 554),
-        "quant_4bit": (2, 2, 2000, 1582, 1554),
-        "prbs_2bit": (2, 4, 2046, 1212, 1190),
-        "prbs_4bit": (3, 4, 3069, 2222, 2249),
+        "quant_2bit": (1, 1, 982, 489, 616),
+        "quant_4bit": (1, 1, 1964, 1471, 1598),
+        "prbs_2bit": (2, 2, 3928, 2076, 2440),
+        "prbs_4bit": (2, 2, 3928, 2741, 3010),
     }
     for path, (accepted, total, bits, ea_matches, eb_matches) in expected.items():
         bob = metrics_by_key[path, "Alice–Bob"]
@@ -375,8 +375,8 @@ def test_paths_use_identical_parameters() -> None:
     code_q4 = cfg.get_code_for_path("quant_4bit")
     code_p2 = cfg.get_code_for_path("prbs_2bit")
     code_p4 = cfg.get_code_for_path("prbs_4bit")
-    assert code_q2 == code_p2 == DEFAULT_BCH_CODE_2BIT == (1023, 46, 201)
-    assert code_q4 == code_p4 == DEFAULT_BCH_CODE_4BIT == (1023, 46, 201)
+    assert code_q2 == code_p2 == DEFAULT_BCH_CODE_2BIT == (2047, 166, 348)
+    assert code_q4 == code_p4 == DEFAULT_BCH_CODE_4BIT == (2047, 166, 348)
 
     # Independent configuration per path family
     custom_cfg = ReconciliationConfig(code_2bit=(31, 1, 15), code_4bit=(255, 9, 62))
@@ -433,7 +433,7 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
         reader = list(reader_dict)
         assert len(reader) == 12
         for row in reader:
-            assert tuple(int(row[key]) for key in ("n", "k", "t", "designed_d")) == (1023, 46, 201, 403)
+            assert tuple(int(row[key]) for key in ("n", "k", "t", "designed_d")) == (2047, 166, 348, 697)
             assert int(row["retained_length"]) > 0
             assert row["interleaving"] == "OFF"
 
@@ -456,10 +456,10 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
         assert "quant_4bit" in data["parameters"]["paths"]
         assert "prbs_2bit" in data["parameters"]["paths"]
         assert "prbs_4bit" in data["parameters"]["paths"]
-        assert data["parameters"]["paths"]["quant_2bit"]["n"] == 1023
-        assert data["parameters"]["paths"]["quant_2bit"]["designed_d"] == 403
-        assert data["parameters"]["paths"]["quant_4bit"]["n"] == 1023
-        assert data["parameters"]["paths"]["quant_4bit"]["designed_d"] == 403
+        assert data["parameters"]["paths"]["quant_2bit"]["n"] == 2047
+        assert data["parameters"]["paths"]["quant_2bit"]["designed_d"] == 697
+        assert data["parameters"]["paths"]["quant_4bit"]["n"] == 2047
+        assert data["parameters"]["paths"]["quant_4bit"]["designed_d"] == 697
 
     # 4. Excel Workbook (.xlsx)
     xlsx_path = tmp_path / "reconciliation.xlsx"
@@ -492,7 +492,7 @@ def test_reconciliation_exporters(tmp_path: Path, pipeline_results: tuple) -> No
 
 def test_cli_reconciliation_full(tmp_path: Path) -> None:
     """Verify that CLI executes with --reconcile flag and produces all specified artifacts."""
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
     metrics_csv = tmp_path / "recon_metrics.csv"
     blocks_csv = tmp_path / "recon_blocks.csv"
     config_json = tmp_path / "recon_config.json"
@@ -528,7 +528,7 @@ def test_cli_reconciliation_full(tmp_path: Path) -> None:
 
 def test_obsolete_cli_options_rejected(capsys: pytest.CaptureFixture) -> None:
     """Verify that obsolete --reconcile-shared and --reconcile-mode flags raise an actionable error."""
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
 
     with pytest.raises(SystemExit) as exc_info1:
         main(["-i", input_file, "--reconcile-shared"])
@@ -558,14 +558,14 @@ def test_global_bch_code_properties_and_config() -> None:
     cfg = ReconciliationConfig(seed=42)
     metadata = cfg.to_metadata_dict()["parameters"]["paths"]
     for path in metadata:
-        assert cfg.get_code_for_path(path) == (1023, 46, 201)
-        assert metadata[path]["designed_d"] == 403
+        assert cfg.get_code_for_path(path) == (2047, 166, 348)
+        assert metadata[path]["designed_d"] == 697
         assert metadata[path]["interleaving"] == "OFF"
 
 
 def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) -> None:
     """Verify exact Alice-Bob recovery, failure detection, exports, and figure under configured BCH."""
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(input_file)
     filtered = filter_rssi_channels(raw_data, FilterConfig())
     quant_res = quantize_channels(filtered, QuantizationConfig())
@@ -600,7 +600,7 @@ def test_global_bch_reconciliation_exact_recovery_and_exports(tmp_path: Path) ->
         rows = list(reader)
         assert len(rows) == 12
         for r in rows:
-            assert tuple(int(r[key]) for key in ("n", "k", "t", "designed_d")) == (1023, 46, 201, 403)
+            assert tuple(int(r[key]) for key in ("n", "k", "t", "designed_d")) == (2047, 166, 348, 697)
             assert int(r["retained_length"]) > 0
             assert r["interleaving"] == "OFF"
 
@@ -646,7 +646,7 @@ def test_eavesdropper_threat_model_helper_data_reuse_and_isolation(pipeline_resu
         assert res_ab.padding_count == res_ea.padding_count == res_eb.padding_count
         assert res_ab.num_blocks == res_ea.num_blocks == res_eb.num_blocks
 
-        assert (res_ab.n, res_ab.k, res_ab.t, res_ab.designed_d) == (1023, 46, 201, 403)
+        assert (res_ab.n, res_ab.k, res_ab.t, res_ab.designed_d) == (2047, 166, 348, 697)
         assert res_ab.padding_count == res_ab.num_blocks * res_ab.n - res_ab.original_length
         for result in (res_ab, res_ea, res_eb):
             channel = result.receiver_name
@@ -690,14 +690,14 @@ def test_bounded_public_helper_candidate_check(pipeline_results: tuple) -> None:
     # 2. Generate Alice's helper data
     rng = np.random.default_rng(42)
     helper_blocks, orig_len, pad_count = generate_helper_data(alice_q4, 255, 9, 63, rng=rng)
-    assert orig_len == 2000
+    assert orig_len == 1964
     assert len(helper_blocks) == 8
-    assert pad_count == 40
+    assert pad_count == 76
 
     # 3. Verify linear constraint rank on generator matrix G
     # Having known bits only constrains the message space if G[:, known_indices] has full row rank (rank 9).
-    # For Block 7, the 40 trailing zero-padding columns have rank 9 over GF(2):
-    pad_cols = np.arange(215, 255)
+    # For Block 7, the 76 trailing zero-padding columns have rank 9 over GF(2):
+    pad_cols = np.arange(179, 255)
     G_pad = bch.G[:, pad_cols]
     assert np.linalg.matrix_rank(galois.GF(2)(G_pad)) == 9
 
@@ -709,13 +709,13 @@ def test_bounded_public_helper_candidate_check(pipeline_results: tuple) -> None:
     G_fixed_0 = bch.G[:, fixed_pos_0]
     assert np.linalg.matrix_rank(galois.GF(2)(G_fixed_0)) == 9
 
-    # 4. Check final block (Block 7) with 40 known zero padding bits
+    # 4. Check final block (Block 7) with 76 known zero padding bits
     H_final = helper_blocks[7]
-    true_A_final = np.fromiter(alice_q4[7 * 255 : 2000] + "0" * 40, dtype=np.uint8)
+    true_A_final = np.fromiter(alice_q4[7 * 255 : 1964] + "0" * 76, dtype=np.uint8)
     candidates_final = H_final ^ codewords
 
-    # Filter by 40 trailing zero padding bits (public knowledge only)
-    pad_match = np.all(candidates_final[:, 215:255] == 0, axis=1)
+    # Filter by 76 trailing zero padding bits (public knowledge only)
+    pad_match = np.all(candidates_final[:, 179:255] == 0, axis=1)
     survivors_final = np.where(pad_match)[0]
 
     # Full row rank ensures 40 linear constraints on 9-bit message space leave exactly 1 candidate
@@ -746,18 +746,18 @@ def test_bounded_public_helper_candidate_check(pipeline_results: tuple) -> None:
     assert len(valid_survivors_0) == 1
     assert np.array_equal(candidates_0[valid_survivors_0[0]], true_A_0)
 
-    # 6. Verify prbs_4bit Block 15 (80 trailing padding bits)
+    # 6. Verify prbs_4bit Block 15 (152 trailing padding bits)
     _, _, prbs_res = pipeline_results
     alice_p4 = prbs_res.channels["Alice"].bitstream_4bit
     h_p4, orig_len_p4, pad_p4 = generate_helper_data(alice_p4, 255, 9, 63, rng=rng)
-    assert orig_len_p4 == 4000
+    assert orig_len_p4 == 3928
     assert len(h_p4) == 16
-    assert pad_p4 == 80
+    assert pad_p4 == 152
 
     H_p15 = h_p4[15]
-    true_Ap15 = np.fromiter(alice_p4[15 * 255 : 4000] + "0" * 80, dtype=np.uint8)
+    true_Ap15 = np.fromiter(alice_p4[15 * 255 : 3928] + "0" * 152, dtype=np.uint8)
     cands_p15 = H_p15 ^ codewords
-    pad_match_p15 = np.all(cands_p15[:, 175:255] == 0, axis=1)
+    pad_match_p15 = np.all(cands_p15[:, 103:255] == 0, axis=1)
     survivors_p15 = np.where(pad_match_p15)[0]
     assert len(survivors_p15) == 1
     assert np.array_equal(cands_p15[survivors_p15[0]], true_Ap15)

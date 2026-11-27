@@ -356,7 +356,7 @@ def test_evaluate_key_randomness_acceptance() -> None:
 
 def test_evaluate_pa_keys_randomness_dummy_data() -> None:
     """Verify evaluation of actual privacy-amplified keys on dummy dataset across all 4 paths."""
-    raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw = load_rssi_workbook("data/raw/dummy/Data 1.xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
     prbs = expand_channels_prbs(quant, PRBSConfig())
@@ -368,9 +368,9 @@ def test_evaluate_pa_keys_randomness_dummy_data() -> None:
     assert isinstance(nist_res, MultiPathNISTResult)
     expected_chunks = {
         "quant_2bit": 8,
-        "quant_4bit": 16,
-        "prbs_2bit": 17,
-        "prbs_4bit": 25,
+        "quant_4bit": 15,
+        "prbs_2bit": 30,
+        "prbs_4bit": 30,
     }
     for path_name, n_chunks in expected_chunks.items():
         assert path_name in nist_res.paths
@@ -391,7 +391,7 @@ def test_evaluate_pa_keys_randomness_dummy_data() -> None:
         alice_res = path_nist["Alice"]
         assert alice_res.accepted_chunks_count > 0
 
-    assert len(nist_res.all_results) == 264
+    assert len(nist_res.all_results) == 332
 
 
 # ==============================================================================
@@ -401,7 +401,7 @@ def test_evaluate_pa_keys_randomness_dummy_data() -> None:
 
 def test_nist_exporters(tmp_path: Path) -> None:
     """Verify CSV and JSON export functions for NIST metrics across 4 paths."""
-    raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw = load_rssi_workbook("data/raw/dummy/Data 1.xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
     prbs = expand_channels_prbs(quant, PRBSConfig())
@@ -423,8 +423,8 @@ def test_nist_exporters(tmp_path: Path) -> None:
         reader = csv.DictReader(f)
         rows = list(reader)
 
-    # 4 paths * 4 channels with 8/16/17/25 chunks = 264 rows
-    assert len(rows) == 264
+    # 4 paths * 4 channels with 8/15/30/30 chunks = 332 rows
+    assert len(rows) == 332
     expected_fields = {
         "path",
         "pair",

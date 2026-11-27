@@ -882,11 +882,11 @@ def plot_prbs_kar_comparison_figure(
         d2 = k2_post - k2_pre
         d4 = k4_post - k4_pre
 
-        s_cnt = _extract_int(row, "sample_count", default=500)
-        b2_pre = _extract_int(row, "bit_count_2bit_before", "pre_prbs_bits_2bit", default=1000)
-        b2_post = _extract_int(row, "bit_count_2bit_after", "post_prbs_bits_2bit", default=1500)
-        b4_pre = _extract_int(row, "bit_count_4bit_before", "pre_prbs_bits_4bit", default=2000)
-        b4_post = _extract_int(row, "bit_count_4bit_after", "post_prbs_bits_4bit", default=7500)
+        s_cnt = _extract_int(row, "sample_count", default=491)
+        b2_pre = _extract_int(row, "bit_count_2bit_before", "pre_prbs_bits_2bit", default=982)
+        b2_post = _extract_int(row, "bit_count_2bit_after", "post_prbs_bits_2bit", default=3928)
+        b4_pre = _extract_int(row, "bit_count_4bit_before", "pre_prbs_bits_4bit", default=1964)
+        b4_post = _extract_int(row, "bit_count_4bit_after", "post_prbs_bits_4bit", default=3928)
 
         level_agreements.append(lvl_agr)
         kar_2b_before.append(k2_pre)

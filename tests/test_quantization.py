@@ -343,15 +343,15 @@ def test_invalid_inputs_raise_errors() -> None:
 
 
 def test_dummy_dataset_quantization_verification() -> None:
-    """Verify quantization stage on the full dummy dataset (500 samples).
+    """Verify quantization stage on the full dummy dataset (491 samples).
 
     Specification:
-        - 500 samples -> 10 segments of 50 samples each.
-        - 2-bit Gray encoding -> 1,000 bits per channel.
-        - 4-bit encoding -> 2,000 bits per channel.
+        - 491 samples -> 10 segments (9 of 50 samples + 1 trailing of 41 samples).
+        - 2-bit Gray encoding -> 982 bits per channel.
+        - 4-bit encoding -> 1,964 bits per channel.
         - Alice–Bob level agreement and KAR correctly calculated.
     """
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(dummy_path)
     filtered_data = filter_rssi_channels(raw_data, FilterConfig())
 
@@ -359,14 +359,14 @@ def test_dummy_dataset_quantization_verification() -> None:
     res = quantize_channels(channels=filtered_data, config=cfg)
 
     # 1. Structural dimensions
-    assert res.sample_count == 500
+    assert res.sample_count == 491
     assert res.num_segments == 10
 
     for ch in ("Alice", "Bob", "Eve1-Alice", "Eve1-Bob"):
-        assert len(res.levels[ch]) == 500
+        assert len(res.levels[ch]) == 491
         assert len(res.thresholds[ch]) == 10
-        assert len(res.bitstreams_2bit[ch]) == 1000
-        assert len(res.bitstreams_4bit[ch]) == 2000
+        assert len(res.bitstreams_2bit[ch]) == 982
+        assert len(res.bitstreams_4bit[ch]) == 1964
 
         # Verify all levels are in {0, 1, 2}
         assert all(lvl in (0, 1, 2) for lvl in res.levels[ch])
@@ -377,28 +377,28 @@ def test_dummy_dataset_quantization_verification() -> None:
 
     # 2. Specific verified metrics on dummy dataset
     ab_metric = next(pm for pm in res.pair_metrics if pm["pair"] == "Alice–Bob")
-    assert ab_metric["sample_count"] == 500
-    assert ab_metric["bit_count_2bit"] == 1000
-    assert ab_metric["bit_count_4bit"] == 2000
-    assert math.isclose(ab_metric["level_agreement_rate"], 64.4, abs_tol=1e-6)
-    assert math.isclose(ab_metric["kar_2bit"], 80.4, abs_tol=1e-6)
-    assert math.isclose(ab_metric["kar_4bit"], 90.2, abs_tol=1e-6)
+    assert ab_metric["sample_count"] == 491
+    assert ab_metric["bit_count_2bit"] == 982
+    assert ab_metric["bit_count_4bit"] == 1964
+    assert math.isclose(ab_metric["level_agreement_rate"], 76.17107942973523, abs_tol=1e-6)
+    assert math.isclose(ab_metric["kar_2bit"], 87.88187372708758, abs_tol=1e-6)
+    assert math.isclose(ab_metric["kar_4bit"], 93.94093686354378, abs_tol=1e-6)
 
     # Eavesdropper metrics
     ae_metric = next(pm for pm in res.pair_metrics if pm["pair"] == "Alice–Eve1-Alice")
-    assert math.isclose(ae_metric["level_agreement_rate"], 34.8, abs_tol=1e-6)
-    assert math.isclose(ae_metric["kar_2bit"], 58.2, abs_tol=1e-6)
-    assert math.isclose(ae_metric["kar_4bit"], 79.1, abs_tol=1e-6)
+    assert math.isclose(ae_metric["level_agreement_rate"], 29.327902240325866, abs_tol=1e-6)
+    assert math.isclose(ae_metric["kar_2bit"], 49.79633401221996, abs_tol=1e-6)
+    assert math.isclose(ae_metric["kar_4bit"], 74.89816700610999, abs_tol=1e-6)
 
     be_metric = next(pm for pm in res.pair_metrics if pm["pair"] == "Bob–Eve1-Bob")
-    assert math.isclose(be_metric["level_agreement_rate"], 34.4, abs_tol=1e-6)
-    assert math.isclose(be_metric["kar_2bit"], 55.4, abs_tol=1e-6)
-    assert math.isclose(be_metric["kar_4bit"], 77.7, abs_tol=1e-6)
+    assert math.isclose(be_metric["level_agreement_rate"], 43.78818737270876, abs_tol=1e-6)
+    assert math.isclose(be_metric["kar_2bit"], 62.729124236252545, abs_tol=1e-6)
+    assert math.isclose(be_metric["kar_4bit"], 81.36456211812627, abs_tol=1e-6)
 
 
 def test_cli_quantization_workflow_and_artifact_export(tmp_path: Path) -> None:
     """Verify CLI execution and export of all 5 quantization artifacts."""
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
     csv_corr = str(tmp_path / "corr.csv")
     samples_filt = str(tmp_path / "samples_filt.csv")
     meta_filt = str(tmp_path / "meta_filt.json")
@@ -441,7 +441,7 @@ def test_cli_quantization_workflow_and_artifact_export(tmp_path: Path) -> None:
         assert "Alice_bits_4bit" in header
         assert "alice_bob_level_match" in header
         rows = list(reader)
-        assert len(rows) == 500
+        assert len(rows) == 491
 
     # 2. Segments CSV
     assert Path(segments_quant).is_file()
@@ -462,10 +462,10 @@ def test_cli_quantization_workflow_and_artifact_export(tmp_path: Path) -> None:
         assert len(rows) == 8
         alice_2b = next(r for r in rows if r["channel"] == "Alice" and r["encoding"] == "2-bit Gray")
         alice_4b = next(r for r in rows if r["channel"] == "Alice" and r["encoding"] == "4-bit")
-        assert alice_2b["bit_count"] == "1000"
-        assert len(alice_2b["bitstream"]) == 1000
-        assert alice_4b["bit_count"] == "2000"
-        assert len(alice_4b["bitstream"]) == 2000
+        assert alice_2b["bit_count"] == "982"
+        assert len(alice_2b["bitstream"]) == 982
+        assert alice_4b["bit_count"] == "1964"
+        assert len(alice_4b["bitstream"]) == 1964
 
     # 4. Metrics CSV
     assert Path(metrics_quant).is_file()
@@ -475,10 +475,10 @@ def test_cli_quantization_workflow_and_artifact_export(tmp_path: Path) -> None:
         assert len(rows) == 3
         ab_row = rows[0]
         assert ab_row["pair"] == "Alice–Bob"
-        assert ab_row["sample_count"] == "500"
-        assert float(ab_row["level_agreement_rate"]) == 64.4
-        assert float(ab_row["kar_2bit"]) == 80.4
-        assert float(ab_row["kar_4bit"]) == 90.2
+        assert ab_row["sample_count"] == "491"
+        assert math.isclose(float(ab_row["level_agreement_rate"]), 76.17107942973523, abs_tol=1e-4)
+        assert math.isclose(float(ab_row["kar_2bit"]), 87.88187372708758, abs_tol=1e-4)
+        assert math.isclose(float(ab_row["kar_4bit"]), 93.94093686354378, abs_tol=1e-4)
 
     # 5. Metadata JSON
     assert Path(meta_quant).is_file()
@@ -488,7 +488,7 @@ def test_cli_quantization_workflow_and_artifact_export(tmp_path: Path) -> None:
         assert meta["parameters"]["window_size"] == 50
         assert meta["parameters"]["alpha"] == 0.5
         assert meta["parameters"]["ddof"] == 0
-        assert meta["execution_summary"]["sample_count"] == 500
+        assert meta["execution_summary"]["sample_count"] == 491
         assert meta["execution_summary"]["num_segments"] == 10
         assert "bitstreams" in meta
 
@@ -550,15 +550,15 @@ def test_kar_invariants_equal_mismatches_and_mathematical_relation() -> None:
     assert math.isclose(kar_4b, 50.0 + kar_2b / 2.0, rel_tol=1e-12)
 
     # 3. Verify on full dummy dataset pairs
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(dummy_path)
     filt_data = filter_rssi_channels(raw_data, FilterConfig())
     res = quantize_channels(filt_data, QuantizationConfig())
 
     expected_mismatches = {
-        "Alice–Bob": 196,
-        "Alice–Eve1-Alice": 418,
-        "Bob–Eve1-Bob": 446,
+        "Alice–Bob": 119,
+        "Alice–Eve1-Alice": 493,
+        "Bob–Eve1-Bob": 366,
     }
 
     for pm in res.pair_metrics:
@@ -580,7 +580,7 @@ def test_kar_invariants_equal_mismatches_and_mathematical_relation() -> None:
 
 def test_cli_quantize_without_filter_auto_enables_filtering(tmp_path: Path) -> None:
     """Verify that specifying --quantize without --filter auto-enables filtering as prerequisite."""
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
     csv_corr = str(tmp_path / "corr.csv")
     metrics_quant = str(tmp_path / "metrics.csv")
 
@@ -609,12 +609,12 @@ def test_cli_quantize_without_filter_auto_enables_filtering(tmp_path: Path) -> N
         rows = list(reader)
         assert len(rows) == 3
         assert rows[0]["pair"] == "Alice–Bob"
-        assert float(rows[0]["kar_2bit"]) == 80.4
+        assert math.isclose(float(rows[0]["kar_2bit"]), 87.88187372708758, abs_tol=1e-4)
 
 
 def test_cli_raw_only_and_filter_only_modes(tmp_path: Path) -> None:
     """Verify CLI behavior for raw-only and filtering-only modes."""
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
 
     # 1. Raw-only mode: no --filter, no --quantize
     raw_csv = str(tmp_path / "raw.csv")
@@ -627,7 +627,7 @@ def test_cli_raw_only_and_filter_only_modes(tmp_path: Path) -> None:
         rows = list(reader)
         assert len(rows) == 3
         # Check raw Alice-Bob correlation
-        assert math.isclose(float(rows[0]["correlation_coefficient"]), 0.6322634354, rel_tol=1e-5)
+        assert math.isclose(float(rows[0]["correlation_coefficient"]), 0.9216673400766415, rel_tol=1e-5)
 
     # 2. Filter-only mode: --filter, no --quantize
     filt_csv = str(tmp_path / "filt.csv")
@@ -640,7 +640,7 @@ def test_cli_raw_only_and_filter_only_modes(tmp_path: Path) -> None:
         assert "filtered_correlation" in header
         rows = list(reader)
         assert len(rows) == 3
-        assert math.isclose(float(rows[0]["filtered_correlation"]), 0.8422441999, rel_tol=1e-5)
+        assert math.isclose(float(rows[0]["filtered_correlation"]), 0.9708850091342124, rel_tol=1e-5)
 
 
 def test_xlsx_companion_export_preserves_leading_zeros_and_structure(tmp_path: Path) -> None:
@@ -650,11 +650,11 @@ def test_xlsx_companion_export_preserves_leading_zeros_and_structure(tmp_path: P
         - Excel drops leading zeros when opening CSVs (00 -> 0, 01 -> 1).
         - In the companion XLSX workbook, cells containing '00' and '01' must be
           stored as explicit string cells (data_type == 's') with Text number format ('@').
-        - Bitstreams (1,000 and 2,000 bits) must be completely preserved.
+        - Bitstreams (982 and 1,964 bits) must be completely preserved.
         - All 4 sheets ('Quantized Samples', 'Bitstreams', 'Agreement Metrics', 'Segment Thresholds')
           must be correctly populated.
     """
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(dummy_path)
     filt_data = filter_rssi_channels(raw_data, FilterConfig())
     res = quantize_channels(filt_data, QuantizationConfig())
@@ -677,7 +677,7 @@ def test_xlsx_companion_export_preserves_leading_zeros_and_structure(tmp_path: P
 
     # 1. Inspect 'Quantized Samples' sheet
     ws_samples = wb["Quantized Samples"]
-    assert ws_samples.max_row == 501  # 1 header + 500 samples
+    assert ws_samples.max_row == 492  # 1 header + 491 samples
 
     header_row = [cell.value for cell in ws_samples[1]]
     assert "sample_index" in header_row
@@ -703,15 +703,15 @@ def test_xlsx_companion_export_preserves_leading_zeros_and_structure(tmp_path: P
     assert c_s0_4b.data_type == "s"
     assert c_s0_4b.number_format == "@"
 
-    # Check sample 7: Alice level is 1 -> 2bit is '01', 4bit is '1011'
-    c_s7_2b = ws_samples.cell(row=9, column=col_alice_2b)
-    assert c_s7_2b.value == "01"
-    assert isinstance(c_s7_2b.value, str)
-    assert c_s7_2b.data_type == "s"
-    assert c_s7_2b.number_format == "@"
+    # Check sample 14: Alice level is 1 -> 2bit is '01', 4bit is '1011'
+    c_s14_2b = ws_samples.cell(row=16, column=col_alice_2b)
+    assert c_s14_2b.value == "01"
+    assert isinstance(c_s14_2b.value, str)
+    assert c_s14_2b.data_type == "s"
+    assert c_s14_2b.number_format == "@"
 
     # Verify none of the 2-bit cells were coerced to integers 0 or 1
-    for r in range(2, 502):
+    for r in range(2, 493):
         cell_val = ws_samples.cell(row=r, column=col_alice_2b).value
         assert isinstance(cell_val, str)
         assert cell_val in ("00", "01", "11")
@@ -726,7 +726,7 @@ def test_xlsx_companion_export_preserves_leading_zeros_and_structure(tmp_path: P
     alice_2b_row = next(r for r in range(2, 10) if ws_bits.cell(row=r, column=1).value == "Alice" and ws_bits.cell(row=r, column=2).value == "2-bit Gray")
     alice_2b_val = ws_bits.cell(row=alice_2b_row, column=6).value
     assert isinstance(alice_2b_val, str)
-    assert len(alice_2b_val) == 1000
+    assert len(alice_2b_val) == 982
     assert alice_2b_val == res.bitstreams_2bit["Alice"]
     assert ws_bits.cell(row=alice_2b_row, column=6).data_type == "s"
     assert ws_bits.cell(row=alice_2b_row, column=6).number_format == "@"
@@ -734,7 +734,7 @@ def test_xlsx_companion_export_preserves_leading_zeros_and_structure(tmp_path: P
     alice_4b_row = next(r for r in range(2, 10) if ws_bits.cell(row=r, column=1).value == "Alice" and ws_bits.cell(row=r, column=2).value == "4-bit")
     alice_4b_val = ws_bits.cell(row=alice_4b_row, column=6).value
     assert isinstance(alice_4b_val, str)
-    assert len(alice_4b_val) == 2000
+    assert len(alice_4b_val) == 1964
     assert alice_4b_val == res.bitstreams_4bit["Alice"]
 
     # 3. Inspect 'Agreement Metrics' sheet
@@ -742,8 +742,8 @@ def test_xlsx_companion_export_preserves_leading_zeros_and_structure(tmp_path: P
     assert ws_metrics.max_row == 4  # 1 header + 3 pairs
     ab_kar2 = float(ws_metrics.cell(row=2, column=6).value)
     ab_kar4 = float(ws_metrics.cell(row=2, column=7).value)
-    assert math.isclose(ab_kar2, 80.4, rel_tol=1e-5)
-    assert math.isclose(ab_kar4, 90.2, rel_tol=1e-5)
+    assert math.isclose(ab_kar2, 87.88187372708758, rel_tol=1e-5)
+    assert math.isclose(ab_kar4, 93.94093686354378, rel_tol=1e-5)
 
 
 def test_xlsx_handles_excel_32767_character_limit_without_truncation(tmp_path: Path) -> None:
@@ -808,7 +808,7 @@ def test_xlsx_handles_excel_32767_character_limit_without_truncation(tmp_path: P
 
 def test_kar_comparison_figure_and_cli_export(tmp_path: Path) -> None:
     """Verify plot_kar_comparison_figure generation and CLI integration with distinct suffix."""
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(dummy_path)
     filt_data = filter_rssi_channels(raw_data, FilterConfig())
     res = quantize_channels(filt_data, QuantizationConfig())

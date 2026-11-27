@@ -258,7 +258,7 @@ def test_channel_isolation() -> None:
 
 def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
     """Verify 125-bit segmented PA across all four supported paths on the dummy dataset."""
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(input_file)
     filtered = filter_rssi_channels(raw_data, FilterConfig())
     quant_res = quantize_channels(filtered, QuantizationConfig())
@@ -270,14 +270,14 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
 
     assert cfg.hash_algorithm == "SHA-256"
     assert cfg.key_length_bits == 256
-    assert cfg.segment_size_bits == 125
+    assert cfg.segment_size_bits == 131
     assert cfg.supported_paths == ("quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit")
 
     expected_path_specs = {
-        "quant_2bit": {"bits": 1000, "chunks": 8},
-        "quant_4bit": {"bits": 2000, "chunks": 16},
-        "prbs_2bit": {"bits": 2046, "chunks": 17},
-        "prbs_4bit": {"bits": 3069, "chunks": 25},
+        "quant_2bit": {"bits": 982, "chunks": 8},
+        "quant_4bit": {"bits": 1964, "chunks": 15},
+        "prbs_2bit": {"bits": 3928, "chunks": 30},
+        "prbs_4bit": {"bits": 3928, "chunks": 30},
     }
 
     for path_name, spec in expected_path_specs.items():
@@ -288,7 +288,7 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
         ab = p_pairs["Alice–Bob"]
         assert ab.input_bit_length == spec["bits"]
         assert ab.num_chunks == spec["chunks"]
-        assert ab.chunk_size_bits == 125
+        assert ab.chunk_size_bits == 131
         assert ab.pre_pa_kar == pytest.approx(100.00, abs=0.01)
         assert ab.post_pa_kar == pytest.approx(100.00, abs=0.01)
         assert ab.exact_key_match is True
@@ -322,12 +322,12 @@ def test_full_pipeline_privacy_amplification_dummy_dataset() -> None:
         assert set(ch_dict.keys()) == {"Alice", "Bob", "Eve1-Alice", "Eve1-Bob"}
         for ch_name, ch_res in ch_dict.items():
             assert ch_res.num_chunks == spec["chunks"]
-            assert ch_res.chunk_size_bits == 125
+            assert ch_res.chunk_size_bits == 131
             assert len(ch_res.chunk_keys) == spec["chunks"]
             for ck in ch_res.chunk_keys:
                 assert len(ck.key_bin) == 256
                 assert len(ck.key_hex) == 64
-                assert len(ck.input_segment_bits) == min(125, spec["bits"] - ck.chunk_index * 125)
+                assert len(ck.input_segment_bits) == min(131, spec["bits"] - ck.chunk_index * 131)
 
 
 # ==============================================================================
@@ -346,7 +346,7 @@ def test_eavesdropper_threat_model_pa_keys_and_reference_comparison() -> None:
     4. Legitimate keys match 100% across all chunks.
     5. Eavesdropper streams fail 100% match across all chunks.
     """
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(input_file)
     filtered = filter_rssi_channels(raw_data, FilterConfig())
     quant_res = quantize_channels(filtered, QuantizationConfig())
@@ -402,7 +402,7 @@ def test_eavesdropper_threat_model_pa_keys_and_reference_comparison() -> None:
 
 def test_pa_artifact_exporters(tmp_path: Path) -> None:
     """Verify that all Privacy Amplification exporters write valid files with '@' cell formatting."""
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
     raw_data = load_rssi_workbook(input_file)
     filtered = filter_rssi_channels(raw_data, FilterConfig())
     quant_res = quantize_channels(filtered, QuantizationConfig())
@@ -430,7 +430,7 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
         for r in reader:
             assert r["path"] in PA_PATHS
             assert r["key_bits"] == "256"
-            assert r["chunk_size_bits"] == "125"
+            assert r["chunk_size_bits"] == "131"
             assert "pre_pa_kar_percent" in r
             assert "post_pa_kar_percent" in r
             assert "exact_match_count" in r
@@ -440,11 +440,11 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
     assert csv_keys.exists()
     with open(csv_keys, "r", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        assert len(reader) == 264
+        assert len(reader) == 332
         for r in reader:
             assert len(r["key_bin"]) == 256
             assert len(r["key_hex"]) == 64
-            assert len(r["input_segment_bits"]) in (46, 69, 125)
+            assert len(r["input_segment_bits"]) in (65, 129, 130, 131)
 
     # 3. JSON Config
     assert json_config.exists()
@@ -452,7 +452,7 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
         data = json.load(f)
         assert data["hash_algorithm"] == "SHA-256"
         assert data["key_length_bits"] == 256
-        assert data["segment_size_bits"] == 125
+        assert data["segment_size_bits"] == 131
         for p in PA_PATHS:
             assert p in data["privacy_amplification_summary"]
 
@@ -482,7 +482,7 @@ def test_pa_artifact_exporters(tmp_path: Path) -> None:
 
 def test_cli_privacy_amplification_full(tmp_path: Path) -> None:
     """Verify CLI execution with --privacy-amplify across all 4 paths."""
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
     metrics_csv = tmp_path / "pa_metrics.csv"
     keys_csv = tmp_path / "pa_keys.csv"
     config_json = tmp_path / "pa_config.json"
@@ -518,7 +518,7 @@ def test_cli_privacy_amplification_full(tmp_path: Path) -> None:
 
 def test_cli_pa_candidate_keys_alias(tmp_path: Path) -> None:
     """Verify that candidate-key output flag --reconcile-keys-output is accepted when PA is active."""
-    input_file = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    input_file = "data/raw/dummy/Data 1.xlsx"
     keys_csv = tmp_path / "pa_reconciled_keys.csv"
 
     cmd = [
@@ -534,4 +534,4 @@ def test_cli_pa_candidate_keys_alias(tmp_path: Path) -> None:
     assert keys_csv.exists()
     with open(keys_csv, "r", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        assert len(reader) == 264
+        assert len(reader) == 332

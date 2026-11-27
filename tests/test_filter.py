@@ -215,8 +215,8 @@ def test_non_finite_inputs_raise_error() -> None:
 
 
 def test_filter_dummy_dataset_integrity() -> None:
-    """Verify filter execution on the real 500-sample dummy dataset."""
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    """Verify filter execution on the real 491-sample dummy dataset."""
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     assert dummy_path.is_file()
 
     data = load_rssi_workbook(dummy_path)
@@ -224,17 +224,17 @@ def test_filter_dummy_dataset_integrity() -> None:
     filtered = filter_rssi_channels(data, config=cfg)
 
     for col in ("Alice", "Bob", "Eve1-Alice", "Eve1-Bob"):
-        assert len(filtered[col]) == 500
+        assert len(filtered[col]) == 491
         assert all(math.isfinite(val) for val in filtered[col])
 
     # Raw data must not have been mutated
-    assert len(data["Alice"]) == 500
-    assert data["Alice"][0] == -80.0
+    assert len(data["Alice"]) == 491
+    assert data["Alice"][0] == -82.0
 
 
 def test_cli_filtering_artifacts_export(tmp_path: Path) -> None:
     """Verify CLI with --filter exports all requested artifacts with proper contents."""
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     csv_out = tmp_path / "filtered_corr.csv"
     samples_out = tmp_path / "aligned_samples.csv"
     meta_out = tmp_path / "filter_meta.json"
@@ -256,7 +256,7 @@ def test_cli_filtering_artifacts_export(tmp_path: Path) -> None:
         assert "raw_correlation" in r
         assert "filtered_correlation" in r
         assert "correlation_delta" in r
-        assert r["sample_count"] == 500
+        assert r["sample_count"] == 491
 
     # 2. Verify correlation CSV
     assert csv_out.is_file()
@@ -283,7 +283,7 @@ def test_cli_filtering_artifacts_export(tmp_path: Path) -> None:
         assert "Eve1-Bob_raw" in header
         assert "Eve1-Bob_filtered" in header
         sample_rows = list(reader)
-        assert len(sample_rows) == 500
+        assert len(sample_rows) == 491
 
     # 4. Verify metadata JSON
     assert meta_out.is_file()
@@ -307,7 +307,7 @@ def test_cli_filtering_artifacts_export(tmp_path: Path) -> None:
 
 def test_cli_main_entrypoint_with_filter(tmp_path: Path) -> None:
     """Verify executing CLI main() with --filter arguments runs successfully."""
-    dummy_path = "data/raw/dummy/Dummy RSSI (data Indoor).xlsx"
+    dummy_path = "data/raw/dummy/Data 1.xlsx"
     csv_out = str(tmp_path / "cli_corr.csv")
     samples_out = str(tmp_path / "cli_samples.csv")
     meta_out = str(tmp_path / "cli_meta.json")

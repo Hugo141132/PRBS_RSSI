@@ -28,7 +28,7 @@ Di mana:
 - $X_v(n)$: Nilai sampel RSSI kanal $v$ pada indeks observasi $n$.
 - $\mu_u$: Rerata sampel RSSI kanal $u$ ($\mu_u = \frac{1}{N}\sum_{n=1}^N X_u(n)$).
 - $\mu_v$: Rerata sampel RSSI kanal $v$ ($\mu_v = \frac{1}{N}\sum_{n=1}^N X_v(n)$).
-- $N$: Jumlah total pasangan observasi ($N = 500$ pada dataset dummy validasi).
+- $N$: Jumlah total pasangan observasi ($N = 491$ pada dataset dummy validasi).
 *(Catatan: Notasi $u, v$ ini ekuivalen secara matematis dengan notasi $X, Y$ sebelumnya).*
 
 - **Tahap Kuantisasi (Modified Adaptive Dual-Threshold Quantization / MADQ)**: Sesuai **Bagian 3.2.3, Persamaan (3.21)–(3.23), halaman 27–28**:
@@ -49,7 +49,7 @@ Di mana:
 
 ## Sumber & Karakteristik Data
 1. **Dummy Data**:
-   - Sumber: `data/raw/dummy/Dummy RSSI (data Indoor).xlsx` (500 sampel).
+   - Sumber: `data/raw/dummy/Data 1.xlsx` (491 sampel).
    - Kolom:
      - `Alice`: RSSI received by Alice.
      - `Bob`: RSSI received by Bob.
@@ -62,13 +62,13 @@ Di mana:
    - *Row-wise sample alignment*: Setiap baris data mewakili indeks observasi waktu yang sama di keempat kolom. Urutan baris dan penjajaran dipertahankan secara utuh sebelum dan sesudah filtering dan kuantisasi.
    - *Channel Isolation*: Setiap kanal ditapis dan dikuantisasi secara mandiri dengan instance/threshold terpisah.
    - *Keluaran Validasi Korelasi*:
-     - `Alice–Bob`: $\rho_{\text{raw}} = +0.632263 \rightarrow \rho_{\text{filt}} = +0.842244$ ($\Delta\rho = +0.209981$)
-     - `Alice–Eve1-Alice`: $\rho_{\text{raw}} = +0.017060 \rightarrow \rho_{\text{filt}} = -0.013725$ ($\Delta\rho = -0.030784$)
-     - `Bob–Eve1-Bob`: $\rho_{\text{raw}} = +0.119310 \rightarrow \rho_{\text{filt}} = +0.015151$ ($\Delta\rho = -0.104159$)
-   - *Keluaran Validasi Kuantisasi ($N=500, W=50, \alpha=0.5$)*:
+     - `Alice–Bob`: $\rho_{\text{raw}} = +0.921667 \rightarrow \rho_{\text{filt}} = +0.970885$ ($\Delta\rho = +0.049218$)
+     - `Alice–Eve1-Alice`: $\rho_{\text{raw}} = -0.040766 \rightarrow \rho_{\text{filt}} = -0.274311$ ($\Delta\rho = -0.233545$)
+     - `Bob–Eve1-Bob`: $\rho_{\text{raw}} = +0.494804 \rightarrow \rho_{\text{filt}} = +0.502861$ ($\Delta\rho = +0.008057$)
+   - *Keluaran Validasi Kuantisasi ($N=491, W=50, \alpha=0.5$)*:
      - Jumlah segmen: 10 segmen.
-     - Panjang bitstream: 1.000 bit (2-bit Gray), 2.000 bit (4-bit).
-     - `Alice–Bob`: Level Agreement = 64,4000%, 2-bit Gray KAR = 80,4000%, 4-bit KAR = 90,2000%.
-     - `Alice–Eve1-Alice`: Level Agreement = 34,8000%, 2-bit Gray KAR = 58,2000%, 4-bit KAR = 79,1000%.
-     - `Bob–Eve1-Bob`: Level Agreement = 34,4000%, 2-bit Gray KAR = 55,4000%, 4-bit KAR = 77,7000%.
+     - Panjang bitstream: 982 bit (2-bit Gray), 1.964 bit (4-bit).
+     - `Alice–Bob`: Level Agreement = 76,1711%, 2-bit Gray KAR = 87,8819%, 4-bit KAR = 93,9409%.
+     - `Alice–Eve1-Alice`: Level Agreement = 29,3279%, 2-bit Gray KAR = 49,7963%, 4-bit KAR = 74,8982%.
+     - `Bob–Eve1-Bob`: Level Agreement = 43,7882%, 2-bit Gray KAR = 62,7291%, 4-bit KAR = 81,3646%.
      - Efek encoding 4-bit: Prefiks '10' yang sama di ketiga simbol menjamin kecocokan struktural minimum 50% (KAR_4bit = 50% + KAR_2bit / 2) tanpa memandang korelasi level; pelaporan level agreement tetap penting untuk transparansi.

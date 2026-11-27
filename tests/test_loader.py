@@ -114,14 +114,14 @@ def test_arbitrary_observation_count_not_hardcoded_to_500(tmp_path: Path) -> Non
 
 
 def test_dummy_dataset_integrity_and_correlation_verification() -> None:
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     assert dummy_path.is_file(), f"Dummy dataset not found at {dummy_path}"
 
     data = load_rssi_workbook(dummy_path)
 
-    # 1. Verify 500 samples across all columns
+    # 1. Verify 491 samples across all columns
     for col in DEFAULT_REQUIRED_COLUMNS:
-        assert len(data[col]) == 500, f"Expected 500 samples for {col}, got {len(data[col])}"
+        assert len(data[col]) == 491, f"Expected 491 samples for {col}, got {len(data[col])}"
 
     # 2. Check calculations match scipy independent reference
     pairs = [

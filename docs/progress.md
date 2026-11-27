@@ -132,7 +132,7 @@ Final Secret Key Agreement Rate (KAR) is evaluated strictly per **`PA.pdf` Secti
 **Methodological Boundary**: Physical channel probing is **postponed, not replaced**. All current calculations use synthetic dummy data strictly for **software validation** (pipeline integrity, parser correctness, mathematical accuracy), not for empirical claims regarding wireless channel reciprocity or eavesdropping resistance. Deterministic LFSR expansion does not add physical channel entropy. Public helper data leaks information up to $(n - k)$ bits per block.
 
 ## 2. Dataset & Semantics
-- **File Path**: `data/raw/dummy/Data 1.xlsx` (legacy `Dummy RSSI (data Indoor).xlsx` with 500 observations is also retained in `data/raw/dummy/`).
+- **File Path**: `data/raw/dummy/Data 1.xlsx` (491 observations).
 - **SHA-256**: `49CDDCDD6F45875C58334EB750F3008481415EFE59F8A3E7385BF992842A096F`
 - **Observations**: 491 rows. Row-wise pairing is strictly confirmed: row index $i$ corresponds to the exact same observation instance across all channels. Row order and sample alignment are strictly preserved throughout filtering, quantization, PRBS, and reconciliation.
 - **Column Definitions**:

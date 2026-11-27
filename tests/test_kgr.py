@@ -69,7 +69,7 @@ def test_kgr_controlled_mock_clock() -> None:
     """Verify KGR calculation using controlled mock timer across all 4 paths."""
     # Step = 0.5 seconds => Duration T = 0.5 s
     mock_timer = MockTimer(step=0.5)
-    raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw = load_rssi_workbook("data/raw/dummy/Data 1.xlsx")
 
     # Pre-build NIST result
     filtered = filter_rssi_channels(raw, FilterConfig())
@@ -86,8 +86,8 @@ def test_kgr_controlled_mock_clock() -> None:
         timer=mock_timer,
     )
 
-    expected_chunks = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 25}
-    expected_accepted = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 23}
+    expected_chunks = {"quant_2bit": 8, "quant_4bit": 15, "prbs_2bit": 30, "prbs_4bit": 30}
+    expected_accepted = {"quant_2bit": 8, "quant_4bit": 15, "prbs_2bit": 28, "prbs_4bit": 30}
 
     for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
         path_kgr = res.paths[path_name]
@@ -109,7 +109,7 @@ def test_kgr_controlled_mock_clock() -> None:
 
 def test_kgr_single_alice_accounting() -> None:
     """Verify that only Alice's key is counted (no Bob duplicate-counting)."""
-    raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw = load_rssi_workbook("data/raw/dummy/Data 1.xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
     prbs = expand_channels_prbs(quant, PRBSConfig())
@@ -123,7 +123,7 @@ def test_kgr_single_alice_accounting() -> None:
         config=KGRConfig(pre_warm_bch=True),
     )
 
-    expected_chunks = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 25}
+    expected_chunks = {"quant_2bit": 8, "quant_4bit": 15, "prbs_2bit": 30, "prbs_4bit": 30}
     for path_name in ["quant_2bit", "quant_4bit", "prbs_2bit", "prbs_4bit"]:
         path_kgr = res.paths[path_name]
         raw_b = 256 * expected_chunks[path_name]
@@ -142,7 +142,7 @@ def test_kgr_single_alice_accounting() -> None:
 
 def test_kgr_statistical_rejection_gating() -> None:
     """Verify that if NIST acceptance fails for all chunks, accepted_bits=0 and accepted_kgr_bps=0.0."""
-    raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw = load_rssi_workbook("data/raw/dummy/Data 1.xlsx")
 
     # Create dummy NIST result where Alice fails
     failing_test = NISTTestResult(
@@ -230,7 +230,7 @@ def test_warm_up_bch_cache_execution() -> None:
 
 def test_measure_multipath_kgr_dummy_data() -> None:
     """Verify realistic measurement on actual dummy dataset across all 4 paths."""
-    raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw = load_rssi_workbook("data/raw/dummy/Data 1.xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
     prbs = expand_channels_prbs(quant, PRBSConfig())
@@ -245,8 +245,8 @@ def test_measure_multipath_kgr_dummy_data() -> None:
     )
 
     assert isinstance(res, MultiPathKGRResult)
-    expected_chunks = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 25}
-    expected_accepted = {"quant_2bit": 8, "quant_4bit": 16, "prbs_2bit": 17, "prbs_4bit": 23}
+    expected_chunks = {"quant_2bit": 8, "quant_4bit": 15, "prbs_2bit": 30, "prbs_4bit": 30}
+    expected_accepted = {"quant_2bit": 8, "quant_4bit": 15, "prbs_2bit": 28, "prbs_4bit": 30}
 
     for path_name, n_chunks in expected_chunks.items():
         assert path_name in res.paths
@@ -271,7 +271,7 @@ def test_measure_multipath_kgr_dummy_data() -> None:
 
 def test_kgr_exporters(tmp_path: Path) -> None:
     """Verify CSV, JSON, and XLSX export functions for KGR metrics across 4 paths."""
-    raw = load_rssi_workbook("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    raw = load_rssi_workbook("data/raw/dummy/Data 1.xlsx")
     filtered = filter_rssi_channels(raw, FilterConfig())
     quant = quantize_channels(filtered, QuantizationConfig())
     prbs = expand_channels_prbs(quant, PRBSConfig())
@@ -319,9 +319,9 @@ def test_kgr_exporters(tmp_path: Path) -> None:
     ws_kgr = wb["KGR Metrics"]
     assert ws_kgr.max_row == 5
 
-    # Check Sheet 2 (264 keys + header = 265 rows)
+    # Check Sheet 2 (332 keys + header = 333 rows)
     ws_nist = wb["NIST Randomness"]
-    assert ws_nist.max_row == 265
+    assert ws_nist.max_row == 333
     # Check that text format is preserved for Key Hex Digest (column 7)
     assert ws_nist.cell(row=2, column=7).number_format == "@"
 
@@ -341,7 +341,7 @@ def test_cli_nist_and_kgr_execution(tmp_path: Path) -> None:
 
     argv = [
         "-i",
-        "data/raw/dummy/Dummy RSSI (data Indoor).xlsx",
+        "data/raw/dummy/Data 1.xlsx",
         "--filter",
         "--quantize",
         "--prbs",

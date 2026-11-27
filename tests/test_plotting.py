@@ -37,14 +37,14 @@ def test_aggregate_coordinate_counts_length_mismatch() -> None:
 
 
 def test_figure_creation(tmp_path: Path) -> None:
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     assert dummy_path.is_file()
 
     data = load_rssi_workbook(dummy_path)
     results = [
-        {"pair": "Alice–Bob", "sample_count": 500, "correlation_coefficient": 0.63226, "data_kind": "dummy"},
-        {"pair": "Alice–Eve1-Alice", "sample_count": 500, "correlation_coefficient": 0.01706, "data_kind": "dummy"},
-        {"pair": "Bob–Eve1-Bob", "sample_count": 500, "correlation_coefficient": 0.11931, "data_kind": "dummy"},
+        {"pair": "Alice–Bob", "sample_count": 491, "correlation_coefficient": 0.92167, "data_kind": "dummy"},
+        {"pair": "Alice–Eve1-Alice", "sample_count": 491, "correlation_coefficient": -0.04077, "data_kind": "dummy"},
+        {"pair": "Bob–Eve1-Bob", "sample_count": 491, "correlation_coefficient": 0.49480, "data_kind": "dummy"},
     ]
 
     prefix = tmp_path / "test_fig"
@@ -59,7 +59,7 @@ def test_figure_creation(tmp_path: Path) -> None:
 
 
 def test_cli_figure_export_with_temporary_paths(tmp_path: Path) -> None:
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     csv_out = tmp_path / "out.csv"
     fig_prefix = tmp_path / "corr_plot"
 
@@ -80,7 +80,7 @@ def test_cli_figure_export_with_temporary_paths(tmp_path: Path) -> None:
 
 
 def test_cli_csv_only_without_figure_prefix(tmp_path: Path) -> None:
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     csv_out = tmp_path / "out_only.csv"
 
     results, fig_paths = run_correlation_analysis(
@@ -297,7 +297,7 @@ def test_plot_prbs_kar_comparison_figure_validation(tmp_path: Path) -> None:
 
 
 def test_cli_prbs_figure_export(tmp_path: Path) -> None:
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     prbs_fig_prefix = tmp_path / "custom_prbs_fig"
 
     results, fig_paths, quant_res, prbs_res = run_correlation_analysis(
@@ -317,7 +317,7 @@ def test_cli_prbs_figure_export(tmp_path: Path) -> None:
 
 
 def test_cli_prbs_figure_auto_derivation(tmp_path: Path) -> None:
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     base_fig_prefix = tmp_path / "dummy_filtered"
 
     results, fig_paths, quant_res, prbs_res = run_correlation_analysis(
@@ -346,7 +346,7 @@ def test_plot_privacy_amplification_figure_structure(tmp_path: Path) -> None:
     from rssi_skg.privacy_amplification import amplify_privacy_all_paths
     from rssi_skg.plotting import plot_privacy_amplification_figure
 
-    dummy_path = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    dummy_path = Path("data/raw/dummy/Data 1.xlsx")
     raw_data = load_rssi_workbook(dummy_path)
     filtered = filter_rssi_channels(raw_data, FilterConfig())
     quant_res = quantize_channels(filtered, QuantizationConfig())

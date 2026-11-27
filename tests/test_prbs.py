@@ -500,7 +500,7 @@ def test_excel_cell_chunking() -> None:
 
 def test_cli_prbs_pipeline_integration(tmp_path: Path) -> None:
     """Run full CLI pipeline with --prbs on dummy dataset and verify metrics."""
-    input_xlsx = Path("data/raw/dummy/Dummy RSSI (data Indoor).xlsx")
+    input_xlsx = Path("data/raw/dummy/Data 1.xlsx")
     assert input_xlsx.exists(), "Dummy workbook missing"
 
     out_csv = tmp_path / "correlation.csv"
@@ -537,16 +537,16 @@ def test_cli_prbs_pipeline_integration(tmp_path: Path) -> None:
     assert config_json.exists()
     assert prbs_xlsx.exists()
 
-    # Verify bitstream lengths for 500 samples
-    # 2-bit: 500 * 8 = 4,000 bits
-    # 4-bit: 500 * 8 = 4,000 bits
+    # Verify bitstream lengths for 491 samples
+    # 2-bit: 491 * 8 = 3,928 bits
+    # 4-bit: 491 * 8 = 3,928 bits
     with open(bitstreams_csv, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         b_rows = list(reader)
         assert len(b_rows) == 8
         for row in b_rows:
-            assert int(row["sample_count"]) == 500
-            assert len(row["bitstream"]) == 4000
+            assert int(row["sample_count"]) == 491
+            assert len(row["bitstream"]) == 3928
 
     # Verify metrics matching known values
     with open(metrics_csv, "r", encoding="utf-8") as f:
@@ -555,7 +555,7 @@ def test_cli_prbs_pipeline_integration(tmp_path: Path) -> None:
         # Check Alice-Bob KAR
         ab = m_rows[0]
         assert ab["pair"] == "Alice–Bob"
-        assert float(ab["kar_2bit_before"]) == pytest.approx(80.4000, abs=1e-3)
-        assert float(ab["kar_2bit_after"]) == pytest.approx(75.8500, abs=1e-3)
-        assert float(ab["kar_4bit_before"]) == pytest.approx(90.2000, abs=1e-3)
-        assert float(ab["kar_4bit_after"]) == pytest.approx(86.2000, abs=1e-3)
+        assert float(ab["kar_2bit_before"]) == pytest.approx(87.8819, abs=1e-3)
+        assert float(ab["kar_2bit_after"]) == pytest.approx(83.4267, abs=1e-3)
+        assert float(ab["kar_4bit_before"]) == pytest.approx(93.9409, abs=1e-3)
+        assert float(ab["kar_4bit_after"]) == pytest.approx(91.0132, abs=1e-3)
